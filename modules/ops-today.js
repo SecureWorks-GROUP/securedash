@@ -306,17 +306,19 @@ async function loadPendingSms() {
     section.style.display = '';
     var html = '';
     actions.forEach(function(act) {
+      // ai_proposed_actions PK is `proposal_id` (not `id`). See ops.html sibling.
+      var pid = act.proposal_id || act.id || '';
       var preview = (act.message || act.drafted_message || '').substring(0, 80);
       if ((act.message || act.drafted_message || '').length > 80) preview += '...';
-      html += '<div class="today-action-card" id="smsCard_' + act.id + '" style="border-left:3px solid #D97706;padding:10px 12px;margin-bottom:8px;background:var(--sw-card);border-radius:8px;border:1px solid var(--sw-border);border-left:3px solid #D97706;">';
+      html += '<div class="today-action-card" id="smsCard_' + pid + '" style="border-left:3px solid #D97706;padding:10px 12px;margin-bottom:8px;background:var(--sw-card);border-radius:8px;border:1px solid var(--sw-border);border-left:3px solid #D97706;">';
       html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">';
       html += '<div style="flex:1;min-width:0;">';
       html += '<div style="font-size:13px;font-weight:600;">' + escapeHtml(act.job_number || '') + ' — ' + escapeHtml(act.client_name || '') + '</div>';
       html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(preview) + '</div>';
       html += '</div>';
       html += '<div style="display:flex;gap:6px;flex-shrink:0;">';
-      html += '<button onclick="sendProposedSms(\'' + act.id + '\')" style="font-size:11px;padding:4px 10px;border:1px solid var(--sw-green);border-radius:4px;background:var(--sw-green);color:#fff;cursor:pointer;font-weight:600;">Send</button>';
-      html += '<button onclick="dismissProposedSms(\'' + act.id + '\')" style="font-size:11px;padding:4px 10px;border:1px solid var(--sw-border);border-radius:4px;background:var(--sw-card);color:var(--sw-text-sec);cursor:pointer;">Dismiss</button>';
+      html += '<button onclick="sendProposedSms(\'' + pid + '\')" style="font-size:11px;padding:4px 10px;border:1px solid var(--sw-green);border-radius:4px;background:var(--sw-green);color:#fff;cursor:pointer;font-weight:600;">Send</button>';
+      html += '<button onclick="dismissProposedSms(\'' + pid + '\')" style="font-size:11px;padding:4px 10px;border:1px solid var(--sw-border);border-radius:4px;background:var(--sw-card);color:var(--sw-text-sec);cursor:pointer;">Dismiss</button>';
       html += '</div></div></div>';
     });
     container.innerHTML = html;
