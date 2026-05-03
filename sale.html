@@ -146,6 +146,21 @@
         //       Creates job_event + business_event note. Server validates
         //       jobId + assigned-to-job. Text from browser is the note body
         //       (not customer-facing — internal log).
+        //   - edit_and_send_proposed_sms (BACKEND-PENDING — SECURE-SALE-EDIT-AND-SEND):
+        //       Pre-allowlisted so UI is wired the moment Terminal A ships the
+        //       endpoint. Until then, server returns 404 and the UI surfaces a
+        //       "backend pending" toast — no silent failure. Browser body
+        //       { action_id, edited_message, original_message } — server is
+        //       expected to persist original to metadata before dispatching
+        //       the edited body via the same proposal flow.
+        //   - snooze_proposed_action (BACKEND-PENDING — SECURE-SALE-SNOOZE-ENDPOINT):
+        //       Pre-allowlisted. Server expected to write to sales_snooze
+        //       and mark ai_proposed_actions.status='snoozed'. Browser body
+        //       { action_id, snoozed_until, reason }.
+        //   - create_job_for_opportunity (BACKEND-PENDING — SECURE-SALE-CREATE-JOB-FOR-OPP):
+        //       Pre-allowlisted. Server expected to be idempotent (insert-
+        //       or-return existing job by ghl_opportunity_id). Browser body
+        //       { opportunity_id, contact_id, type }.
         // Every other ops-api action — manual_dispatch (admin direct send),
         // send_acceptance_invoice, send_payment_link, send_quote_email,
         // approve_*, etc. — stays 451-blocked.
@@ -153,10 +168,13 @@
         if (path === '/functions/v1/ops-api' && method === 'POST') {
           var opsActPost = u.searchParams.get('action');
           var OPS_POST_ALLOW = {
-            manual_dispatch_marnin_poc: 1,
-            send_proposed_sms:          1,
-            dismiss_proposed_action:    1,
-            add_note:                   1
+            manual_dispatch_marnin_poc:    1,
+            send_proposed_sms:             1,
+            dismiss_proposed_action:       1,
+            add_note:                      1,
+            edit_and_send_proposed_sms:    1,   // backend-pending
+            snooze_proposed_action:        1,   // backend-pending
+            create_job_for_opportunity:    1    // backend-pending
           };
           if (opsActPost && OPS_POST_ALLOW[opsActPost]) return { blocked: false };
           return { blocked: true, reason: 'ops-api POST action "' + opsActPost + '" not in proposal-flow allowlist' };
@@ -1081,16 +1099,20 @@ function renderCard(card, lane) {
     actions.appendChild(dial);
   }
 
-  // 2. APPROVE & SEND — only when an existing pending proposal exists for this job.
-  //    Server-side: send_proposed_sms loads the action by id and dispatches the
-  //    drafted_message + contact_id ALREADY ON THE PROPOSAL ROW. Browser cannot
-  //    influence recipient or text.
+  // 2. JARVIS PROPOSAL — four canonical controls per ADR 2026-05-03.
+  //    Approve & Send: existing send_proposed_sms (PK fix passed via proposal_id).
+  //    Edit:           backend-pending edit_and_send_proposed_sms.
+  //    Reject:         dismiss_proposed_action with reason (server discards reason today).
+  //    Snooze:         backend-pending snooze_proposed_action.
+  //    Server endpoints that don't exist yet return 404 — UI surfaces this as a
+  //    "backend pending" toast referencing the SECURE-SALE-* ticket.
   if (card.pending_proposals && card.pending_proposals.length) {
     var prop = card.pending_proposals[0]; // newest first
+
     var sendBtn = document.createElement('button');
     sendBtn.className = 'primary';
     sendBtn.type = 'button';
-    sendBtn.textContent = 'Approve & Send draft';
+    sendBtn.textContent = 'Approve & Send';
     sendBtn.title = 'AI-drafted: ' + (prop.action_type || 'message') + ' — preview before send';
     sendBtn.addEventListener('click', function (e) {
       e.stopPropagation();
@@ -1098,15 +1120,35 @@ function renderCard(card, lane) {
     });
     actions.appendChild(sendBtn);
 
-    var dismissBtn = document.createElement('button');
-    dismissBtn.className = '';
-    dismissBtn.type = 'button';
-    dismissBtn.textContent = 'Dismiss draft';
-    dismissBtn.addEventListener('click', function (e) {
+    var editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.textContent = 'Edit';
+    editBtn.title = 'Edit the drafted message before sending';
+    editBtn.addEventListener('click', function (e) {
       e.stopPropagation();
-      handleDismissProposal(prop);
+      openEditDrawer(prop, card);
     });
-    actions.appendChild(dismissBtn);
+    actions.appendChild(editBtn);
+
+    var rejectBtn = document.createElement('button');
+    rejectBtn.type = 'button';
+    rejectBtn.textContent = 'Reject';
+    rejectBtn.title = 'Dismiss this draft (asks for a reason)';
+    rejectBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      handleRejectWithReason(prop, card);
+    });
+    actions.appendChild(rejectBtn);
+
+    var snoozeBtn = document.createElement('button');
+    snoozeBtn.type = 'button';
+    snoozeBtn.textContent = 'Snooze';
+    snoozeBtn.title = 'Pause this draft until a chosen time';
+    snoozeBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      openSnoozeDrawer(prop, card);
+    });
+    actions.appendChild(snoozeBtn);
   }
 
   // 3. LOG NOTE — wired add_note. Only for cards with a Supabase job_id
@@ -1122,15 +1164,15 @@ function renderCard(card, lane) {
     actions.appendChild(noteBtn);
   }
 
-  // 4. STUB BUTTONS — paths with no live endpoint yet, kept visible.
+  // 4. STUB BUTTONS — paths with no JARVIS draft yet on this card.
+  //    These tell the rep "JARVIS hasn't queued a draft for this lead";
+  //    they don't fire customer-facing sends.
   if (lane === 'call' && (!card.pending_proposals || !card.pending_proposals.length)) {
-    actions.appendChild(makeStubBtn('Send SMS', null, 'No AI draft yet — JARVIS will queue one'));
+    actions.appendChild(makeStubBtn('No AI draft', null, 'JARVIS has not queued a draft for this lead — extractor / proposal-writer pending'));
   } else if (lane === 'book') {
-    actions.appendChild(makeStubBtn('Book site visit'));
-    actions.appendChild(makeStubBtn('Move stage', null, 'Cap 1 governance — proposal endpoint pending'));
+    actions.appendChild(makeStubBtn('Move stage', null, 'Cap 1 governance — backend SECURE-SALE-MOVE-STAGE-PROPOSAL pending'));
   } else if (lane === 'followup' && (!card.pending_proposals || !card.pending_proposals.length)) {
-    actions.appendChild(makeStubBtn('Send chase SMS', null, 'No AI draft yet'));
-    actions.appendChild(makeStubBtn('Send invoice', null, 'invoice flow not wired'));
+    actions.appendChild(makeStubBtn('No AI draft', null, 'JARVIS has not queued a draft for this lead'));
   }
 
   // 5. OPEN IN OPS — only for cards with a Supabase job_id.
@@ -1145,34 +1187,147 @@ function renderCard(card, lane) {
     actions.appendChild(opsLink);
   }
 
-  // 6. NO-LINK BADGE — booking-loop GHL cards with no Supabase job (memory disabled).
+  // 6. CREATE JOB AFFORDANCE — booking-loop GHL cards with no Supabase job.
+  //    Replaces the earlier static "memory off" badge. Backend-pending today —
+  //    server returns 404 and the UI shows a referenced ticket.
   if (card.loop === 'booking' && card.no_job_link) {
-    var badge = document.createElement('span');
-    badge.className = 'lcard-pill';
-    badge.style.cssText = 'border-color:rgba(255,181,84,0.6);color:var(--amber);';
-    badge.textContent = 'no Supabase job — memory off';
-    badge.title = 'Create a Supabase job to enable JARVIS memory loop. (One-click endpoint coming next slice.)';
-    actions.appendChild(badge);
+    var createBtn = document.createElement('button');
+    createBtn.className = 'create-job';
+    createBtn.type = 'button';
+    createBtn.textContent = '+ Create job (enable memory)';
+    createBtn.title = 'No Supabase job — JARVIS memory disabled. Click to request a backend-owned create-job for this opportunity. SECURE-SALE-CREATE-JOB-FOR-OPP';
+    createBtn.style.cssText = 'border-color:rgba(255,181,84,0.6);color:var(--amber);';
+    createBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      triggerCreateJob(card);
+    });
+    actions.appendChild(createBtn);
   }
 
-  // 7. PROPOSAL PREVIEW — show drafted message body inside expanded card, so
-  //    the rep sees what they're about to approve.
+  // 7. JARVIS RATIONALE + EVIDENCE PANEL + MEMORY FACTS — inside expanded card.
+  //    Surfaces WHY JARVIS chose this action, plus what facts it knows about
+  //    the job. Empty memory state is shown explicitly so reps SEE the gap.
   if (card.pending_proposals && card.pending_proposals.length) {
     card.pending_proposals.forEach(function (p) {
-      var preview = document.createElement('div');
-      preview.style.cssText = 'margin-top:10px;padding:10px 12px;background:rgba(76,175,142,0.08);border-left:2px solid var(--green);font-size:11px;line-height:1.5;color:var(--text-sec);';
-      var typeLabel = p.action_type ? '<strong style="color:var(--text);font-size:10px;letter-spacing:1px;text-transform:uppercase;">' + p.action_type + '</strong><br>' : '';
-      preview.innerHTML = typeLabel + escapeHtml(p.drafted_message || '(no body drafted)');
-      el.appendChild(preview);
+      el.appendChild(renderProposalDetailPanel(p, card));
     });
   }
 
+  // 8. MEMORY FACTS PANEL — show top job_context facts (or empty state).
+  if (card.job_id) {
+    el.appendChild(renderMemoryFactsPanel(card));
+  }
+
   el.addEventListener('click', function (e) {
-    if (e.target.closest('a, button')) return;
+    if (e.target.closest('a, button, textarea, input, select, label')) return;
     el.classList.toggle('open');
   });
 
   return el;
+}
+
+// Render the full JARVIS rationale + drafted body + brand-lint warnings + evidence
+// panel inline below the action row. Hidden until the card is expanded.
+function renderProposalDetailPanel(p, card) {
+  var wrap = document.createElement('div');
+  wrap.className = 'proposal-detail';
+  wrap.style.cssText = 'margin-top:10px;padding:12px 14px;background:rgba(76,175,142,0.08);border-left:2px solid var(--green);font-size:11px;line-height:1.55;color:var(--text-sec);';
+
+  // Top meta row
+  var meta = [];
+  if (p.action_type) meta.push('<strong style="color:var(--text);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;">' + escapeHtml(p.action_type) + '</strong>');
+  var payload = p.action_payload || {};
+  if (payload.tool) meta.push('via <code style="color:var(--text-sec);">' + escapeHtml(payload.tool) + '</code>');
+  if (typeof p.confidence_score === 'number') meta.push('confidence ' + Number(p.confidence_score).toFixed(2));
+  if (p.expires_at) {
+    var hLeft = Math.round((new Date(p.expires_at).getTime() - Date.now()) / 3600000);
+    meta.push(hLeft > 0 ? 'expires in ' + hLeft + 'h' : 'EXPIRED ' + Math.abs(hLeft) + 'h ago');
+  }
+  var metaRow = document.createElement('div');
+  metaRow.innerHTML = meta.join(' · ');
+  metaRow.style.cssText = 'margin-bottom:8px;';
+  wrap.appendChild(metaRow);
+
+  // Why JARVIS recommends it
+  if (payload.trigger_rule) {
+    var why = document.createElement('div');
+    why.style.cssText = 'margin-bottom:8px;';
+    why.innerHTML = '<span style="color:var(--text-muted);font-size:10px;letter-spacing:1px;text-transform:uppercase;">Why now</span><br>' + escapeHtml(payload.trigger_rule);
+    wrap.appendChild(why);
+  }
+
+  // Source tag (smart_nudges, jarvis_loop, etc.)
+  var source = (p.metadata && p.metadata.source) || null;
+  if (source) {
+    var srcRow = document.createElement('div');
+    srcRow.style.cssText = 'margin-bottom:8px;color:var(--text-muted);font-size:10px;letter-spacing:0.5px;';
+    srcRow.textContent = 'source: ' + source + (p.metadata.nudge_id ? ' · ' + p.metadata.nudge_id.slice(0, 8) + '…' : '');
+    wrap.appendChild(srcRow);
+  }
+
+  // The drafted body
+  var bodyLabel = document.createElement('div');
+  bodyLabel.style.cssText = 'color:var(--text-muted);font-size:10px;letter-spacing:1px;text-transform:uppercase;margin-top:6px;';
+  bodyLabel.textContent = 'Drafted message';
+  wrap.appendChild(bodyLabel);
+
+  var body = document.createElement('div');
+  body.style.cssText = 'margin-top:4px;color:var(--text);';
+  body.textContent = p.drafted_message || '(no body drafted)';
+  wrap.appendChild(body);
+
+  // Brand-lint warning if the draft contains em dash or old brand name
+  var lint = lintDraft(p.drafted_message || '');
+  if (lint.warnings.length) {
+    var warn = document.createElement('div');
+    warn.style.cssText = 'margin-top:8px;padding:8px 10px;background:rgba(255,181,84,0.12);border-left:2px solid var(--amber);color:var(--amber);font-size:10px;letter-spacing:0.3px;';
+    warn.innerHTML = '<strong>⚠ Draft lint:</strong> ' + lint.warnings.map(escapeHtml).join(' · ') + '<br><span style="color:var(--text-muted);">Edit before sending, or open SECURE-SALE-DRAFT-LINT to Terminal A.</span>';
+    wrap.appendChild(warn);
+  }
+
+  return wrap;
+}
+
+// Render the job_context facts panel — what JARVIS knows about this job.
+function renderMemoryFactsPanel(card) {
+  var wrap = document.createElement('div');
+  wrap.className = 'memory-facts';
+  wrap.style.cssText = 'margin-top:10px;padding:10px 14px;background:rgba(92,143,184,0.08);border-left:2px solid var(--blue);font-size:11px;line-height:1.5;color:var(--text-sec);';
+  var label = document.createElement('div');
+  label.style.cssText = 'color:var(--text-muted);font-size:10px;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:4px;';
+  label.textContent = 'JARVIS memory · job_context';
+  wrap.appendChild(label);
+
+  var facts = card.memory_facts || [];
+  if (!facts.length) {
+    var empty = document.createElement('div');
+    empty.style.cssText = 'color:var(--text-muted);font-style:italic;';
+    empty.textContent = 'No memory facts yet for this job — extractor backfill pending (Terminal A).';
+    wrap.appendChild(empty);
+    return wrap;
+  }
+
+  facts.slice(0, 6).forEach(function (f) {
+    var row = document.createElement('div');
+    row.style.cssText = 'margin-top:2px;';
+    var kind = f.kind || 'fact';
+    var val = f.value;
+    var valStr = (typeof val === 'object' && val !== null)
+      ? Object.keys(val).map(function (k) { return k + ':' + val[k]; }).join(' · ')
+      : String(val == null ? '' : val);
+    row.innerHTML = '<strong style="color:var(--text);">' + escapeHtml(kind) + '</strong> · ' + escapeHtml(valStr);
+    wrap.appendChild(row);
+  });
+  return wrap;
+}
+
+// Cheap brand + AI-tell lint. Returns array of human-readable warnings.
+function lintDraft(text) {
+  var t = String(text || '');
+  var warnings = [];
+  if (/—/.test(t)) warnings.push('em dash detected (AI tell)');
+  if (/secureworks\s*wa/i.test(t)) warnings.push('"SecureWorks WA" is the OLD brand name (use "SecureWorks Group")');
+  return { warnings: warnings };
 }
 
 function escapeHtml(s) {
@@ -1232,34 +1387,131 @@ function showActionToast(text, kind) {
 // Each opens a confirm/drawer step BEFORE firing.
 // ────────────────────────────────────────────────────────────
 
+// Resolve the proposal's primary key. Schema column is `proposal_id`; older
+// code passed `id` (which doesn't exist on this table). Belt-and-braces here.
+function proposalId(p) {
+  return (p && (p.proposal_id || p.id)) || null;
+}
+
 function openProposalConfirm(proposal, card) {
   var msg = String(proposal.drafted_message || '(no body drafted)');
   var contactDisplay = card.customer_name + (card.phone ? ' · ' + card.phone : '');
-  if (!confirm('Send this AI-drafted SMS?\n\nTo: ' + contactDisplay + '\n\n' + msg + '\n\nThis fires through the ops-api proposal-send flow.')) return;
+  if (!confirm('Send this AI-drafted SMS?\n\nTo: ' + contactDisplay + '\n\n' + msg + '\n\nThis fires through the ops-api send_proposed_sms flow.')) return;
+  var pid = proposalId(proposal);
+  if (!pid) { showActionToast('Proposal id missing — cannot send', 'error'); return; }
   showActionToast('Sending…', 'info');
-  opsApiPost(_lastCloud, 'send_proposed_sms', { action_id: proposal.id }).then(function (data) {
-    showActionToast('Sent ✓ — proposal ' + proposal.id.slice(0, 8) + '… dispatched', 'sent');
+  opsApiPost(_lastCloud, 'send_proposed_sms', { action_id: pid }).then(function () {
+    showActionToast('Sent ✓ — proposal ' + pid.slice(0, 8) + '… dispatched', 'sent');
     setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 700);
   }).catch(function (err) {
-    showActionToast('Send failed: ' + err.message, 'error');
+    showActionToast('Send failed: ' + err.message + (err.message && /not\s*found/i.test(err.message) ? ' (Backend ticket SECURE-SALE-OPS-API-PK-FIX)' : ''), 'error');
     console.error('[sale] send_proposed_sms failed:', err);
   });
 }
 
-function handleDismissProposal(proposal) {
-  if (!confirm('Dismiss this AI draft?\n\nIt will not send.')) return;
+// EDIT — backend-pending. Opens textarea drawer with the drafted message
+// pre-filled. On Save, POSTs edit_and_send_proposed_sms with the edited body.
+// Server endpoint does not exist yet; UI shows a backend-pending toast on 404
+// instead of silently sending the unedited body.
+function openEditDrawer(proposal, card) {
+  closeAnyDrawer();
+  var pid = proposalId(proposal);
+  var draft = String(proposal.drafted_message || '');
+  var d = makeDrawer('Edit drafted message');
+  d.body.innerHTML =
+    '<label style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);">For ' + escapeHtml(card.customer_name + (card.phone ? ' · ' + card.phone : '')) + '</label>' +
+    '<textarea id="editTextarea" style="width:100%;min-height:120px;margin-top:6px;padding:10px;background:var(--surface-1);color:var(--text);border:1px solid var(--rule-strong);border-radius:3px;font-family:inherit;font-size:13px;line-height:1.5;"></textarea>' +
+    '<div style="margin-top:6px;color:var(--text-muted);font-size:10px;">Original is preserved server-side in metadata.original_message.</div>';
+  var ta = d.body.querySelector('#editTextarea');
+  ta.value = draft;
+  ta.focus();
+  d.primaryBtn.textContent = 'Save & Send';
+  d.primaryBtn.onclick = function () {
+    var edited = ta.value.trim();
+    if (!edited) { showActionToast('Edit cannot be empty', 'error'); return; }
+    if (!pid) { showActionToast('Proposal id missing', 'error'); return; }
+    closeAnyDrawer();
+    showActionToast('Sending edited draft…', 'info');
+    opsApiPost(_lastCloud, 'edit_and_send_proposed_sms', { action_id: pid, edited_message: edited, original_message: draft }).then(function () {
+      showActionToast('Edited & sent ✓', 'sent');
+      setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 700);
+    }).catch(function (err) {
+      var pending = /404|not\s*found|Function not found|invalid\s*action/i.test(err.message);
+      showActionToast(pending
+        ? 'Backend pending — endpoint edit_and_send_proposed_sms not deployed (SECURE-SALE-EDIT-AND-SEND)'
+        : 'Edit failed: ' + err.message, pending ? 'info' : 'error');
+    });
+  };
+}
+
+// REJECT — dismiss with reason. Server today ignores the reason field but the
+// client still sends it so the future endpoint extension auto-captures.
+function handleRejectWithReason(proposal, card) {
+  var pid = proposalId(proposal);
+  if (!pid) { showActionToast('Proposal id missing', 'error'); return; }
+  var reason = window.prompt('Reject this draft for ' + card.customer_name + '?\n\nWhy? (e.g. "wrong contact", "already replied", "do not chase")');
+  if (reason === null) return; // user hit cancel
+  reason = String(reason || '').trim();
   var userId = (_profileCache && _profileCache.id) || null;
-  opsApiPost(_lastCloud, 'dismiss_proposed_action', { action_id: proposal.id, user_id: userId }).then(function () {
-    showActionToast('Dismissed', 'info');
+  opsApiPost(_lastCloud, 'dismiss_proposed_action', { action_id: pid, user_id: userId, reason: reason || null }).then(function () {
+    showActionToast('Rejected' + (reason ? ' · reason captured (server may discard until SECURE-SALE-DISMISS-WITH-REASON ships)' : ''), 'info');
     setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 500);
   }).catch(function (err) {
-    showActionToast('Dismiss failed: ' + err.message, 'error');
+    showActionToast('Reject failed: ' + err.message + (err.message && /not\s*found/i.test(err.message) ? ' (SECURE-SALE-OPS-API-PK-FIX)' : ''), 'error');
   });
+}
+
+// SNOOZE — backend-pending. Drawer with quick durations + reason.
+function openSnoozeDrawer(proposal, card) {
+  closeAnyDrawer();
+  var pid = proposalId(proposal);
+  var d = makeDrawer('Snooze proposal');
+  d.body.innerHTML =
+    '<label style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);">For ' + escapeHtml(card.customer_name) + '</label>' +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;">' +
+      '<button type="button" data-h="4"   class="snooze-q">+4h</button>' +
+      '<button type="button" data-h="24"  class="snooze-q">Tomorrow</button>' +
+      '<button type="button" data-h="72"  class="snooze-q">+3 days</button>' +
+      '<button type="button" data-h="168" class="snooze-q">Next week</button>' +
+    '</div>' +
+    '<label style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);">Or pick a date/time</label>' +
+    '<input id="snoozeDate" type="datetime-local" style="width:100%;margin-top:6px;padding:8px;background:var(--surface-1);color:var(--text);border:1px solid var(--rule-strong);border-radius:3px;font-family:inherit;">' +
+    '<label style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-top:10px;display:block;">Reason (optional)</label>' +
+    '<input id="snoozeReason" type="text" placeholder="e.g. waiting on customer reply" style="width:100%;margin-top:6px;padding:8px;background:var(--surface-1);color:var(--text);border:1px solid var(--rule-strong);border-radius:3px;font-family:inherit;font-size:13px;">';
+  var dateInput = d.body.querySelector('#snoozeDate');
+  d.body.querySelectorAll('.snooze-q').forEach(function (b) {
+    b.style.cssText = 'background:var(--surface-2);border:1px solid var(--rule-strong);color:var(--text);padding:6px 10px;font-size:11px;';
+    b.addEventListener('click', function () {
+      var hours = Number(b.dataset.h);
+      var t = new Date(Date.now() + hours * 3600000);
+      // Format YYYY-MM-DDTHH:mm in local time
+      var pad = function (n) { return String(n).padStart(2, '0'); };
+      dateInput.value = t.getFullYear() + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate())
+                      + 'T' + pad(t.getHours()) + ':' + pad(t.getMinutes());
+    });
+  });
+  d.primaryBtn.textContent = 'Snooze';
+  d.primaryBtn.onclick = function () {
+    var until = dateInput.value;
+    if (!until) { showActionToast('Pick a snooze duration', 'error'); return; }
+    var reason = String(d.body.querySelector('#snoozeReason').value || '').trim();
+    if (!pid) { showActionToast('Proposal id missing', 'error'); return; }
+    closeAnyDrawer();
+    var iso = new Date(until).toISOString();
+    opsApiPost(_lastCloud, 'snooze_proposed_action', { action_id: pid, snoozed_until: iso, reason: reason || null }).then(function () {
+      showActionToast('Snoozed until ' + until.replace('T', ' '), 'info');
+      setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 500);
+    }).catch(function (err) {
+      var pending = /404|not\s*found|Function not found|invalid\s*action/i.test(err.message);
+      showActionToast(pending
+        ? 'Backend pending — endpoint snooze_proposed_action not deployed (SECURE-SALE-SNOOZE-ENDPOINT)'
+        : 'Snooze failed: ' + err.message, pending ? 'info' : 'error');
+    });
+  };
 }
 
 function openNoteDrawer(card) {
   if (!card.job_id) { showActionToast('Need a Supabase job to log a note', 'error'); return; }
-  // Lightweight prompt — production-friendly enough; full drawer can come later.
   var text = window.prompt('Log a note on ' + card.customer_name + '\n\n(Internal — not customer facing.)');
   if (!text || !text.trim()) return;
   var userId = (_profileCache && _profileCache.id) || null;
@@ -1268,6 +1520,79 @@ function openNoteDrawer(card) {
   }).catch(function (err) {
     showActionToast('Note failed: ' + err.message, 'error');
   });
+}
+
+// CREATE JOB FOR OPPORTUNITY — backend-pending. POSTs the create-job intent
+// for an unlinked GHL opp; server returns 404 today.
+function triggerCreateJob(card) {
+  if (!card.opportunity_id) { showActionToast('No opportunity_id on this card', 'error'); return; }
+  if (!confirm('Request a Supabase job for opportunity ' + card.opportunity_id.slice(0, 8) + '…?\n\nThis enables JARVIS memory for this lead. Backend handles the create + idempotency.')) return;
+  showActionToast('Requesting job creation…', 'info');
+  opsApiPost(_lastCloud, 'create_job_for_opportunity', {
+    opportunity_id: card.opportunity_id,
+    contact_id: card.contact_id || null,
+    type: (card.evidence_refs && card.evidence_refs[0] && /\[fencing\]/i.test(card.evidence_refs[0].text)) ? 'fencing' : 'patio',
+  }).then(function (data) {
+    var jid = (data && (data.job_id || data.id)) || '';
+    showActionToast('Job created ✓ ' + (jid ? jid.slice(0, 8) + '…' : ''), 'sent');
+    setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 800);
+  }).catch(function (err) {
+    var pending = /404|not\s*found|Function not found|invalid\s*action/i.test(err.message);
+    showActionToast(pending
+      ? 'Backend pending — endpoint create_job_for_opportunity not deployed (SECURE-SALE-CREATE-JOB-FOR-OPP)'
+      : 'Create job failed: ' + err.message, pending ? 'info' : 'error');
+  });
+}
+
+// ────────────────────────────────────────────────────────────
+// Drawer modal helper — keeps full-page focus on a single action.
+// ────────────────────────────────────────────────────────────
+function makeDrawer(title) {
+  closeAnyDrawer();
+  var overlay = document.createElement('div');
+  overlay.id = 'saleDrawer';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(5,7,9,0.75);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) closeAnyDrawer(); });
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg);border:1px solid var(--rule-strong);max-width:480px;width:100%;padding:18px 20px;color:var(--text);font-family:var(--font);';
+
+  var head = document.createElement('div');
+  head.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;';
+  head.innerHTML = '<strong style="font-size:11px;letter-spacing:2px;text-transform:uppercase;">' + escapeHtml(title) + '</strong>';
+  var closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.textContent = '✕';
+  closeBtn.style.cssText = 'background:transparent;border:none;color:var(--text-muted);font-size:16px;cursor:pointer;';
+  closeBtn.addEventListener('click', closeAnyDrawer);
+  head.appendChild(closeBtn);
+  box.appendChild(head);
+
+  var body = document.createElement('div');
+  box.appendChild(body);
+
+  var foot = document.createElement('div');
+  foot.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:16px;padding-top:12px;border-top:1px solid var(--rule);';
+  var cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.textContent = 'Cancel';
+  cancel.style.cssText = 'background:transparent;border:1px solid var(--rule-strong);color:var(--text-muted);padding:8px 14px;font-size:11px;letter-spacing:1px;text-transform:uppercase;';
+  cancel.addEventListener('click', closeAnyDrawer);
+  var primary = document.createElement('button');
+  primary.type = 'button';
+  primary.textContent = 'Save';
+  primary.style.cssText = 'background:var(--orange);border:none;color:#000;padding:8px 14px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;';
+  foot.appendChild(cancel);
+  foot.appendChild(primary);
+  box.appendChild(foot);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  return { overlay: overlay, body: body, primaryBtn: primary };
+}
+function closeAnyDrawer() {
+  var d = document.getElementById('saleDrawer');
+  if (d) d.remove();
 }
 
 // MARNIN_MEMORY_POC toast — does NOT append the "stub-only" fluff because
@@ -1733,6 +2058,29 @@ async function fetchOpportunityJobLinks(cloud, opportunityIds) {
   }
 }
 
+// Fetch job_context facts for the visible jobs. Pure read (PostgREST GET)
+// allowed by lock. Today the table has only ~4 rows globally, so most
+// jobs will return zero facts; the empty state is rendered explicitly so
+// reps can SEE the extractor gap.
+async function fetchJobContextFacts(cloud, jobIds) {
+  if (!jobIds.length) return {};
+  try {
+    var sb = cloud.supabase;
+    var result = await sb.from('job_context')
+      .select('id, job_id, kind, value, created_at')
+      .in('job_id', jobIds)
+      .order('created_at', { ascending: false });
+    var byJobId = {};
+    (result.data || []).forEach(function (f) {
+      (byJobId[f.job_id] = byJobId[f.job_id] || []).push(f);
+    });
+    return byJobId;
+  } catch (err) {
+    console.warn('[sale] job_context fetch failed:', err);
+    return {};
+  }
+}
+
 async function fetchBookingCards(cloud, pipelines) {
   // pipelines = ['fencing'] | ['patio'] | ['fencing','patio']
   var results = await Promise.all(pipelines.map(function (p) {
@@ -1819,6 +2167,19 @@ function loadAndRender(cloud) {
         }
       });
 
+      // Fetch job_context facts for every card with a job_id (deduped).
+      var allJobIds = [].concat(booking, followup)
+        .map(function (c) { return c.job_id; })
+        .filter(Boolean);
+      var seen = {};
+      var dedupedJobIds = allJobIds.filter(function (id) { if (seen[id]) return false; seen[id] = 1; return true; });
+      return fetchJobContextFacts(cloud, dedupedJobIds).then(function (facts) {
+        [].concat(booking, followup).forEach(function (c) {
+          if (c.job_id && facts[c.job_id]) c.memory_facts = facts[c.job_id];
+        });
+        return facts;
+      }).then(function () { return null; });
+    }).then(function () {
       var allCards = booking.concat(followup);
       var buckets = bucketizeUnified(allCards);
       _bucketCache = buckets;
