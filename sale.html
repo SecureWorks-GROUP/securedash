@@ -933,8 +933,12 @@ function jobValue(job) {
   if (job.pricing_json) {
     var p = job.pricing_json;
     if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) { p = null; } }
-    if (p && (p.total_inc_gst || p.total || p.grand_total)) {
-      return Number(p.total_inc_gst || p.total || p.grand_total);
+    // Real schema uses camelCase: totalIncGST / totalExGST. Fallbacks kept
+    // for any older snake_case rows.
+    if (p) {
+      var v = p.totalIncGST || p.total_inc_gst || p.totalExGST
+            || p.total || p.grand_total || p.subtotal;
+      if (v) return Number(v);
     }
   }
   return null;
@@ -966,13 +970,15 @@ function laneFor(job) {
     return 'followup';
   }
   if (status === 'quoted') {
-    if (sentH >= 24 * 4 && sentH <= 24 * 21) return 'followup';
+    // Fresh-warm: BOOK a sign-off call.
     if (sentH < 24 * 3) return 'book';
-    return 'call';
+    // Cold-but-not-dead: ALL quoted jobs >3d go to FOLLOW UP (chase via SMS/email).
+    // Previously stale-quoted >21d fell into CALL which bloated the call lane;
+    // a 4-month-old quote is still a chase candidate, not a cold-call target.
+    return 'followup';
   }
   if (status === 'draft' || status === 'lead' || status === 'qualified') {
     if (ageH <= 24) return 'book';
-    if (ageH > 24 * 7) return 'call';
     return 'call';
   }
   return 'call';
