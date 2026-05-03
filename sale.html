@@ -146,21 +146,13 @@
         //       Creates job_event + business_event note. Server validates
         //       jobId + assigned-to-job. Text from browser is the note body
         //       (not customer-facing — internal log).
-        //   - edit_and_send_proposed_sms (BACKEND-PENDING — SECURE-SALE-EDIT-AND-SEND):
-        //       Pre-allowlisted so UI is wired the moment Terminal A ships the
-        //       endpoint. Until then, server returns 404 and the UI surfaces a
-        //       "backend pending" toast — no silent failure. Browser body
-        //       { action_id, edited_message, original_message } — server is
-        //       expected to persist original to metadata before dispatching
-        //       the edited body via the same proposal flow.
-        //   - snooze_proposed_action (BACKEND-PENDING — SECURE-SALE-SNOOZE-ENDPOINT):
-        //       Pre-allowlisted. Server expected to write to sales_snooze
-        //       and mark ai_proposed_actions.status='snoozed'. Browser body
-        //       { action_id, snoozed_until, reason }.
-        //   - create_job_for_opportunity (BACKEND-PENDING — SECURE-SALE-CREATE-JOB-FOR-OPP):
-        //       Pre-allowlisted. Server expected to be idempotent (insert-
-        //       or-return existing job by ghl_opportunity_id). Browser body
-        //       { opportunity_id, contact_id, type }.
+        // Backend-pending endpoints (edit_and_send_proposed_sms,
+        // snooze_proposed_action, create_job_for_opportunity) are NOT
+        // allowlisted — per Marnin's directive "do not widen the browser
+        // write surface further." Their UI buttons are disabled with a
+        // "(not live)" label so they cannot fire from the cockpit.
+        // When Terminal A ships those endpoints, re-add them here AND
+        // re-enable the buttons.
         // Every other ops-api action — manual_dispatch (admin direct send),
         // send_acceptance_invoice, send_payment_link, send_quote_email,
         // approve_*, etc. — stays 451-blocked.
@@ -171,10 +163,7 @@
             manual_dispatch_marnin_poc:    1,
             send_proposed_sms:             1,
             dismiss_proposed_action:       1,
-            add_note:                      1,
-            edit_and_send_proposed_sms:    1,   // backend-pending
-            snooze_proposed_action:        1,   // backend-pending
-            create_job_for_opportunity:    1    // backend-pending
+            add_note:                      1
           };
           if (opsActPost && OPS_POST_ALLOW[opsActPost]) return { blocked: false };
           return { blocked: true, reason: 'ops-api POST action "' + opsActPost + '" not in proposal-flow allowlist' };
@@ -1100,34 +1089,53 @@ function renderCard(card, lane) {
   }
 
   // 2. JARVIS PROPOSAL — four canonical controls per ADR 2026-05-03.
-  //    Approve & Send: existing send_proposed_sms (PK fix passed via proposal_id).
-  //    Edit:           backend-pending edit_and_send_proposed_sms.
-  //    Reject:         dismiss_proposed_action with reason (server discards reason today).
-  //    Snooze:         backend-pending snooze_proposed_action.
-  //    Server endpoints that don't exist yet return 404 — UI surfaces this as a
-  //    "backend pending" toast referencing the SECURE-SALE-* ticket.
+  //    Approve & Send: existing send_proposed_sms (proposal_id PK).
+  //                    SHOWN ONLY for SMS action_types.
+  //    Call:           tel: link. SHOWN ONLY for call_now (call recommendation
+  //                    only — never sends SMS).
+  //    Reject:         dismiss_proposed_action with reason (live in v348).
+  //    Edit / Snooze:  backend endpoints not deployed yet. Disabled with
+  //                    "(not live)" label per Marnin's brief — never silently
+  //                    fire a 404. (Backend tickets SECURE-SALE-EDIT-AND-SEND
+  //                    + SECURE-SALE-SNOOZE-ENDPOINT.)
   if (card.pending_proposals && card.pending_proposals.length) {
     var prop = card.pending_proposals[0]; // newest first
+    var dispatchKind = COCKPIT_ALLOWED_ACTION_TYPES[prop.action_type]; // 'sms' | 'call'
 
-    var sendBtn = document.createElement('button');
-    sendBtn.className = 'primary';
-    sendBtn.type = 'button';
-    sendBtn.textContent = 'Approve & Send';
-    sendBtn.title = 'AI-drafted: ' + (prop.action_type || 'message') + ' — preview before send';
-    sendBtn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      openProposalConfirm(prop, card);
-    });
-    actions.appendChild(sendBtn);
+    if (dispatchKind === 'sms') {
+      var sendBtn = document.createElement('button');
+      sendBtn.className = 'primary';
+      sendBtn.type = 'button';
+      sendBtn.textContent = 'Approve & Send';
+      sendBtn.title = 'AI-drafted ' + prop.action_type + ' — preview before send';
+      sendBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        openProposalConfirm(prop, card);
+      });
+      actions.appendChild(sendBtn);
+    } else if (dispatchKind === 'call') {
+      // call_now is a CALL recommendation. Render a tel: link if we have a
+      // phone, otherwise show why it can't be called.
+      if (card.phone) {
+        var callBtn = document.createElement('a');
+        callBtn.className = 'primary';
+        callBtn.href = 'tel:' + String(card.phone).replace(/[^+0-9]/g, '');
+        callBtn.textContent = 'Call';
+        callBtn.title = 'JARVIS recommends calling now. Talk-track in the panel below.';
+        callBtn.addEventListener('click', function (e) { e.stopPropagation(); });
+        actions.appendChild(callBtn);
+      } else {
+        actions.appendChild(makeStubBtn('Call (no phone)', null, 'No phone number on contact — see talk-track in panel below'));
+      }
+    }
 
+    // Edit — backend endpoint not deployed; disabled + labelled.
     var editBtn = document.createElement('button');
     editBtn.type = 'button';
-    editBtn.textContent = 'Edit';
-    editBtn.title = 'Edit the drafted message before sending';
-    editBtn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      openEditDrawer(prop, card);
-    });
+    editBtn.textContent = 'Edit (not live)';
+    editBtn.disabled = true;
+    editBtn.title = 'Edit-and-send endpoint not deployed yet (SECURE-SALE-EDIT-AND-SEND)';
+    editBtn.style.cssText = 'opacity:0.45;cursor:not-allowed;';
     actions.appendChild(editBtn);
 
     var rejectBtn = document.createElement('button');
@@ -1140,14 +1148,13 @@ function renderCard(card, lane) {
     });
     actions.appendChild(rejectBtn);
 
+    // Snooze — backend endpoint not deployed; disabled + labelled.
     var snoozeBtn = document.createElement('button');
     snoozeBtn.type = 'button';
-    snoozeBtn.textContent = 'Snooze';
-    snoozeBtn.title = 'Pause this draft until a chosen time';
-    snoozeBtn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      openSnoozeDrawer(prop, card);
-    });
+    snoozeBtn.textContent = 'Snooze (not live)';
+    snoozeBtn.disabled = true;
+    snoozeBtn.title = 'Snooze endpoint not deployed yet (SECURE-SALE-SNOOZE-ENDPOINT)';
+    snoozeBtn.style.cssText = 'opacity:0.45;cursor:not-allowed;';
     actions.appendChild(snoozeBtn);
   }
 
@@ -1188,20 +1195,16 @@ function renderCard(card, lane) {
   }
 
   // 6. CREATE JOB AFFORDANCE — booking-loop GHL cards with no Supabase job.
-  //    Replaces the earlier static "memory off" badge. Backend-pending today —
-  //    server returns 404 and the UI shows a referenced ticket.
+  //    Backend endpoint not deployed; disabled + clearly labelled per
+  //    Marnin's brief. Reverts to the static badge style so reps SEE the
+  //    memory gap without thinking the button does something.
   if (card.loop === 'booking' && card.no_job_link) {
-    var createBtn = document.createElement('button');
-    createBtn.className = 'create-job';
-    createBtn.type = 'button';
-    createBtn.textContent = '+ Create job (enable memory)';
-    createBtn.title = 'No Supabase job — JARVIS memory disabled. Click to request a backend-owned create-job for this opportunity. SECURE-SALE-CREATE-JOB-FOR-OPP';
-    createBtn.style.cssText = 'border-color:rgba(255,181,84,0.6);color:var(--amber);';
-    createBtn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      triggerCreateJob(card);
-    });
-    actions.appendChild(createBtn);
+    var noLink = document.createElement('span');
+    noLink.className = 'lcard-pill';
+    noLink.style.cssText = 'border-color:rgba(255,181,84,0.6);color:var(--amber);cursor:not-allowed;';
+    noLink.textContent = 'no Supabase job · memory off';
+    noLink.title = 'No Supabase job linked. JARVIS memory disabled. Backend create-job endpoint pending (SECURE-SALE-CREATE-JOB-FOR-OPP).';
+    actions.appendChild(noLink);
   }
 
   // 7. JARVIS RATIONALE + EVIDENCE PANEL + MEMORY FACTS — inside expanded card.
@@ -1232,6 +1235,15 @@ function renderProposalDetailPanel(p, card) {
   var wrap = document.createElement('div');
   wrap.className = 'proposal-detail';
   wrap.style.cssText = 'margin-top:10px;padding:12px 14px;background:rgba(76,175,142,0.08);border-left:2px solid var(--green);font-size:11px;line-height:1.55;color:var(--text-sec);';
+
+  // Recommendation type label — Booking Scope vs Sales Follow-up.
+  var recType = recommendationTypeFor(p.action_type);
+  if (recType) {
+    var recRow = document.createElement('div');
+    recRow.style.cssText = 'margin-bottom:6px;color:var(--text);font-size:10px;letter-spacing:2px;text-transform:uppercase;font-weight:700;';
+    recRow.textContent = 'JARVIS · ' + recType;
+    wrap.appendChild(recRow);
+  }
 
   // Top meta row
   var meta = [];
@@ -1268,7 +1280,7 @@ function renderProposalDetailPanel(p, card) {
   // The drafted body
   var bodyLabel = document.createElement('div');
   bodyLabel.style.cssText = 'color:var(--text-muted);font-size:10px;letter-spacing:1px;text-transform:uppercase;margin-top:6px;';
-  bodyLabel.textContent = 'Drafted message';
+  bodyLabel.textContent = (p.action_type === 'call_now') ? 'Call talk-track' : 'Drafted message';
   wrap.appendChild(bodyLabel);
 
   var body = document.createElement('div');
@@ -1409,43 +1421,22 @@ function openProposalConfirm(proposal, card) {
   });
 }
 
-// EDIT — backend-pending. Opens textarea drawer with the drafted message
-// pre-filled. On Save, POSTs edit_and_send_proposed_sms with the edited body.
-// Server endpoint does not exist yet; UI shows a backend-pending toast on 404
-// instead of silently sending the unedited body.
-function openEditDrawer(proposal, card) {
-  closeAnyDrawer();
-  var pid = proposalId(proposal);
-  var draft = String(proposal.drafted_message || '');
-  var d = makeDrawer('Edit drafted message');
-  d.body.innerHTML =
-    '<label style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);">For ' + escapeHtml(card.customer_name + (card.phone ? ' · ' + card.phone : '')) + '</label>' +
-    '<textarea id="editTextarea" style="width:100%;min-height:120px;margin-top:6px;padding:10px;background:var(--surface-1);color:var(--text);border:1px solid var(--rule-strong);border-radius:3px;font-family:inherit;font-size:13px;line-height:1.5;"></textarea>' +
-    '<div style="margin-top:6px;color:var(--text-muted);font-size:10px;">Original is preserved server-side in metadata.original_message.</div>';
-  var ta = d.body.querySelector('#editTextarea');
-  ta.value = draft;
-  ta.focus();
-  d.primaryBtn.textContent = 'Save & Send';
-  d.primaryBtn.onclick = function () {
-    var edited = ta.value.trim();
-    if (!edited) { showActionToast('Edit cannot be empty', 'error'); return; }
-    if (!pid) { showActionToast('Proposal id missing', 'error'); return; }
-    closeAnyDrawer();
-    showActionToast('Sending edited draft…', 'info');
-    opsApiPost(_lastCloud, 'edit_and_send_proposed_sms', { action_id: pid, edited_message: edited, original_message: draft }).then(function () {
-      showActionToast('Edited & sent ✓', 'sent');
-      setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 700);
-    }).catch(function (err) {
-      var pending = /404|not\s*found|Function not found|invalid\s*action/i.test(err.message);
-      showActionToast(pending
-        ? 'Backend pending — endpoint edit_and_send_proposed_sms not deployed (SECURE-SALE-EDIT-AND-SEND)'
-        : 'Edit failed: ' + err.message, pending ? 'info' : 'error');
-    });
-  };
-}
+// EDIT / SNOOZE / CREATE-JOB-FOR-OPP handlers intentionally removed.
+// Their backend endpoints (edit_and_send_proposed_sms,
+// snooze_proposed_action, create_job_for_opportunity) are not deployed
+// yet, and per Marnin's "do not widen the browser write surface further"
+// directive, neither the UI buttons nor the lock allowlist permit those
+// POSTs. The buttons in renderCard are disabled + labelled "(not live)"
+// so reps can SEE the feature is coming without the cockpit being able
+// to call a 404 endpoint. Re-add these handlers when Terminal A ships
+// SECURE-SALE-EDIT-AND-SEND, SECURE-SALE-SNOOZE-ENDPOINT, and
+// SECURE-SALE-CREATE-JOB-FOR-OPP — and re-add the matching entries to
+// OPS_POST_ALLOW above.
 
-// REJECT — dismiss with reason. Server today ignores the reason field but the
-// client still sends it so the future endpoint extension auto-captures.
+// REJECT — dismiss with reason. Backend v348 captures reason into
+// metadata.dismissed_reason via fetch+merge. Server gates on
+// status='pending' AND sent_at IS NULL so reject can never land on an
+// in-flight claimed proposal.
 function handleRejectWithReason(proposal, card) {
   var pid = proposalId(proposal);
   if (!pid) { showActionToast('Proposal id missing', 'error'); return; }
@@ -1461,55 +1452,6 @@ function handleRejectWithReason(proposal, card) {
   });
 }
 
-// SNOOZE — backend-pending. Drawer with quick durations + reason.
-function openSnoozeDrawer(proposal, card) {
-  closeAnyDrawer();
-  var pid = proposalId(proposal);
-  var d = makeDrawer('Snooze proposal');
-  d.body.innerHTML =
-    '<label style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);">For ' + escapeHtml(card.customer_name) + '</label>' +
-    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;">' +
-      '<button type="button" data-h="4"   class="snooze-q">+4h</button>' +
-      '<button type="button" data-h="24"  class="snooze-q">Tomorrow</button>' +
-      '<button type="button" data-h="72"  class="snooze-q">+3 days</button>' +
-      '<button type="button" data-h="168" class="snooze-q">Next week</button>' +
-    '</div>' +
-    '<label style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);">Or pick a date/time</label>' +
-    '<input id="snoozeDate" type="datetime-local" style="width:100%;margin-top:6px;padding:8px;background:var(--surface-1);color:var(--text);border:1px solid var(--rule-strong);border-radius:3px;font-family:inherit;">' +
-    '<label style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-top:10px;display:block;">Reason (optional)</label>' +
-    '<input id="snoozeReason" type="text" placeholder="e.g. waiting on customer reply" style="width:100%;margin-top:6px;padding:8px;background:var(--surface-1);color:var(--text);border:1px solid var(--rule-strong);border-radius:3px;font-family:inherit;font-size:13px;">';
-  var dateInput = d.body.querySelector('#snoozeDate');
-  d.body.querySelectorAll('.snooze-q').forEach(function (b) {
-    b.style.cssText = 'background:var(--surface-2);border:1px solid var(--rule-strong);color:var(--text);padding:6px 10px;font-size:11px;';
-    b.addEventListener('click', function () {
-      var hours = Number(b.dataset.h);
-      var t = new Date(Date.now() + hours * 3600000);
-      // Format YYYY-MM-DDTHH:mm in local time
-      var pad = function (n) { return String(n).padStart(2, '0'); };
-      dateInput.value = t.getFullYear() + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate())
-                      + 'T' + pad(t.getHours()) + ':' + pad(t.getMinutes());
-    });
-  });
-  d.primaryBtn.textContent = 'Snooze';
-  d.primaryBtn.onclick = function () {
-    var until = dateInput.value;
-    if (!until) { showActionToast('Pick a snooze duration', 'error'); return; }
-    var reason = String(d.body.querySelector('#snoozeReason').value || '').trim();
-    if (!pid) { showActionToast('Proposal id missing', 'error'); return; }
-    closeAnyDrawer();
-    var iso = new Date(until).toISOString();
-    opsApiPost(_lastCloud, 'snooze_proposed_action', { action_id: pid, snoozed_until: iso, reason: reason || null }).then(function () {
-      showActionToast('Snoozed until ' + until.replace('T', ' '), 'info');
-      setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 500);
-    }).catch(function (err) {
-      var pending = /404|not\s*found|Function not found|invalid\s*action/i.test(err.message);
-      showActionToast(pending
-        ? 'Backend pending — endpoint snooze_proposed_action not deployed (SECURE-SALE-SNOOZE-ENDPOINT)'
-        : 'Snooze failed: ' + err.message, pending ? 'info' : 'error');
-    });
-  };
-}
-
 function openNoteDrawer(card) {
   if (!card.job_id) { showActionToast('Need a Supabase job to log a note', 'error'); return; }
   var text = window.prompt('Log a note on ' + card.customer_name + '\n\n(Internal — not customer facing.)');
@@ -1520,79 +1462,6 @@ function openNoteDrawer(card) {
   }).catch(function (err) {
     showActionToast('Note failed: ' + err.message, 'error');
   });
-}
-
-// CREATE JOB FOR OPPORTUNITY — backend-pending. POSTs the create-job intent
-// for an unlinked GHL opp; server returns 404 today.
-function triggerCreateJob(card) {
-  if (!card.opportunity_id) { showActionToast('No opportunity_id on this card', 'error'); return; }
-  if (!confirm('Request a Supabase job for opportunity ' + card.opportunity_id.slice(0, 8) + '…?\n\nThis enables JARVIS memory for this lead. Backend handles the create + idempotency.')) return;
-  showActionToast('Requesting job creation…', 'info');
-  opsApiPost(_lastCloud, 'create_job_for_opportunity', {
-    opportunity_id: card.opportunity_id,
-    contact_id: card.contact_id || null,
-    type: (card.evidence_refs && card.evidence_refs[0] && /\[fencing\]/i.test(card.evidence_refs[0].text)) ? 'fencing' : 'patio',
-  }).then(function (data) {
-    var jid = (data && (data.job_id || data.id)) || '';
-    showActionToast('Job created ✓ ' + (jid ? jid.slice(0, 8) + '…' : ''), 'sent');
-    setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 800);
-  }).catch(function (err) {
-    var pending = /404|not\s*found|Function not found|invalid\s*action/i.test(err.message);
-    showActionToast(pending
-      ? 'Backend pending — endpoint create_job_for_opportunity not deployed (SECURE-SALE-CREATE-JOB-FOR-OPP)'
-      : 'Create job failed: ' + err.message, pending ? 'info' : 'error');
-  });
-}
-
-// ────────────────────────────────────────────────────────────
-// Drawer modal helper — keeps full-page focus on a single action.
-// ────────────────────────────────────────────────────────────
-function makeDrawer(title) {
-  closeAnyDrawer();
-  var overlay = document.createElement('div');
-  overlay.id = 'saleDrawer';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(5,7,9,0.75);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px;';
-  overlay.addEventListener('click', function (e) { if (e.target === overlay) closeAnyDrawer(); });
-
-  var box = document.createElement('div');
-  box.style.cssText = 'background:var(--bg);border:1px solid var(--rule-strong);max-width:480px;width:100%;padding:18px 20px;color:var(--text);font-family:var(--font);';
-
-  var head = document.createElement('div');
-  head.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;';
-  head.innerHTML = '<strong style="font-size:11px;letter-spacing:2px;text-transform:uppercase;">' + escapeHtml(title) + '</strong>';
-  var closeBtn = document.createElement('button');
-  closeBtn.type = 'button';
-  closeBtn.textContent = '✕';
-  closeBtn.style.cssText = 'background:transparent;border:none;color:var(--text-muted);font-size:16px;cursor:pointer;';
-  closeBtn.addEventListener('click', closeAnyDrawer);
-  head.appendChild(closeBtn);
-  box.appendChild(head);
-
-  var body = document.createElement('div');
-  box.appendChild(body);
-
-  var foot = document.createElement('div');
-  foot.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:16px;padding-top:12px;border-top:1px solid var(--rule);';
-  var cancel = document.createElement('button');
-  cancel.type = 'button';
-  cancel.textContent = 'Cancel';
-  cancel.style.cssText = 'background:transparent;border:1px solid var(--rule-strong);color:var(--text-muted);padding:8px 14px;font-size:11px;letter-spacing:1px;text-transform:uppercase;';
-  cancel.addEventListener('click', closeAnyDrawer);
-  var primary = document.createElement('button');
-  primary.type = 'button';
-  primary.textContent = 'Save';
-  primary.style.cssText = 'background:var(--orange);border:none;color:#000;padding:8px 14px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;';
-  foot.appendChild(cancel);
-  foot.appendChild(primary);
-  box.appendChild(foot);
-
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
-  return { overlay: overlay, body: body, primaryBtn: primary };
-}
-function closeAnyDrawer() {
-  var d = document.getElementById('saleDrawer');
-  if (d) d.remove();
 }
 
 // MARNIN_MEMORY_POC toast — does NOT append the "stub-only" fluff because
@@ -2021,19 +1890,63 @@ async function opsApiGet(cloud, action, params) {
 }
 
 // Fetch all pending AI proposals once per page load. Returns { byJobId: { jobId: [proposals] } }.
+// Action types the cockpit can present to the rep. Mirrors ops-api v347's
+// SEND_PROPOSED_SMS_ACTION_ALLOWLIST plus call_now (which is a call
+// recommendation only — never sends SMS — but renders a tel: link).
+// Server already filters status='pending' AND sent_at IS NULL in v347;
+// this is the ADDITIONAL action_type filter the cockpit imposes so it
+// never shows a card it cannot dispatch (stale_quote / no_invoice / no_po
+// belong to other surfaces and would only confuse reps here).
+var COCKPIT_ALLOWED_ACTION_TYPES = {
+  // Sales-loop SMS — Approve & Send goes through ops-api send_proposed_sms.
+  book_scope:          'sms',
+  send_booking_sms:    'sms',
+  scope_confirmation:  'sms',
+  send_followup_sms:   'sms',
+  deposit_followup:    'sms',
+  // Call recommendation only — renders a tel: link. NEVER sends an SMS.
+  call_now:            'call'
+};
+
+// Two recommendation buckets for the human label + grouping.
+function recommendationTypeFor(actionType) {
+  if (actionType === 'book_scope' || actionType === 'send_booking_sms' || actionType === 'scope_confirmation') {
+    return 'Booking Scope';
+  }
+  if (actionType === 'send_followup_sms' || actionType === 'deposit_followup' || actionType === 'call_now') {
+    return 'Sales Follow-up';
+  }
+  return null;
+}
+
 async function fetchPendingProposals(cloud) {
   try {
     var data = await opsApiGet(cloud, 'list_proposed_actions', { status: 'pending' });
-    var actions = (data && data.actions) || [];
+    var raw = (data && data.actions) || [];
+    // Server-side filter is { status='pending', sent_at IS NULL }.
+    // Client-side filter additionally excludes action_types the cockpit
+    // cannot dispatch (everything not in COCKPIT_ALLOWED_ACTION_TYPES).
+    var actions = raw.filter(function (a) { return COCKPIT_ALLOWED_ACTION_TYPES[a.action_type]; });
+    var droppedByType = {};
+    raw.forEach(function (a) {
+      if (!COCKPIT_ALLOWED_ACTION_TYPES[a.action_type]) {
+        droppedByType[a.action_type] = (droppedByType[a.action_type] || 0) + 1;
+      }
+    });
     var byJobId = {};
     actions.forEach(function (a) {
       if (!a.job_id) return;
       (byJobId[a.job_id] = byJobId[a.job_id] || []).push(a);
     });
-    return { byJobId: byJobId, total: actions.length };
+    return {
+      byJobId: byJobId,
+      total: actions.length,
+      raw_total: raw.length,
+      dropped_by_type: droppedByType,
+    };
   } catch (err) {
     console.warn('[sale] proposals fetch failed:', err.message);
-    return { byJobId: {}, total: 0, error: err.message };
+    return { byJobId: {}, total: 0, raw_total: 0, dropped_by_type: {}, error: err.message };
   }
 }
 
