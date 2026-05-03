@@ -130,17 +130,42 @@
           if (act && GHL_PROXY_GET_ALLOW[act]) return { blocked: false };
           return { blocked: true, reason: 'ghl-proxy GET action "' + act + '" not in read-only allowlist' };
         }
-        // ── /functions/v1/ops-api — narrow Marnin-only POST allowlist ──
-        // MARNIN_MEMORY_POC: cockpit "Send test SMS to Marnin" button. ONLY
-        // POST + action=manual_dispatch_marnin_poc passes. Server-side this
-        // endpoint is JWT-gated to marnin@secureworkswa.com.au and the
-        // recipient/body are hardcoded — browser cannot influence either.
-        // Every other ops-api action (including send_proposed_sms, manual_dispatch,
-        // approve_*, send_*, dismiss_*) stays 451-blocked by the catch-all below.
+        // ── /functions/v1/ops-api — proposal-flow + note POST allowlist ──
+        // Each POST action below is verified safe-by-construction by inspecting
+        // secureworks-site/supabase/functions/ops-api/index.ts:
+        //   - manual_dispatch_marnin_poc (Marnin-only POC):
+        //       JWT-gated to marnin@secureworkswa.com.au; recipient/body hardcoded.
+        //   - send_proposed_sms (line 11210):
+        //       Requires existing ai_proposed_actions row with status='pending'.
+        //       Server fetches the proposal, dispatches via ghl-proxy with the
+        //       drafted_message + contact_id ALREADY ON THE PROPOSAL ROW.
+        //       Browser body { action_id } only — recipient/text NOT browser-controlled.
+        //   - dismiss_proposed_action (line 11269):
+        //       Reject proposal — no send. Browser body { action_id } only.
+        //   - add_note (line 8226):
+        //       Creates job_event + business_event note. Server validates
+        //       jobId + assigned-to-job. Text from browser is the note body
+        //       (not customer-facing — internal log).
+        // Every other ops-api action — manual_dispatch (admin direct send),
+        // send_acceptance_invoice, send_payment_link, send_quote_email,
+        // approve_*, etc. — stays 451-blocked.
+        // GET endpoint: list_proposed_actions (read-only).
         if (path === '/functions/v1/ops-api' && method === 'POST') {
-          var opsAct = u.searchParams.get('action');
-          if (opsAct === 'manual_dispatch_marnin_poc') return { blocked: false };
-          return { blocked: true, reason: 'ops-api POST action "' + opsAct + '" not in narrow allowlist (only manual_dispatch_marnin_poc allowed)' };
+          var opsActPost = u.searchParams.get('action');
+          var OPS_POST_ALLOW = {
+            manual_dispatch_marnin_poc: 1,
+            send_proposed_sms:          1,
+            dismiss_proposed_action:    1,
+            add_note:                   1
+          };
+          if (opsActPost && OPS_POST_ALLOW[opsActPost]) return { blocked: false };
+          return { blocked: true, reason: 'ops-api POST action "' + opsActPost + '" not in proposal-flow allowlist' };
+        }
+        if (path === '/functions/v1/ops-api' && method === 'GET') {
+          var opsActGet = u.searchParams.get('action');
+          var OPS_GET_ALLOW = { list_proposed_actions: 1 };
+          if (opsActGet && OPS_GET_ALLOW[opsActGet]) return { blocked: false };
+          return { blocked: true, reason: 'ops-api GET action "' + opsActGet + '" not in read-only allowlist' };
         }
         if (path.indexOf('/functions/v1/') === 0) {
           return { blocked: true, reason: 'edge function ' + method + ' to ' + path + ' blocked (stub-only page)' };
@@ -1043,27 +1068,103 @@ function renderCard(card, lane) {
   pillEl.textContent = pill.label;
   if (pill.urgent) pillEl.classList.add('urgent');
 
-  // Stub-only actions. Open-in-Ops only for follow-up cards (job_id present).
+  // Action buttons. Wired actions go through ops-api proposal flow (server-gated);
+  // stubs stay for paths with no live endpoint yet.
   var actions = $('.lcard-actions', el);
-  if (lane === 'call') {
-    if (card.phone) {
-      var dial = document.createElement('a');
-      dial.className = 'primary';
-      dial.href = 'tel:' + String(card.phone).replace(/[^+0-9]/g, '');
-      dial.textContent = 'Dial';
-      actions.appendChild(dial);
-    }
-    actions.appendChild(makeStubBtn('Log call'));
-    if (card.job_id) actions.appendChild(makeStubBtn('Open in Ops', function () { openInOps({ id: card.job_id }); }));
+
+  // 1. DIAL — only for call lane, OS-handled tel: link, no automation.
+  if (lane === 'call' && card.phone) {
+    var dial = document.createElement('a');
+    dial.className = 'primary';
+    dial.href = 'tel:' + String(card.phone).replace(/[^+0-9]/g, '');
+    dial.textContent = 'Dial';
+    actions.appendChild(dial);
+  }
+
+  // 2. APPROVE & SEND — only when an existing pending proposal exists for this job.
+  //    Server-side: send_proposed_sms loads the action by id and dispatches the
+  //    drafted_message + contact_id ALREADY ON THE PROPOSAL ROW. Browser cannot
+  //    influence recipient or text.
+  if (card.pending_proposals && card.pending_proposals.length) {
+    var prop = card.pending_proposals[0]; // newest first
+    var sendBtn = document.createElement('button');
+    sendBtn.className = 'primary';
+    sendBtn.type = 'button';
+    sendBtn.textContent = 'Approve & Send draft';
+    sendBtn.title = 'AI-drafted: ' + (prop.action_type || 'message') + ' — preview before send';
+    sendBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      openProposalConfirm(prop, card);
+    });
+    actions.appendChild(sendBtn);
+
+    var dismissBtn = document.createElement('button');
+    dismissBtn.className = '';
+    dismissBtn.type = 'button';
+    dismissBtn.textContent = 'Dismiss draft';
+    dismissBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      handleDismissProposal(prop);
+    });
+    actions.appendChild(dismissBtn);
+  }
+
+  // 3. LOG NOTE — wired add_note. Only for cards with a Supabase job_id
+  //    (server requires jobId).
+  if (card.job_id) {
+    var noteBtn = document.createElement('button');
+    noteBtn.type = 'button';
+    noteBtn.textContent = 'Log note';
+    noteBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      openNoteDrawer(card);
+    });
+    actions.appendChild(noteBtn);
+  }
+
+  // 4. STUB BUTTONS — paths with no live endpoint yet, kept visible.
+  if (lane === 'call' && (!card.pending_proposals || !card.pending_proposals.length)) {
+    actions.appendChild(makeStubBtn('Send SMS', null, 'No AI draft yet — JARVIS will queue one'));
   } else if (lane === 'book') {
     actions.appendChild(makeStubBtn('Book site visit'));
-    actions.appendChild(makeStubBtn('Discovery call'));
-    if (card.job_id) actions.appendChild(makeStubBtn('Open in Ops', function () { openInOps({ id: card.job_id }); }));
-  } else if (lane === 'followup') {
-    actions.appendChild(makeStubBtn('Send chase SMS'));
-    actions.appendChild(makeStubBtn('Send chase email'));
-    actions.appendChild(makeStubBtn('Send invoice'));
-    if (card.job_id) actions.appendChild(makeStubBtn('Open in Ops', function () { openInOps({ id: card.job_id }); }));
+    actions.appendChild(makeStubBtn('Move stage', null, 'Cap 1 governance — proposal endpoint pending'));
+  } else if (lane === 'followup' && (!card.pending_proposals || !card.pending_proposals.length)) {
+    actions.appendChild(makeStubBtn('Send chase SMS', null, 'No AI draft yet'));
+    actions.appendChild(makeStubBtn('Send invoice', null, 'invoice flow not wired'));
+  }
+
+  // 5. OPEN IN OPS — only for cards with a Supabase job_id.
+  if (card.job_id) {
+    var opsLink = document.createElement('button');
+    opsLink.type = 'button';
+    opsLink.textContent = 'Open in Ops';
+    opsLink.addEventListener('click', function (e) {
+      e.stopPropagation();
+      openInOps({ id: card.job_id });
+    });
+    actions.appendChild(opsLink);
+  }
+
+  // 6. NO-LINK BADGE — booking-loop GHL cards with no Supabase job (memory disabled).
+  if (card.loop === 'booking' && card.no_job_link) {
+    var badge = document.createElement('span');
+    badge.className = 'lcard-pill';
+    badge.style.cssText = 'border-color:rgba(255,181,84,0.6);color:var(--amber);';
+    badge.textContent = 'no Supabase job — memory off';
+    badge.title = 'Create a Supabase job to enable JARVIS memory loop. (One-click endpoint coming next slice.)';
+    actions.appendChild(badge);
+  }
+
+  // 7. PROPOSAL PREVIEW — show drafted message body inside expanded card, so
+  //    the rep sees what they're about to approve.
+  if (card.pending_proposals && card.pending_proposals.length) {
+    card.pending_proposals.forEach(function (p) {
+      var preview = document.createElement('div');
+      preview.style.cssText = 'margin-top:10px;padding:10px 12px;background:rgba(76,175,142,0.08);border-left:2px solid var(--green);font-size:11px;line-height:1.5;color:var(--text-sec);';
+      var typeLabel = p.action_type ? '<strong style="color:var(--text);font-size:10px;letter-spacing:1px;text-transform:uppercase;">' + p.action_type + '</strong><br>' : '';
+      preview.innerHTML = typeLabel + escapeHtml(p.drafted_message || '(no body drafted)');
+      el.appendChild(preview);
+    });
   }
 
   el.addEventListener('click', function (e) {
@@ -1074,15 +1175,22 @@ function renderCard(card, lane) {
   return el;
 }
 
-function makeStubBtn(label, handler) {
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function makeStubBtn(label, handler, tooltipReason) {
   var b = document.createElement('button');
   b.className = 'stub';
   b.type = 'button';
   b.textContent = label;
+  if (tooltipReason) b.title = tooltipReason;
   b.addEventListener('click', function (e) {
     e.stopPropagation();
     if (handler) { handler(); return; }
-    showStubToast(label);
+    showStubToast(label + (tooltipReason ? ' — ' + tooltipReason : ''));
   });
   return b;
 }
@@ -1100,9 +1208,66 @@ function showStubToast(label) {
   var t = document.createElement('div');
   t.id = 'stubToast';
   t.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1F2A30;color:#fff;padding:14px 18px;border-left:3px solid #FFB554;font-size:12px;letter-spacing:0.5px;z-index:200;box-shadow:0 12px 30px rgba(0,0,0,0.5);max-width:90%;text-align:center;';
-  t.textContent = label + ' — coming next slice. v1 is read-only.';
+  t.textContent = label;
   document.body.appendChild(t);
-  setTimeout(function () { t.remove(); }, 2400);
+  setTimeout(function () { t.remove(); }, 3000);
+}
+
+// Status toast for live ops-api actions (success / error). Distinct colour
+// from stub toast so reps can SEE that something real happened.
+function showActionToast(text, kind) {
+  var existing = document.getElementById('actionToast');
+  if (existing) existing.remove();
+  var colour = kind === 'error' ? '#E74C3C' : kind === 'sent' ? '#4CAF8E' : '#5C8FB8';
+  var t = document.createElement('div');
+  t.id = 'actionToast';
+  t.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#0A0F12;color:#fff;padding:14px 18px;border-left:3px solid ' + colour + ';font-size:12px;letter-spacing:0.5px;z-index:200;box-shadow:0 12px 30px rgba(0,0,0,0.5);max-width:90%;text-align:center;';
+  t.textContent = text;
+  document.body.appendChild(t);
+  setTimeout(function () { t.remove(); }, 3500);
+}
+
+// ────────────────────────────────────────────────────────────
+// Live ops-api action handlers — proposal flow + add_note.
+// Each opens a confirm/drawer step BEFORE firing.
+// ────────────────────────────────────────────────────────────
+
+function openProposalConfirm(proposal, card) {
+  var msg = String(proposal.drafted_message || '(no body drafted)');
+  var contactDisplay = card.customer_name + (card.phone ? ' · ' + card.phone : '');
+  if (!confirm('Send this AI-drafted SMS?\n\nTo: ' + contactDisplay + '\n\n' + msg + '\n\nThis fires through the ops-api proposal-send flow.')) return;
+  showActionToast('Sending…', 'info');
+  opsApiPost(_lastCloud, 'send_proposed_sms', { action_id: proposal.id }).then(function (data) {
+    showActionToast('Sent ✓ — proposal ' + proposal.id.slice(0, 8) + '… dispatched', 'sent');
+    setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 700);
+  }).catch(function (err) {
+    showActionToast('Send failed: ' + err.message, 'error');
+    console.error('[sale] send_proposed_sms failed:', err);
+  });
+}
+
+function handleDismissProposal(proposal) {
+  if (!confirm('Dismiss this AI draft?\n\nIt will not send.')) return;
+  var userId = (_profileCache && _profileCache.id) || null;
+  opsApiPost(_lastCloud, 'dismiss_proposed_action', { action_id: proposal.id, user_id: userId }).then(function () {
+    showActionToast('Dismissed', 'info');
+    setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 500);
+  }).catch(function (err) {
+    showActionToast('Dismiss failed: ' + err.message, 'error');
+  });
+}
+
+function openNoteDrawer(card) {
+  if (!card.job_id) { showActionToast('Need a Supabase job to log a note', 'error'); return; }
+  // Lightweight prompt — production-friendly enough; full drawer can come later.
+  var text = window.prompt('Log a note on ' + card.customer_name + '\n\n(Internal — not customer facing.)');
+  if (!text || !text.trim()) return;
+  var userId = (_profileCache && _profileCache.id) || null;
+  opsApiPost(_lastCloud, 'add_note', { jobId: card.job_id, userId: userId, text: text.trim() }).then(function () {
+    showActionToast('Note logged ✓', 'sent');
+  }).catch(function (err) {
+    showActionToast('Note failed: ' + err.message, 'error');
+  });
 }
 
 // MARNIN_MEMORY_POC toast — does NOT append the "stub-only" fluff because
@@ -1496,6 +1661,78 @@ async function fetchGhlOpportunitiesWithUserJwt(cloud, pipeline) {
   return data.opportunities || [];
 }
 
+// ────────────────────────────────────────────────────────────
+// ops-api helpers (GET + POST). All gated by the safety lock allowlist.
+// ────────────────────────────────────────────────────────────
+async function opsApiPost(cloud, action, body) {
+  var token = await getUserAccessToken(cloud);
+  if (!token) throw new Error('Not signed in');
+  var base = window.SUPABASE_URL || 'https://kevgrhcjxspbxgovpmfl.supabase.co';
+  var url = base + '/functions/v1/ops-api?action=' + encodeURIComponent(action);
+  var res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  var data = {};
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok) throw new Error(data.error || ('ops-api ' + action + ' HTTP ' + res.status));
+  return data;
+}
+
+async function opsApiGet(cloud, action, params) {
+  var token = await getUserAccessToken(cloud);
+  if (!token) throw new Error('Not signed in');
+  var base = window.SUPABASE_URL || 'https://kevgrhcjxspbxgovpmfl.supabase.co';
+  var qs = new URLSearchParams({ action: action });
+  Object.keys(params || {}).forEach(function (k) { if (params[k] != null) qs.set(k, String(params[k])); });
+  var res = await fetch(base + '/functions/v1/ops-api?' + qs.toString(), {
+    headers: { 'Authorization': 'Bearer ' + token },
+  });
+  var data = {};
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok) throw new Error(data.error || ('ops-api ' + action + ' HTTP ' + res.status));
+  return data;
+}
+
+// Fetch all pending AI proposals once per page load. Returns { byJobId: { jobId: [proposals] } }.
+async function fetchPendingProposals(cloud) {
+  try {
+    var data = await opsApiGet(cloud, 'list_proposed_actions', { status: 'pending' });
+    var actions = (data && data.actions) || [];
+    var byJobId = {};
+    actions.forEach(function (a) {
+      if (!a.job_id) return;
+      (byJobId[a.job_id] = byJobId[a.job_id] || []).push(a);
+    });
+    return { byJobId: byJobId, total: actions.length };
+  } catch (err) {
+    console.warn('[sale] proposals fetch failed:', err.message);
+    return { byJobId: {}, total: 0, error: err.message };
+  }
+}
+
+// Resolve which Supabase jobs are linked to which GHL opportunities.
+// One PostgREST GET per page load. Returns Map<opportunity_id, job>.
+async function fetchOpportunityJobLinks(cloud, opportunityIds) {
+  if (!opportunityIds.length) return {};
+  try {
+    var sb = cloud.supabase;
+    var result = await sb.from('jobs')
+      .select('id, status, type, client_name, ghl_opportunity_id, ghl_contact_id')
+      .in('ghl_opportunity_id', opportunityIds)
+      .neq('status', 'archived');
+    var byOppId = {};
+    (result.data || []).forEach(function (j) {
+      if (j.ghl_opportunity_id) byOppId[j.ghl_opportunity_id] = j;
+    });
+    return byOppId;
+  } catch (err) {
+    console.warn('[sale] opportunity→job link fetch failed:', err);
+    return {};
+  }
+}
+
 async function fetchBookingCards(cloud, pipelines) {
   // pipelines = ['fencing'] | ['patio'] | ['fencing','patio']
   var results = await Promise.all(pipelines.map(function (p) {
@@ -1539,31 +1776,61 @@ async function fetchFollowUpCards(cloud, profile) {
 // Boot
 // ────────────────────────────────────────────────────────────
 
+// Cached for the current load — used by re-render after a successful action.
+var _lastCloud = null;
+var _profileCache = null;
+
 function loadAndRender(cloud) {
+  _lastCloud = cloud;
   var laneBookCards = document.getElementById('laneBookCards');
   if (laneBookCards) laneBookCards.innerHTML = '<div class="state-msg">Loading your queue…</div>';
 
   var profile = cloud.auth && cloud.auth.getUser ? cloud.auth.getUser() : null;
+  _profileCache = profile;
   var pipelines = pipelineForRep(profile);
 
   Promise.all([
     fetchBookingCards(cloud, pipelines),
     fetchFollowUpCards(cloud, profile),
+    fetchPendingProposals(cloud),
   ]).then(function (results) {
     var booking = results[0];
     var followup = results[1];
-    var allCards = booking.concat(followup);
+    var proposals = results[2];
 
-    var buckets = bucketizeUnified(allCards);
-    _bucketCache = buckets;
-    renderLane('book', buckets.book);
-    renderLane('followup', buckets.followup);
-    renderLane('call', buckets.call);
-    renderCounts(buckets);
-    renderSourceMeta(allCards);
-    renderHero(allCards, buckets);
-    refreshFab();
-    logLoadDiagnostics(booking, followup);
+    // Resolve GHL opportunity → Supabase job linkage in one parallel call,
+    // then enrich booking cards with linked job_id (if any).
+    var oppIds = booking.map(function (c) { return c.opportunity_id; }).filter(Boolean);
+    return fetchOpportunityJobLinks(cloud, oppIds).then(function (links) {
+      booking.forEach(function (c) {
+        var linked = links[c.opportunity_id];
+        if (linked) {
+          c.job_id = linked.id;        // attach Supabase job id
+          c.linked_job_status = linked.status;
+        } else {
+          c.no_job_link = true;        // no Supabase memory yet
+        }
+      });
+
+      // Attach pending proposals to follow-up + linked-booking cards by job_id.
+      [].concat(booking, followup).forEach(function (c) {
+        if (c.job_id && proposals.byJobId[c.job_id]) {
+          c.pending_proposals = proposals.byJobId[c.job_id];
+        }
+      });
+
+      var allCards = booking.concat(followup);
+      var buckets = bucketizeUnified(allCards);
+      _bucketCache = buckets;
+      renderLane('book', buckets.book);
+      renderLane('followup', buckets.followup);
+      renderLane('call', buckets.call);
+      renderCounts(buckets);
+      renderSourceMeta(allCards);
+      renderHero(allCards, buckets);
+      refreshFab();
+      logLoadDiagnostics(booking, followup, proposals);
+    });
   }).catch(function (err) {
     console.error('[sale] load failed:', err);
     var msg = 'Failed to load. ' + (err && err.message ? err.message : 'Unknown error');
@@ -1575,14 +1842,15 @@ function loadAndRender(cloud) {
 }
 
 // Single-line console summary every load — easy for Marnin to spot in DevTools.
-function logLoadDiagnostics(booking, followup) {
+function logLoadDiagnostics(booking, followup, proposals) {
   var bk = _loadDiagnostics.booking || [];
   var bkSummary = bk.map(function (b) { return b.pipeline + (b.ok ? ':' + b.count : ':FAIL'); }).join(' ');
   var fu = _loadDiagnostics.followup || { ok: false, count: 0 };
-  console.info('[sale] loaded — booking ' + bkSummary + ' · followup ' + (fu.ok ? fu.count : 'FAIL') + ' · total cards ' + (booking.length + followup.length));
-  // Surface failures in console as warnings so they're easy to filter
+  var prop = proposals || { total: 0 };
+  console.info('[sale] loaded — booking ' + bkSummary + ' · followup ' + (fu.ok ? fu.count : 'FAIL') + ' · proposals ' + (prop.error ? 'FAIL' : prop.total) + ' · total cards ' + (booking.length + followup.length));
   bk.forEach(function (b) { if (!b.ok) console.warn('[sale] booking pipeline ' + b.pipeline + ' failed: ' + b.error); });
   if (!fu.ok) console.warn('[sale] follow-up failed: ' + fu.error);
+  if (prop.error) console.warn('[sale] proposals failed: ' + prop.error);
 }
 
 function setOpRail(profile) {
