@@ -130,6 +130,18 @@
           if (act && GHL_PROXY_GET_ALLOW[act]) return { blocked: false };
           return { blocked: true, reason: 'ghl-proxy GET action "' + act + '" not in read-only allowlist' };
         }
+        // ── /functions/v1/ops-api — narrow Marnin-only POST allowlist ──
+        // MARNIN_MEMORY_POC: cockpit "Send test SMS to Marnin" button. ONLY
+        // POST + action=manual_dispatch_marnin_poc passes. Server-side this
+        // endpoint is JWT-gated to marnin@secureworkswa.com.au and the
+        // recipient/body are hardcoded — browser cannot influence either.
+        // Every other ops-api action (including send_proposed_sms, manual_dispatch,
+        // approve_*, send_*, dismiss_*) stays 451-blocked by the catch-all below.
+        if (path === '/functions/v1/ops-api' && method === 'POST') {
+          var opsAct = u.searchParams.get('action');
+          if (opsAct === 'manual_dispatch_marnin_poc') return { blocked: false };
+          return { blocked: true, reason: 'ops-api POST action "' + opsAct + '" not in narrow allowlist (only manual_dispatch_marnin_poc allowed)' };
+        }
         if (path.indexOf('/functions/v1/') === 0) {
           return { blocked: true, reason: 'edge function ' + method + ' to ' + path + ' blocked (stub-only page)' };
         }
@@ -360,6 +372,49 @@
       text-transform: uppercase;
     }
     .signout-btn:hover { color: var(--text); border-color: var(--text-sec); }
+
+    /* ── MARNIN_MEMORY_POC banner card ──
+       Narrow Marnin-only test path. Visible on every load so it's
+       deliberately discoverable; the button is the only widget on this
+       page that can reach a write endpoint, and it's gated at three
+       layers (browser allowlist + JWT email check + hardcoded recipient).
+    */
+    .poc-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 24px;
+      background: linear-gradient(90deg, rgba(241,90,41,0.08), rgba(241,90,41,0.02));
+      border-bottom: 1px solid var(--rule);
+      border-left: 3px solid var(--orange);
+    }
+    .poc-banner-text { display: flex; flex-direction: column; gap: 2px; }
+    .poc-banner-tag {
+      font-size: 9px; font-weight: 700; letter-spacing: 2.5px;
+      text-transform: uppercase; color: var(--orange);
+    }
+    .poc-banner-title {
+      font-size: 13px; font-weight: 700; color: var(--text);
+      letter-spacing: 0.5px;
+    }
+    .poc-banner-sub {
+      font-size: 10.5px; color: var(--text-muted); letter-spacing: 0.5px;
+      margin-top: 2px;
+    }
+    .poc-fire-btn {
+      background: var(--orange); color: #fff; border: 0;
+      padding: 9px 16px;
+      font-size: 11px; font-weight: 700; letter-spacing: 1.5px;
+      text-transform: uppercase; cursor: pointer;
+      border-radius: 2px; min-width: 200px;
+    }
+    .poc-fire-btn:hover { filter: brightness(1.1); }
+    .poc-fire-btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+    @media (max-width: 720px) {
+      .poc-banner { flex-direction: column; align-items: stretch; padding: 12px 16px; }
+      .poc-fire-btn { min-width: 0; width: 100%; }
+    }
 
     /* ── Performance strip (desktop only) ── */
     .perf {
@@ -754,6 +809,20 @@
     <span>PIPE <strong id="mPipe">—</strong></span>
   </div>
 
+  <!-- MARNIN_MEMORY_POC banner — Marnin-only test send path.
+       Server-side: JWT-gated to marnin@secureworkswa.com.au; recipient,
+       phone, body, action_type all hardcoded; rate-cap 3/hour.
+       Browser-side: v9 lock has a narrow allow ONLY for this exact
+       POST + action; everything else still 451-blocks. -->
+  <section class="poc-banner" id="marninPocBanner" aria-label="MARNIN_MEMORY_POC test">
+    <div class="poc-banner-text">
+      <div class="poc-banner-tag">MARNIN_MEMORY_POC</div>
+      <div class="poc-banner-title">Send test SMS to Marnin</div>
+      <div class="poc-banner-sub">Marnin-only · controlled canary · audit chain captured</div>
+    </div>
+    <button class="poc-fire-btn" id="marninPocFireBtn" type="button">Send test SMS to Marnin</button>
+  </section>
+
   <!-- Performance strip (desktop) -->
   <section class="perf">
     <div class="perf-tile hero">
@@ -1030,6 +1099,84 @@ function showStubToast(label) {
   document.body.appendChild(t);
   setTimeout(function () { t.remove(); }, 2400);
 }
+
+// MARNIN_MEMORY_POC toast — does NOT append the "stub-only" fluff because
+// this path is the one real write surface on this page.
+function showPocToast(label, kind) {
+  var existing = document.getElementById('stubToast');
+  if (existing) existing.remove();
+  var color = kind === 'ok' ? '#4FCB87' : (kind === 'err' ? '#E66E5C' : '#F15A29');
+  var t = document.createElement('div');
+  t.id = 'stubToast';
+  t.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1F2A30;color:#fff;padding:14px 18px;border-left:3px solid ' + color + ';font-size:12px;letter-spacing:0.5px;z-index:200;box-shadow:0 12px 30px rgba(0,0,0,0.5);max-width:90%;text-align:center;';
+  t.textContent = label;
+  document.body.appendChild(t);
+  setTimeout(function () { t.remove(); }, 4500);
+}
+
+// MARNIN_MEMORY_POC live test send — calls ops-api manual_dispatch_marnin_poc
+// with the logged-in user's JWT. NO service-role key in browser. The
+// browser cannot influence recipient or body — server hardcodes both.
+async function fireMarninPocSms() {
+  var btn = document.getElementById('marninPocFireBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  try {
+    var cloud = window.SECUREWORKS_CLOUD || {};
+    var sb = cloud.supabase || window.sb || window.supabase;
+    if (!sb || !sb.auth || !sb.auth.getSession) {
+      showPocToast('Not logged in. Refresh and sign in.', 'err');
+      return;
+    }
+    var sessionResult = await sb.auth.getSession();
+    var session = sessionResult && sessionResult.data && sessionResult.data.session;
+    if (!session || !session.access_token) {
+      showPocToast('Not logged in. Refresh and sign in.', 'err');
+      return;
+    }
+    var res = await fetch(
+      'https://kevgrhcjxspbxgovpmfl.supabase.co/functions/v1/ops-api?action=manual_dispatch_marnin_poc',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + session.access_token
+        },
+        body: '{}'
+      }
+    );
+    var json = {};
+    try { json = await res.json(); } catch (_) {}
+    if (res.ok && json && json.success) {
+      showPocToast('SMS sent to Marnin. action_id=' + (json.action_id || '?').slice(0, 8) + '…', 'ok');
+      console.info('[MARNIN_MEMORY_POC] sent', json);
+    } else {
+      var msg = (json && json.error) ? json.error : ('HTTP ' + res.status);
+      showPocToast('Blocked: ' + msg, 'err');
+      console.warn('[MARNIN_MEMORY_POC] blocked', res.status, json);
+    }
+  } catch (e) {
+    showPocToast('Error: ' + (e && e.message ? e.message : String(e)), 'err');
+    console.error('[MARNIN_MEMORY_POC] threw', e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Send test SMS to Marnin'; }
+  }
+}
+
+// Wire the button as soon as DOM is ready.
+(function wireMarninPocButton() {
+  function attach() {
+    var btn = document.getElementById('marninPocFireBtn');
+    if (btn && !btn.dataset.wired) {
+      btn.addEventListener('click', fireMarninPocSms);
+      btn.dataset.wired = '1';
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attach);
+  } else {
+    attach();
+  }
+})();
 
 function renderLane(laneKey, items) {
   var rootMap = { book: 'laneBookCards', followup: 'laneFollowupCards', call: 'laneCallCards' };
