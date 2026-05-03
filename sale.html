@@ -373,14 +373,12 @@
     }
     .signout-btn:hover { color: var(--text); border-color: var(--text-sec); }
 
-    /* ── MARNIN_MEMORY_POC banner card ──
-       Narrow Marnin-only test path. Visible on every load so it's
-       deliberately discoverable; the button is the only widget on this
-       page that can reach a write endpoint, and it's gated at three
-       layers (browser allowlist + JWT email check + hardcoded recipient).
+    /* ── MARNIN_MEMORY_POC test card ──
+       Hidden unless the URL includes ?poc=1 or #poc. It is a live proof
+       harness, not normal rep-facing sales UI.
     */
     .poc-banner {
-      display: flex;
+      display: none;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
@@ -389,6 +387,7 @@
       border-bottom: 1px solid var(--rule);
       border-left: 3px solid var(--orange);
     }
+    .poc-banner[data-visible="true"] { display: flex; }
     .poc-banner-text { display: flex; flex-direction: column; gap: 2px; }
     .poc-banner-tag {
       font-size: 9px; font-weight: 700; letter-spacing: 2.5px;
@@ -787,7 +786,7 @@
   <div class="op-rail">
     <span class="live">LIVE</span>
     <span id="opMeta">OP · — · WED</span>
-    <span class="stub-flag" title="Action buttons on this surface are stubs in v1 — no SMS, calls, calendar writes, or status moves fire from here yet. Use ops.html for live actions.">STUB-ACTIONS</span>
+    <span class="stub-flag" title="Live sales data. Customer actions stay manual until the approved send path is wired per button.">READS LIVE</span>
     <span class="pace" id="opPace"></span>
   </div>
 
@@ -814,7 +813,7 @@
        phone, body, action_type all hardcoded; rate-cap 3/hour.
        Browser-side: v9 lock has a narrow allow ONLY for this exact
        POST + action; everything else still 451-blocks. -->
-  <section class="poc-banner" id="marninPocBanner" aria-label="MARNIN_MEMORY_POC test">
+  <section class="poc-banner" id="marninPocBanner" aria-label="MARNIN_MEMORY_POC test" hidden>
     <div class="poc-banner-text">
       <div class="poc-banner-tag">MARNIN_MEMORY_POC</div>
       <div class="poc-banner-title">Send test SMS to Marnin</div>
@@ -1165,6 +1164,16 @@ async function fireMarninPocSms() {
 // Wire the button as soon as DOM is ready.
 (function wireMarninPocButton() {
   function attach() {
+    var banner = document.getElementById('marninPocBanner');
+    var showPoc = false;
+    try {
+      var params = new URLSearchParams(window.location.search || '');
+      showPoc = params.get('poc') === '1' || String(window.location.hash || '').indexOf('poc') >= 0;
+    } catch (_) {}
+    if (banner && showPoc) {
+      banner.hidden = false;
+      banner.dataset.visible = 'true';
+    }
     var btn = document.getElementById('marninPocFireBtn');
     if (btn && !btn.dataset.wired) {
       btn.addEventListener('click', fireMarninPocSms);
@@ -1204,6 +1213,22 @@ function renderCounts(buckets) {
   document.getElementById('chipFollowupCount').textContent = f;
   document.getElementById('chipCallCount').textContent     = c;
   document.getElementById('laneBarMeta').textContent = (b + f + c) + ' LEADS';
+}
+
+function renderSourceMeta(allCards) {
+  var el = document.getElementById('laneBarMeta');
+  if (!el) return;
+  var ghlFencing = 0, ghlPatio = 0, jobs = 0;
+  (allCards || []).forEach(function (c) {
+    if (c.source === 'ghl') {
+      var refText = String(c.evidence_refs && c.evidence_refs[0] && c.evidence_refs[0].text || '').toLowerCase();
+      if (refText.indexOf('[fencing]') >= 0) ghlFencing++;
+      else if (refText.indexOf('[patio]') >= 0) ghlPatio++;
+    } else if (c.source === 'supabase') {
+      jobs++;
+    }
+  });
+  el.textContent = (allCards.length || 0) + ' LEADS · GHL F ' + ghlFencing + ' / P ' + ghlPatio + ' · JOBS ' + jobs;
 }
 
 function renderHero(allCards, buckets) {
@@ -1442,10 +1467,33 @@ function bucketizeUnified(cards) {
 
 var _loadDiagnostics = { booking: [], followup: null };
 
+async function getUserAccessToken(cloud) {
+  var sb = (cloud && cloud.supabase) || window.sb || window.supabase;
+  if (!sb || !sb.auth || !sb.auth.getSession) return null;
+  var result = await sb.auth.getSession();
+  return result && result.data && result.data.session && result.data.session.access_token
+    ? result.data.session.access_token
+    : null;
+}
+
+async function fetchGhlOpportunitiesWithUserJwt(cloud, pipeline) {
+  var token = await getUserAccessToken(cloud);
+  if (!token) throw new Error('No logged-in user session for GHL pipeline reads');
+  var base = window.SUPABASE_URL || 'https://kevgrhcjxspbxgovpmfl.supabase.co';
+  var res = await fetch(base + '/functions/v1/ghl-proxy?action=opportunities&pipeline=' + encodeURIComponent(pipeline), {
+    method: 'GET',
+    headers: { 'Authorization': 'Bearer ' + token },
+  });
+  var data = {};
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok) throw new Error(data.error || ('GHL opportunities ' + pipeline + ' failed with HTTP ' + res.status));
+  return data.opportunities || [];
+}
+
 async function fetchBookingCards(cloud, pipelines) {
   // pipelines = ['fencing'] | ['patio'] | ['fencing','patio']
   var results = await Promise.all(pipelines.map(function (p) {
-    return cloud.ghl.getOpportunities(p).then(function (opps) {
+    return fetchGhlOpportunitiesWithUserJwt(cloud, p).then(function (opps) {
       return { pipeline: p, ok: true, opps: opps || [] };
     }).catch(function (err) {
       console.warn('[sale] booking fetch failed for pipeline=' + p + ':', err);
@@ -1506,6 +1554,7 @@ function loadAndRender(cloud) {
     renderLane('followup', buckets.followup);
     renderLane('call', buckets.call);
     renderCounts(buckets);
+    renderSourceMeta(allCards);
     renderHero(allCards, buckets);
     refreshFab();
     logLoadDiagnostics(booking, followup);
