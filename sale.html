@@ -102,6 +102,34 @@
           return { blocked: true, reason: 'storage ' + method + ' to ' + path + ' not allowed' };
         }
 
+        // ── /functions/v1/ghl-proxy — narrow GET-only allowlist for read-only actions ──
+        // Each action below is verified read-only by inspection of
+        // secureworks-site/supabase/functions/ghl-proxy/index.ts:
+        //   - opportunities (line 386): GHL /opportunities/search GET + cached stage lookup
+        //   - pipelines (line 323): cached pipeline lookup
+        //   - stage_map (line 329): cached stage lookup
+        //   - search (line 528): GHL /opportunities/search GET
+        //   - search_contacts (line 400): GHL contact search GET
+        //   - contact (line 604): GHL contact GET
+        //   - find_job (line 1197): Supabase select
+        //   - search_jobs (line 1224): Supabase select
+        //   - load_job (line 1477): Supabase select
+        //   - list_media (line 1497): Supabase select
+        // Every WRITE action in ghl-proxy is gated by `req.method === 'POST'`
+        // (25 such gates exist). This allowlist is METHOD-restricted to GET,
+        // so even if a future ghl-proxy refactor changes an action's intent
+        // we still cannot POST through this path. Mutations stay 451-blocked
+        // by the catch-all below.
+        if (path === '/functions/v1/ghl-proxy' && method === 'GET') {
+          var GHL_PROXY_GET_ALLOW = {
+            opportunities: 1, pipelines: 1, stage_map: 1,
+            search: 1, search_contacts: 1, contact: 1,
+            find_job: 1, search_jobs: 1, load_job: 1, list_media: 1
+          };
+          var act = u.searchParams.get('action');
+          if (act && GHL_PROXY_GET_ALLOW[act]) return { blocked: false };
+          return { blocked: true, reason: 'ghl-proxy GET action "' + act + '" not in read-only allowlist' };
+        }
         if (path.indexOf('/functions/v1/') === 0) {
           return { blocked: true, reason: 'edge function ' + method + ' to ' + path + ' blocked (stub-only page)' };
         }
@@ -897,18 +925,31 @@ function urgencyPill(job, lane) {
 // Render
 // ────────────────────────────────────────────────────────────
 
-function renderCard(job, lane) {
-  var pill = urgencyPill(job, lane);
-  var val = jobValue(job);
+// Render a unified card. `card` is the unified shape; `lane` is 'book' | 'followup' | 'call'.
+// Booking cards (loop='booking', source='ghl', job_id=null) cannot Open in Ops —
+// the Ops surface keys off Supabase jobs.id and would 404.
+function renderCard(card, lane) {
+  var raw = card._raw || {};
+  var pillSrc = card.loop === 'follow_up' ? raw : { created_at: card.last_activity, updated_at: card.last_activity };
+  var pill = urgencyPill(pillSrc, lane);
+  var val = card.loop === 'follow_up' ? jobValue(raw) : null;
   var meta = [];
-  if (job.site_suburb) meta.push(job.site_suburb);
-  meta.push(jobTypeLabel(job.type));
-  if (job.status) meta.push(job.status.replace(/_/g, ' '));
+  if (raw.site_suburb) meta.push(raw.site_suburb);
+  if (card.loop === 'booking') {
+    var pipeLabel = (card.evidence_refs && card.evidence_refs[0] && card.evidence_refs[0].text) || '';
+    meta.push('GHL');
+    if (pipeLabel) meta.push(pipeLabel);
+  } else {
+    if (raw.type) meta.push(jobTypeLabel(raw.type));
+    if (card.pipeline_stage) meta.push(String(card.pipeline_stage).replace(/_/g, ' '));
+  }
 
-  var card = document.createElement('article');
-  card.className = 'lcard' + (pill.urgent ? ' urgent' : '');
-  card.dataset.jobId = job.id;
-  card.innerHTML =
+  var el = document.createElement('article');
+  el.className = 'lcard' + (pill.urgent ? ' urgent' : '');
+  if (card.job_id) el.dataset.jobId = card.job_id;
+  if (card.opportunity_id) el.dataset.opportunityId = card.opportunity_id;
+  el.dataset.loop = card.loop;
+  el.innerHTML =
     '<div class="lcard-top">' +
       '<div class="lcard-name"></div>' +
       '<div class="lcard-time"></div>' +
@@ -920,43 +961,43 @@ function renderCard(job, lane) {
     '</div>' +
     '<div class="lcard-actions"></div>';
 
-  $('.lcard-name', card).textContent = job.client_name || 'Unknown';
-  $('.lcard-time', card).textContent = relTime(job.updated_at || job.created_at);
-  $('.lcard-meta', card).textContent = meta.join(' · ');
-  $('.lcard-val', card).textContent = val ? '$' + fmtMoney(val) : '—';
-  var pillEl = $('.lcard-pill', card);
+  $('.lcard-name', el).textContent = card.customer_name;
+  $('.lcard-time', el).textContent = relTime(card.last_activity);
+  $('.lcard-meta', el).textContent = meta.join(' · ');
+  $('.lcard-val', el).textContent = val ? '$' + fmtMoney(val) : (card.next_suggested_action || '—');
+  var pillEl = $('.lcard-pill', el);
   pillEl.textContent = pill.label;
   if (pill.urgent) pillEl.classList.add('urgent');
 
-  // Stub-only actions
-  var actions = $('.lcard-actions', card);
+  // Stub-only actions. Open-in-Ops only for follow-up cards (job_id present).
+  var actions = $('.lcard-actions', el);
   if (lane === 'call') {
-    if (job.client_phone) {
+    if (card.phone) {
       var dial = document.createElement('a');
       dial.className = 'primary';
-      dial.href = 'tel:' + String(job.client_phone).replace(/[^+0-9]/g, '');
+      dial.href = 'tel:' + String(card.phone).replace(/[^+0-9]/g, '');
       dial.textContent = 'Dial';
       actions.appendChild(dial);
     }
     actions.appendChild(makeStubBtn('Log call'));
-    actions.appendChild(makeStubBtn('Open in Ops', function () { openInOps(job); }));
+    if (card.job_id) actions.appendChild(makeStubBtn('Open in Ops', function () { openInOps({ id: card.job_id }); }));
   } else if (lane === 'book') {
     actions.appendChild(makeStubBtn('Book site visit'));
     actions.appendChild(makeStubBtn('Discovery call'));
-    actions.appendChild(makeStubBtn('Open in Ops', function () { openInOps(job); }));
+    if (card.job_id) actions.appendChild(makeStubBtn('Open in Ops', function () { openInOps({ id: card.job_id }); }));
   } else if (lane === 'followup') {
     actions.appendChild(makeStubBtn('Send chase SMS'));
     actions.appendChild(makeStubBtn('Send chase email'));
     actions.appendChild(makeStubBtn('Send invoice'));
-    actions.appendChild(makeStubBtn('Open in Ops', function () { openInOps(job); }));
+    if (card.job_id) actions.appendChild(makeStubBtn('Open in Ops', function () { openInOps({ id: card.job_id }); }));
   }
 
-  card.addEventListener('click', function (e) {
+  el.addEventListener('click', function (e) {
     if (e.target.closest('a, button')) return;
-    card.classList.toggle('open');
+    el.classList.toggle('open');
   });
 
-  return card;
+  return el;
 }
 
 function makeStubBtn(label, handler) {
@@ -1018,19 +1059,22 @@ function renderCounts(buckets) {
   document.getElementById('laneBarMeta').textContent = (b + f + c) + ' LEADS';
 }
 
-function renderHero(jobs, buckets) {
+function renderHero(allCards, buckets) {
   var total = buckets.book.length + buckets.followup.length + buckets.call.length;
   document.getElementById('heroCount').textContent = total;
   document.getElementById('heroSub').textContent = total === 0 ? 'You are clear.'
     : (buckets.book.length + ' to book · ' + buckets.followup.length + ' to follow up · ' + buckets.call.length + ' to call');
 
-  var pipeSum = jobs.reduce(function (acc, j) {
+  // Pipeline value + quotes-out come ONLY from follow-up cards (Supabase jobs
+  // have pricing_json + status). Booking cards from GHL have no $ figure here.
+  var followUpJobs = allCards.filter(function (c) { return c.loop === 'follow_up'; }).map(function (c) { return c._raw; });
+  var pipeSum = followUpJobs.reduce(function (acc, j) {
     var v = jobValue(j);
     return acc + (v && j.status !== 'complete' && j.status !== 'lost' ? v : 0);
   }, 0);
   document.getElementById('pipeVal').textContent = pipeSum ? fmtMoney(pipeSum) : '—';
 
-  var quotesOut = jobs.filter(function (j) { return (j.status || '').toLowerCase() === 'quoted'; }).length;
+  var quotesOut = followUpJobs.filter(function (j) { return (j.status || '').toLowerCase() === 'quoted'; }).length;
   document.getElementById('quotesCount').textContent = quotesOut;
   document.getElementById('quotesSub').textContent = quotesOut === 1 ? 'Awaiting reply' : 'Awaiting reply';
 
@@ -1046,10 +1090,11 @@ function renderHero(jobs, buckets) {
 // Mobile lane switcher + FAB
 // ────────────────────────────────────────────────────────────
 
+// FAB labels — top is now a unified card; use customer_name.
 var FAB_LABELS_BY_LANE = {
-  book:     function (top) { return top ? 'BOOK ' + (top.client_name || '').split(' ')[0].toUpperCase()      : 'BOOK — CLEAR'; },
-  followup: function (top) { return top ? 'FOLLOW UP ' + (top.client_name || '').split(' ')[0].toUpperCase() : 'FOLLOW UP — CLEAR'; },
-  call:     function (top) { return top ? 'DIAL ' + (top.client_name || '').split(' ')[0].toUpperCase()      : 'CALL — CLEAR'; },
+  book:     function (top) { return top ? 'BOOK ' + String(top.customer_name || '').split(' ')[0].toUpperCase()      : 'BOOK — CLEAR'; },
+  followup: function (top) { return top ? 'FOLLOW UP ' + String(top.customer_name || '').split(' ')[0].toUpperCase() : 'FOLLOW UP — CLEAR'; },
+  call:     function (top) { return top ? 'DIAL ' + String(top.customer_name || '').split(' ')[0].toUpperCase()      : 'CALL — CLEAR'; },
 };
 
 var _activeLane = 'book';
@@ -1070,8 +1115,8 @@ function refreshFab() {
   fab.dataset.disabled = top ? 'false' : 'true';
   fab.onclick = function () {
     if (!top) { showStubToast('No leads in lane'); return; }
-    if (_activeLane === 'call' && top.client_phone) {
-      window.location.href = 'tel:' + String(top.client_phone).replace(/[^+0-9]/g, '');
+    if (_activeLane === 'call' && top.phone) {
+      window.location.href = 'tel:' + String(top.phone).replace(/[^+0-9]/g, '');
     } else {
       showStubToast(FAB_LABELS_BY_LANE[_activeLane](top));
     }
@@ -1124,42 +1169,199 @@ function repView(profile) {
 }
 
 // ────────────────────────────────────────────────────────────
-// Boot
+// Two-loop data layer.
+//
+// Booking loop = pre-quote, source GHL opportunities (no Supabase job yet).
+// Follow-up loop = post-quote, source Supabase `jobs`.
+// Both normalise to one unified card shape and render into the same lanes.
 // ────────────────────────────────────────────────────────────
 
-function bucketize(jobs) {
+// Per-rep → GHL pipeline. Admin (Marnin/Jan/Shaun) sees both via parallel fetches.
+function pipelineForRep(profile) {
+  var view = repView(profile);
+  if (view.key === 'khairo') return ['fencing'];
+  if (view.key === 'nithin') return ['patio'];
+  return ['fencing', 'patio'];   // admin / unknown
+}
+
+// Map a stage name to a lane. Unknown stages default to CALL (Marnin's rule:
+// never silently drop a card; CALL surfaces the gap so it can be retagged).
+function laneForBookingStage(stageName) {
+  var s = String(stageName || '').toLowerCase();
+  if (!s) return 'call';
+  if (/lost|dead|won|closed|complete/.test(s)) return null;  // terminal — exclude
+  if (/qualified|site\s*visit|discovery|appointment|booked|scheduled|measured/.test(s)) return 'book';
+  if (/new\s*lead|first\s*contact|no\s*contact|untouched|fresh|enquir/.test(s)) return 'call';
+  return 'call';
+}
+
+function nextActionForBookingStage(stageName) {
+  var s = String(stageName || '').toLowerCase();
+  if (/qualified/.test(s))   return 'Book site visit';
+  if (/site\s*visit|discovery|appointment|booked/.test(s)) return 'Confirm appointment';
+  if (/new\s*lead|first\s*contact|no\s*contact|untouched|fresh|enquir/.test(s)) return 'First contact call';
+  return 'Review GHL stage';
+}
+
+function nextActionForJobStatus(status) {
+  var s = String(status || '').toLowerCase();
+  if (s === 'quoted')                               return 'Chase quote';
+  if (s === 'accepted' || s === 'deposit_pending')  return 'Send deposit invoice';
+  if (s === 'draft' || s === 'lead' || s === 'qualified') return 'Book site visit';
+  return 'Review status';
+}
+
+// Normalise a Supabase job into the unified card shape.
+function normaliseJob(job) {
+  return {
+    loop: 'follow_up',
+    source: 'supabase',
+    opportunity_id: null,
+    job_id: job.id,
+    contact_id: null,
+    customer_name: job.client_name || 'Unknown',
+    phone: job.client_phone || null,
+    pipeline_stage: job.status || '—',
+    last_activity: job.updated_at || job.created_at || null,
+    next_suggested_action: nextActionForJobStatus(job.status),
+    evidence_refs: [{
+      kind: 'job', source: 'supabase', id: job.id,
+      text: 'Status: ' + (job.status || '—') + ' · type: ' + (job.type || '—'),
+      occurred_at: job.updated_at || job.created_at,
+    }],
+    jarvis_context: null,
+    _raw: job,
+  };
+}
+
+// Normalise a GHL opportunity into the unified card shape.
+function normaliseOpp(opp, pipelineLabel) {
+  return {
+    loop: 'booking',
+    source: 'ghl',
+    opportunity_id: opp.id,
+    job_id: null,
+    contact_id: opp.contactId || opp.contact_id || null,
+    customer_name: opp.contactName || opp.name || 'Unknown',
+    phone: opp.contactPhone || opp.phone || null,
+    pipeline_stage: opp.stageName || '—',
+    last_activity: opp.updatedAt || opp.createdAt || opp.lastStatusChangeAt || null,
+    next_suggested_action: nextActionForBookingStage(opp.stageName),
+    evidence_refs: [{
+      kind: 'opportunity', source: 'ghl', id: opp.id,
+      text: '[' + pipelineLabel + '] ' + (opp.stageName || '—'),
+      occurred_at: opp.updatedAt || opp.createdAt,
+    }],
+    jarvis_context: null,
+    _raw: opp,
+  };
+}
+
+// Lane for a unified card.
+function laneForCard(card) {
+  if (card.loop === 'booking') {
+    return laneForBookingStage(card.pipeline_stage);  // may return null (terminal)
+  }
+  // follow_up — apply existing job-status logic on _raw job
+  var job = card._raw || {};
+  return laneFor(job);
+}
+
+// Bucketise unified cards into the three lanes. Drops cards whose lane=null
+// (terminal stages — won/lost/closed). Sort: oldest activity first within
+// each lane (most overdue at top); BOOK sorts freshest first (newest leads).
+function bucketizeUnified(cards) {
   var b = { book: [], followup: [], call: [] };
-  jobs.forEach(function (j) { b[laneFor(j)].push(j); });
-  // Sort each lane by urgency: oldest first for call/follow-up (most overdue at top), freshest first for book.
-  b.call.sort(function (a, x) { return hoursAgo(x.created_at) - hoursAgo(a.created_at); });
-  b.followup.sort(function (a, x) { return hoursAgo(x.sent_at || x.quoted_at || x.created_at) - hoursAgo(a.sent_at || a.quoted_at || a.created_at); });
-  b.book.sort(function (a, x) { return hoursAgo(a.created_at) - hoursAgo(x.created_at); });
+  cards.forEach(function (c) {
+    var lane = laneForCard(c);
+    if (!lane) return;
+    if (b[lane]) b[lane].push(c);
+  });
+  function age(c) {
+    var t = c.last_activity || (c._raw && (c._raw.updated_at || c._raw.created_at));
+    return hoursAgo(t);
+  }
+  b.call.sort(function (a, x) { return age(x) - age(a); });        // oldest first
+  b.followup.sort(function (a, x) { return age(x) - age(a); });    // oldest first
+  b.book.sort(function (a, x) { return age(a) - age(x); });        // freshest first
   return b;
 }
+
+// ────────────────────────────────────────────────────────────
+// Fetchers — booking (GHL) + follow-up (Supabase)
+// Each tracks its own failure so we can render diagnostics without
+// blocking the other loop.
+// ────────────────────────────────────────────────────────────
+
+var _loadDiagnostics = { booking: [], followup: null };
+
+async function fetchBookingCards(cloud, pipelines) {
+  // pipelines = ['fencing'] | ['patio'] | ['fencing','patio']
+  var results = await Promise.all(pipelines.map(function (p) {
+    return cloud.ghl.getOpportunities(p).then(function (opps) {
+      return { pipeline: p, ok: true, opps: opps || [] };
+    }).catch(function (err) {
+      console.warn('[sale] booking fetch failed for pipeline=' + p + ':', err);
+      return { pipeline: p, ok: false, error: err && err.message || String(err), opps: [] };
+    });
+  }));
+  _loadDiagnostics.booking = results.map(function (r) {
+    return { pipeline: r.pipeline, ok: r.ok, error: r.error || null, count: r.opps.length };
+  });
+  var cards = [];
+  results.forEach(function (r) {
+    r.opps.forEach(function (opp) { cards.push(normaliseOpp(opp, r.pipeline)); });
+  });
+  return cards;
+}
+
+async function fetchFollowUpCards(cloud, profile) {
+  var view = repView(profile);
+  try {
+    var jobs = await cloud.jobs.listJobs({ limit: 200 });
+    jobs = jobs || [];
+    var open = jobs.filter(function (j) {
+      var s = (j.status || '').toLowerCase();
+      return s !== 'complete' && s !== 'completed' && s !== 'lost' && s !== 'cancelled' && s !== 'archived';
+    });
+    if (view.filter) open = open.filter(view.filter);
+    _loadDiagnostics.followup = { ok: true, count: open.length };
+    return open.map(normaliseJob);
+  } catch (err) {
+    console.error('[sale] follow-up fetch failed:', err);
+    _loadDiagnostics.followup = { ok: false, error: err && err.message || String(err), count: 0 };
+    return [];
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// Boot
+// ────────────────────────────────────────────────────────────
 
 function loadAndRender(cloud) {
   var laneBookCards = document.getElementById('laneBookCards');
   if (laneBookCards) laneBookCards.innerHTML = '<div class="state-msg">Loading your queue…</div>';
 
-  var view = repView(cloud.auth && cloud.auth.getUser ? cloud.auth.getUser() : null);
+  var profile = cloud.auth && cloud.auth.getUser ? cloud.auth.getUser() : null;
+  var pipelines = pipelineForRep(profile);
 
-  cloud.jobs.listJobs({ limit: 200 }).then(function (jobs) {
-    jobs = jobs || [];
-    // Filter out terminal states; keep anything still actionable.
-    var open = jobs.filter(function (j) {
-      var s = (j.status || '').toLowerCase();
-      return s !== 'complete' && s !== 'completed' && s !== 'lost' && s !== 'cancelled' && s !== 'archived';
-    });
-    // Per-rep view filter (admin / shaun / unknown → all).
-    if (view.filter) open = open.filter(view.filter);
-    var buckets = bucketize(open);
+  Promise.all([
+    fetchBookingCards(cloud, pipelines),
+    fetchFollowUpCards(cloud, profile),
+  ]).then(function (results) {
+    var booking = results[0];
+    var followup = results[1];
+    var allCards = booking.concat(followup);
+
+    var buckets = bucketizeUnified(allCards);
     _bucketCache = buckets;
     renderLane('book', buckets.book);
     renderLane('followup', buckets.followup);
     renderLane('call', buckets.call);
     renderCounts(buckets);
-    renderHero(open, buckets);
+    renderHero(allCards, buckets);
     refreshFab();
+    logLoadDiagnostics(booking, followup);
   }).catch(function (err) {
     console.error('[sale] load failed:', err);
     var msg = 'Failed to load. ' + (err && err.message ? err.message : 'Unknown error');
@@ -1168,6 +1370,17 @@ function loadAndRender(cloud) {
       if (el) el.innerHTML = '<div class="state-msg error">' + msg + '</div>';
     });
   });
+}
+
+// Single-line console summary every load — easy for Marnin to spot in DevTools.
+function logLoadDiagnostics(booking, followup) {
+  var bk = _loadDiagnostics.booking || [];
+  var bkSummary = bk.map(function (b) { return b.pipeline + (b.ok ? ':' + b.count : ':FAIL'); }).join(' ');
+  var fu = _loadDiagnostics.followup || { ok: false, count: 0 };
+  console.info('[sale] loaded — booking ' + bkSummary + ' · followup ' + (fu.ok ? fu.count : 'FAIL') + ' · total cards ' + (booking.length + followup.length));
+  // Surface failures in console as warnings so they're easy to filter
+  bk.forEach(function (b) { if (!b.ok) console.warn('[sale] booking pipeline ' + b.pipeline + ' failed: ' + b.error); });
+  if (!fu.ok) console.warn('[sale] follow-up failed: ' + fu.error);
 }
 
 function setOpRail(profile) {
