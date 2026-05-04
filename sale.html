@@ -163,7 +163,16 @@
             manual_dispatch_marnin_poc:    1,
             send_proposed_sms:             1,
             dismiss_proposed_action:       1,
-            add_note:                      1
+            add_note:                      1,
+            // Slice 1 cockpit verbs — custom-loop framework canon 2026-05-04.
+            // Every entry conforms to the framework's cockpit operations vocabulary
+            // (docs/loops/secure-sale-loop-framework.md). No verbs invented in
+            // sale.html that aren't in the framework table.
+            edit_and_send:                 1,
+            snooze_proposed_action:        1,
+            create_job_for_opportunity:    1,
+            assign_scoper:                 1,
+            book_scope:                    1
           };
           if (opsActPost && OPS_POST_ALLOW[opsActPost]) return { blocked: false };
           return { blocked: true, reason: 'ops-api POST action "' + opsActPost + '" not in proposal-flow allowlist' };
