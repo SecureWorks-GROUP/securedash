@@ -6824,7 +6824,12 @@ function __renderedStagesFor(typeKey) {
   var canonical = __SM.getStagesForType ? __SM.getStagesForType(typeKey).slice() : [];
   // Always-rendered legacy/derived columns (matching the prior ops.html shape, so the
   // operator board does not surprise people in Cap 1A — Cap 1E migrates rows out).
-  var preserve = ['schedule_install', 'rectification', 'final_payment', 'get_review'];
+  // 2026-05-04 fix: comment above (line 6818) listed processing+deposit as preserved
+  // but the array was missing them. Caused per-type kanbans (fencing/patio tabs) to
+  // silently drop jobs in those statuses even after the backend column-bucketing fix.
+  // Q2 (2026-05-03) shows 2 live `processing` jobs (1 fencing, 1 patio); 0 deposit
+  // jobs today but kept for forward-compatibility.
+  var preserve = ['schedule_install', 'rectification', 'final_payment', 'get_review', 'processing', 'deposit'];
   preserve.forEach(function (p) {
     if (canonical.indexOf(p) === -1) {
       // insert in stage_order position
