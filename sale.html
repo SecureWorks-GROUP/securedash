@@ -2008,9 +2008,10 @@ function normaliseJob(job) {
   return {
     loop: 'follow_up',
     source: 'supabase',
-    opportunity_id: null,
+    opportunity_id: job.ghl_opportunity_id || null,
     job_id: job.id,
-    contact_id: null,
+    pipeline_lane: job.type || null, // 'patio' | 'fencing' — disambiguates contact-id fallback
+    contact_id: job.ghl_contact_id || null,
     customer_name: job.client_name || 'Unknown',
     phone: job.client_phone || null,
     pipeline_stage: job.status || '—',
@@ -2033,6 +2034,7 @@ function normaliseOpp(opp, pipelineLabel) {
     source: 'ghl',
     opportunity_id: opp.id,
     job_id: null,
+    pipeline_lane: pipelineLabel || null, // 'patio' | 'fencing' — disambiguates contact-id fallback
     contact_id: opp.contactId || opp.contact_id || null,
     customer_name: opp.contactName || opp.name || 'Unknown',
     phone: opp.contactPhone || opp.phone || null,
@@ -2189,12 +2191,20 @@ async function fetchPendingProposals(cloud) {
       }
     });
     var byJobId = {};
+    var byContactId = {};
     actions.forEach(function (a) {
-      if (!a.job_id) return;
-      (byJobId[a.job_id] = byJobId[a.job_id] || []).push(a);
+      if (a.job_id) {
+        (byJobId[a.job_id] = byJobId[a.job_id] || []).push(a);
+      }
+      // Also index by contact_id so booking proposals on opps without a
+      // Supabase job row (~55 of 122 today) still attach to GHL cards.
+      if (a.contact_id) {
+        (byContactId[a.contact_id] = byContactId[a.contact_id] || []).push(a);
+      }
     });
     return {
       byJobId: byJobId,
+      byContactId: byContactId,
       total: actions.length,
       raw_total: raw.length,
       dropped_by_type: droppedByType,
@@ -2328,10 +2338,43 @@ function loadAndRender(cloud) {
         }
       });
 
-      // Attach pending proposals to follow-up + linked-booking cards by job_id.
-      [].concat(booking, followup).forEach(function (c) {
+      // Attach pending proposals to cards. Two passes to avoid duplicate
+      // attachment when a contact has both a patio + fencing opp / job:
+      //   1. Strict: by job_id.
+      //   2. Fallback: by contact_id, but ONLY when the proposal's
+      //      action_payload.pipeline_lane matches the card's lane, AND the
+      //      proposal hasn't already been attached elsewhere. This is needed
+      //      because ~55 of 122 proposals on 2026-05-04 have no job_id and
+      //      would otherwise never render.
+      var byContactId = proposals.byContactId || {};
+      var attachedProposalIds = {};
+      var allCards = [].concat(booking, followup);
+
+      // Pass 1 — job_id (always wins).
+      allCards.forEach(function (c) {
         if (c.job_id && proposals.byJobId[c.job_id]) {
           c.pending_proposals = proposals.byJobId[c.job_id];
+          c.pending_proposals.forEach(function (p) { attachedProposalIds[p.proposal_id] = 1; });
+        }
+      });
+
+      // Pass 2 — contact_id + lane match, only for proposals not yet attached.
+      allCards.forEach(function (c) {
+        if (c.pending_proposals && c.pending_proposals.length) return;
+        if (!c.contact_id || !byContactId[c.contact_id]) return;
+        var laneCard = c.pipeline_lane || null;
+        var matched = byContactId[c.contact_id].filter(function (p) {
+          if (attachedProposalIds[p.proposal_id]) return false;
+          var laneProp = (p.action_payload && p.action_payload.pipeline_lane) || null;
+          // If proposal has no lane, accept it (legacy rows). If both have a
+          // lane, they must match. If only the card has a lane, no match.
+          if (!laneProp) return true;
+          if (!laneCard) return false;
+          return laneProp === laneCard;
+        });
+        if (matched.length) {
+          c.pending_proposals = matched;
+          matched.forEach(function (p) { attachedProposalIds[p.proposal_id] = 1; });
         }
       });
 
