@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Admin — GHL Conversation Backfill</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font: 14px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0d141a; color: #e8e8e8; margin: 0; padding: 24px;
+      max-width: 1100px; margin-inline: auto;
+    }
+    h1 { color: #F15A29; font-size: 20px; margin-top: 0; }
+    h2 { color: #4C6A7C; font-size: 14px; text-transform: uppercase;
+         letter-spacing: 1.5px; margin: 24px 0 8px; }
+    .panel { background: #14202a; border: 1px solid #1f3140;
+             padding: 16px; border-radius: 0; margin-bottom: 16px; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+    label { color: #8FA4B2; font-size: 12px; text-transform: uppercase;
+            letter-spacing: 1px; }
+    select, input {
+      background: #0d141a; color: #e8e8e8; border: 1px solid #4C6A7C;
+      padding: 6px 10px; font: inherit; border-radius: 0;
+    }
+    button {
+      background: #F15A29; color: white; border: 0; padding: 10px 18px;
+      font-weight: 700; cursor: pointer; text-transform: uppercase;
+      letter-spacing: 1px; border-radius: 0;
+    }
+    button.secondary { background: #4C6A7C; }
+    button.danger { background: #c4481f; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    pre { background: #0d141a; color: #aab8c0; padding: 12px; overflow-x: auto;
+          border-left: 3px solid #4C6A7C; font-size: 12px; line-height: 1.5; }
+    .ok { color: #6dc578; }
+    .warn { color: #F15A29; }
+    .err { color: #ff5566; }
+    .muted { color: #4C6A7C; font-size: 12px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid #1f3140; }
+    th { color: #8FA4B2; font-size: 11px; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <h1>GHL Conversation Backfill — Admin</h1>
+  <div class="panel">
+    <div id="auth-status" class="muted">Loading…</div>
+  </div>
+
+  <div class="panel">
+    <h2>Parameters</h2>
+    <div class="row">
+      <label>Mode</label>
+      <select id="mode">
+        <option value="dry">Dry run (no writes)</option>
+        <option value="live">LIVE — actually insert</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Pipeline</label>
+      <select id="pipeline">
+        <option value="patio">patio</option>
+        <option value="fencing">fencing</option>
+        <option value="both">both</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Max opportunities</label>
+      <input id="max_opps" type="number" min="1" max="50" value="3" />
+      <label>Window (days)</label>
+      <input id="window_days" type="number" min="1" max="90" value="30" />
+    </div>
+    <div class="row" style="margin-top: 16px;">
+      <button id="run">Run backfill</button>
+      <span id="status" class="muted"></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Summary</h2>
+    <div id="summary" class="muted">No run yet.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Per-opportunity breakdown</h2>
+    <div id="per-opp" class="muted">No data.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Raw response</h2>
+    <pre id="raw" class="muted">No data yet.</pre>
+  </div>
+
+  <script>
+    window.SUPABASE_URL = 'https://kevgrhcjxspbxgovpmfl.supabase.co';
+    window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtldmdyaGNqeHNwYnhnb3ZwbWZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNTQxMDUsImV4cCI6MjA4NzkzMDEwNX0.lPUEvx8u98WL86PcMNv8yfLnd6OQKzTUOCsRewfQiZc';
+  </script>
+  <script type="module">
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+    const sb = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+
+    const $ = id => document.getElementById(id);
+    const authEl = $('auth-status');
+
+    async function checkAuth() {
+      const { data: { session } } = await sb.auth.getSession();
+      if (!session) {
+        authEl.innerHTML =
+          '<span class="err">Not signed in.</span> Open <a href="sale.html" style="color:#F15A29">sale.html</a> first to sign in, then come back here.';
+        $('run').disabled = true;
+        return null;
+      }
+      const u = session.user;
+      const allowed = (u.email || '').toLowerCase() === 'marnin@secureworkswa.com.au';
+      authEl.innerHTML = 'Signed in as <b>' + (u.email || u.id) + '</b> ' +
+        (allowed ? '<span class="ok">— authorised</span>' : '<span class="err">— NOT authorised (marnin only)</span>');
+      $('run').disabled = !allowed;
+      return session;
+    }
+
+    async function run() {
+      $('status').textContent = 'Running…';
+      $('run').disabled = true;
+      const session = (await sb.auth.getSession()).data.session;
+      if (!session) { $('status').textContent = 'No session'; return; }
+      const dry = $('mode').value === 'dry';
+      const body = {
+        dry_run: dry,
+        pipeline: $('pipeline').value,
+        max_opportunities: Number($('max_opps').value),
+        opportunity_window_days: Number($('window_days').value),
+      };
+      try {
+        const r = await fetch(
+          window.SUPABASE_URL + '/functions/v1/ops-api?action=backfill_ghl_conversations',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + session.access_token,
+            },
+            body: JSON.stringify(body),
+          }
+        );
+        const j = await r.json();
+        $('raw').textContent = JSON.stringify(j, null, 2);
+        $('raw').className = '';
+
+        if (!r.ok) {
+          $('status').innerHTML = '<span class="err">HTTP ' + r.status + ' — ' + (j.error || 'unknown') + '</span>';
+          $('summary').innerHTML = '<span class="err">Request failed</span>';
+        } else {
+          renderSummary(j);
+        }
+      } catch (e) {
+        $('status').innerHTML = '<span class="err">Network error: ' + (e && e.message || e) + '</span>';
+      } finally {
+        $('run').disabled = false;
+      }
+    }
+
+    function renderSummary(j) {
+      const mode = j.dry_run ? '<span class="warn">DRY RUN (no writes)</span>' : '<span class="ok">LIVE (rows inserted)</span>';
+      const counts = `
+        <div class="row">${mode}</div>
+        <table>
+          <tr><th>opps fetched (total)</th><td>${j.opps_total_fetched ?? '—'}</td></tr>
+          <tr><th>opps in window</th><td>${j.opps_in_window ?? '—'}</td></tr>
+          <tr><th>messages found</th><td>${j.messages_found ?? '—'}</td></tr>
+          <tr><th>dedupe skipped</th><td>${j.messages_dedupe_skipped ?? '—'}</td></tr>
+          <tr><th>would insert</th><td>${j.messages_would_insert ?? '—'}</td></tr>
+          <tr><th>actually inserted</th><td>${j.messages_inserted ?? 0}</td></tr>
+          <tr><th>errors</th><td>${(j.errors || []).length}</td></tr>
+        </table>
+        <h2>Channel mix</h2>
+        <pre>${JSON.stringify(j.classified_by_channel || {}, null, 2)}</pre>
+        <h2>Event types</h2>
+        <pre>${JSON.stringify(j.classified_by_event_type || {}, null, 2)}</pre>
+        <h2>Unrecognised types <span class="muted">(empty = good)</span></h2>
+        <pre class="${Object.keys(j.unrecognised_message_types || {}).length ? 'warn' : ''}">${JSON.stringify(j.unrecognised_message_types || {}, null, 2)}</pre>
+        ${(j.errors || []).length ? '<h2>Errors</h2><pre class="err">' + JSON.stringify(j.errors, null, 2) + '</pre>' : ''}
+      `;
+      $('summary').innerHTML = counts;
+      $('status').innerHTML = '<span class="ok">Done</span>';
+
+      // Per-opp table
+      const opps = j.per_opp || [];
+      if (opps.length) {
+        let html = '<table><tr><th>opp_id</th><th>contactId</th><th>pipeline</th><th>messages</th><th>would insert</th><th>dedupe skip</th></tr>';
+        for (const o of opps) {
+          html += `<tr><td>${o.opp_id}</td><td>${o.contactId}</td><td>${o.pipeline}</td><td>${o.messages}</td><td>${o.would_insert}</td><td>${o.dedupe_skipped}</td></tr>`;
+        }
+        html += '</table>';
+        $('per-opp').innerHTML = html;
+      } else {
+        $('per-opp').textContent = 'No opportunities returned.';
+      }
+    }
+
+    $('run').addEventListener('click', run);
+    checkAuth();
+  </script>
+</body>
+</html>
