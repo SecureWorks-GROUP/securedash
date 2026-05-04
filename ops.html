@@ -6819,6 +6819,49 @@ function toggleDrafts() {
 //   processing, deposit) are preserved in the rendered set so existing rows stay visible
 //   until Phase D / Cap 1E migrates them.
 var __SM = (window.SW_STATE_MACHINE) || {};
+
+// ── Sales drawer: pre-acceptance stages collapsed by default ─��
+var SALES_DRAWER_STAGES = ['quoted', 'partially_accepted'];
+var _salesDrawerOpen = localStorage.getItem('ops_sales_drawer_open') === '1';
+function toggleSalesDrawer() {
+  _salesDrawerOpen = !_salesDrawerOpen;
+  localStorage.setItem('ops_sales_drawer_open', _salesDrawerOpen ? '1' : '0');
+  if (_pipelineData) renderJobs(_pipelineData);
+}
+function __partitionStages(stages) {
+  var sales = [];
+  var ops = [];
+  stages.forEach(function(s) {
+    if (SALES_DRAWER_STAGES.indexOf(s) !== -1) sales.push(s);
+    else ops.push(s);
+  });
+  return { sales: sales, ops: ops };
+}
+function __renderSalesDrawer(columns, salesStages) {
+  var total = 0;
+  salesStages.forEach(function(s) { total += (columns[s] || []).length; });
+  if (!_salesDrawerOpen) {
+    return '<div onclick="toggleSalesDrawer()" style="cursor:pointer;min-width:28px;max-width:28px;align-self:stretch;background:var(--sw-card-bg,#1e2a35);border:1px solid var(--sw-border,#2a3a4a);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;flex-shrink:0;">'
+      + '<span style="writing-mode:vertical-rl;text-orientation:mixed;font-size:10px;font-weight:600;color:var(--sw-text-sec,#8fa4b2);letter-spacing:0.5px;">Sales</span>'
+      + (total > 0 ? '<span style="font-size:9px;background:#F15A29;color:#fff;border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center;">' + total + '</span>' : '')
+      + '<span style="font-size:8px;color:var(--sw-text-sec,#8fa4b2);">&#9654;</span>'
+      + '</div>';
+  }
+  var html = '<div style="min-width:200px;max-width:200px;align-self:stretch;background:var(--sw-card-bg,#1e2a35);border:1px solid var(--sw-border,#2a3a4a);border-radius:8px;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;">';
+  html += '<div onclick="toggleSalesDrawer()" style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--sw-border,#2a3a4a);">';
+  html += '<span style="font-size:8px;color:var(--sw-text-sec,#8fa4b2);">&#9664;</span>';
+  html += '<span style="font-size:11px;font-weight:600;color:var(--sw-text-sec,#8fa4b2);">Sales</span>';
+  html += '</div>';
+  salesStages.forEach(function(status) {
+    var jobs = columns[status] || [];
+    html += '<div style="padding:6px 8px;">';
+    html += '<div style="font-size:10px;font-weight:600;color:var(--sw-text-sec,#8fa4b2);margin-bottom:4px;">' + statusLabelOrGap(status) + ' <span style="opacity:0.7;">' + jobs.length + '</span></div>';
+    jobs.forEach(function(j) { html += renderKanbanCard(j, status); });
+    html += '</div>';
+  });
+  html += '</div>';
+  return html;
+}
 function __renderedStagesFor(typeKey) {
   // typeKey: 'fencing' | 'patio' | 'decking'
   var canonical = __SM.getStagesForType ? __SM.getStagesForType(typeKey).slice() : [];
@@ -6887,9 +6930,12 @@ function renderJobs(data) {
 }
 
 function renderFencingKanban(container, columns) {
-  var html = '<div class="kanban-container">';
+  var parts = __partitionStages(FENCING_STAGES);
+  var html = '<div style="display:flex;gap:8px;height:100%;">';
+  html += __renderSalesDrawer(columns, parts.sales);
+  html += '<div class="kanban-container" style="flex:1;">';
 
-  FENCING_STAGES.forEach(function(status) {
+  parts.ops.forEach(function(status) {
     var jobs = columns[status] || [];
     html += '<div class="kanban-col" data-status="' + status + '" ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
     html += '<div class="kanban-col-header">' + statusLabelOrGap(status) + '<span class="count">' + jobs.length + '</span></div>';
@@ -6898,25 +6944,7 @@ function renderFencingKanban(container, columns) {
     if (jobs.length === 0) {
       html += '<div style="text-align:center; padding:20px; color:var(--sw-text-sec); font-size:12px;">No jobs</div>';
     } else {
-      // Sub-stage grouping for quoted column
-      if (status === 'quoted') {
-        var fresh = jobs.filter(function(j) { return j.days_in_stage <= 7; });
-        var following = jobs.filter(function(j) { return j.days_in_stage > 7; });
-        if (fresh.length > 0) {
-          html += '<div class="kanban-substage-header" onclick="toggleSubstage(this)" style="color:var(--sw-text-sec);">Quote Sent <span class="count">' + fresh.length + '</span></div>';
-          html += '<div class="kanban-substage-group">';
-          fresh.forEach(function(j) { html += renderKanbanCard(j, status); });
-          html += '</div>';
-        }
-        if (following.length > 0) {
-          html += '<div class="kanban-substage-header" onclick="toggleSubstage(this)" style="color:#E67E22;">Following Up <span class="count">' + following.length + '</span></div>';
-          html += '<div class="kanban-substage-group">';
-          following.forEach(function(j) { html += renderKanbanCard(j, status); });
-          html += '</div>';
-        }
-      } else {
-        jobs.forEach(function(j) { html += renderKanbanCard(j, status); });
-      }
+      jobs.forEach(function(j) { html += renderKanbanCard(j, status); });
     }
 
     html += '</div></div>';
@@ -6938,6 +6966,7 @@ function renderFencingKanban(container, columns) {
   html += '</div></div>';
 
   html += '</div>';
+  html += '</div>'; // close flex wrapper
   container.innerHTML = html;
   setupKanbanHorizontalScroll();
   if (_kanbanSavedScroll) {
@@ -6949,9 +6978,12 @@ function renderFencingKanban(container, columns) {
 
 function renderPatioKanban(container, columns) {
   var stages = _pipelineTab === 'decking' ? DECKING_STAGES : PATIO_STAGES;
-  var html = '<div class="kanban-container">';
+  var parts = __partitionStages(stages);
+  var html = '<div style="display:flex;gap:8px;height:100%;">';
+  html += __renderSalesDrawer(columns, parts.sales);
+  html += '<div class="kanban-container" style="flex:1;">';
 
-  stages.forEach(function(status) {
+  parts.ops.forEach(function(status) {
     var jobs = columns[status] || [];
     html += '<div class="kanban-col" data-status="' + status + '" ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
 
@@ -6959,7 +6991,6 @@ function renderPatioKanban(container, columns) {
     if (status === 'approvals') {
       var inProgress = jobs.filter(function(j) { return j.council_status && j.council_status !== 'complete' && j.council_count > 0; }).length;
       var blocked = jobs.filter(function(j) { return j.council_status === 'blocked'; }).length;
-      var headerExtra = jobs.length > 0 ? ': ' + inProgress + ' in progress' + (blocked > 0 ? ', ' + blocked + ' blocked' : '') : '';
       html += '<div class="kanban-col-header">' + statusLabelOrGap(status) + '<span class="count">' + jobs.length + '</span></div>';
       if (jobs.length > 0) {
         html += '<div style="font-size:11px;color:var(--sw-text-sec);padding:0 10px 6px;text-align:center;">' + inProgress + ' in progress' + (blocked > 0 ? ' &bull; <span style="color:#E74C3C;">' + blocked + ' blocked</span>' : '') + '</div>';
@@ -6973,25 +7004,7 @@ function renderPatioKanban(container, columns) {
     if (jobs.length === 0) {
       html += '<div style="text-align:center; padding:20px; color:var(--sw-text-sec); font-size:12px;">No jobs</div>';
     } else {
-      // Sub-stage grouping for quoted column
-      if (status === 'quoted') {
-        var fresh = jobs.filter(function(j) { return j.days_in_stage <= 7; });
-        var following = jobs.filter(function(j) { return j.days_in_stage > 7; });
-        if (fresh.length > 0) {
-          html += '<div class="kanban-substage-header" onclick="toggleSubstage(this)" style="color:var(--sw-text-sec);">Quote Sent <span class="count">' + fresh.length + '</span></div>';
-          html += '<div class="kanban-substage-group">';
-          fresh.forEach(function(j) { html += renderKanbanCard(j, status); });
-          html += '</div>';
-        }
-        if (following.length > 0) {
-          html += '<div class="kanban-substage-header" onclick="toggleSubstage(this)" style="color:#E67E22;">Following Up <span class="count">' + following.length + '</span></div>';
-          html += '<div class="kanban-substage-group">';
-          following.forEach(function(j) { html += renderKanbanCard(j, status); });
-          html += '</div>';
-        }
-      } else {
-        jobs.forEach(function(j) { html += renderKanbanCard(j, status); });
-      }
+      jobs.forEach(function(j) { html += renderKanbanCard(j, status); });
     }
 
     html += '</div></div>';
@@ -7010,6 +7023,7 @@ function renderPatioKanban(container, columns) {
   html += '</div></div>';
 
   html += '</div>';
+  html += '</div>'; // close flex wrapper
   container.innerHTML = html;
   setupKanbanHorizontalScroll();
   if (_kanbanSavedScroll) {
@@ -7159,9 +7173,12 @@ function renderKanban(container, columns) {
   var order = (window.SW_STATE_MACHINE && window.SW_STATE_MACHINE.ACTIVE_STATUSES)
     ? window.SW_STATE_MACHINE.ACTIVE_STATUSES.filter(function (s) { return s !== 'draft'; })
     : ['draft', 'quoted', 'accepted', 'approvals', 'processing', 'in_progress', 'complete', 'invoiced'];
-  var html = '<div class="kanban-container">';
+  var parts = __partitionStages(order);
+  var html = '<div style="display:flex;gap:8px;height:100%;">';
+  html += __renderSalesDrawer(columns, parts.sales);
+  html += '<div class="kanban-container" style="flex:1;">';
 
-  order.forEach(function(status) {
+  parts.ops.forEach(function(status) {
     var jobs = columns[status] || [];
     html += '<div class="kanban-col" data-status="' + status + '" ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
     html += '<div class="kanban-col-header">' + statusLabelOrGap(status) + '<span class="count">' + jobs.length + '</span></div>';
@@ -7217,6 +7234,7 @@ function renderKanban(container, columns) {
   html += '</div></div>';
 
   html += '</div>';
+  html += '</div>'; // close flex wrapper
   container.innerHTML = html;
   setupKanbanHorizontalScroll();
 }
