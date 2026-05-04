@@ -172,7 +172,12 @@
             snooze_proposed_action:        1,
             create_job_for_opportunity:    1,
             assign_scoper:                 1,
-            book_scope:                    1
+            book_scope:                    1,
+            // Slice 3 — admin brain backfill. Server-side gate is marnin-only
+            // (email check via auth.getUser); allowlist here just lets the
+            // browser issue the POST. Read-only against GHL + write-only into
+            // business_events with default dry_run=true.
+            backfill_ghl_conversations:    1
           };
           if (opsActPost && OPS_POST_ALLOW[opsActPost]) return { blocked: false };
           return { blocked: true, reason: 'ops-api POST action "' + opsActPost + '" not in proposal-flow allowlist' };
