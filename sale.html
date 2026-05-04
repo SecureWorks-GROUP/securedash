@@ -1218,7 +1218,8 @@ function renderCard(card, lane) {
 
   // 8. MEMORY FACTS PANEL — show top job_context facts (or empty state).
   if (card.job_id) {
-    el.appendChild(renderMemoryFactsPanel(card));
+    var memEl = renderMemoryFactsPanel(card);
+    if (memEl) el.appendChild(memEl);
   }
 
   el.addEventListener('click', function (e) {
@@ -1301,23 +1302,23 @@ function renderProposalDetailPanel(p, card) {
 }
 
 // Render the job_context facts panel — what JARVIS knows about this job.
+// Render the JARVIS memory panel ONLY when the job has at least one fact.
+// Returns null when empty so the card stays compact. The empty state is
+// implied by absence; the per-load console diagnostic
+// (`[sale] loaded — booking … · followup … · proposals N · total cards N`)
+// surfaces the system-wide extractor gap to the dev / Marnin without
+// repeating "no memory yet" 200 times in the UI.
 function renderMemoryFactsPanel(card) {
+  var facts = card.memory_facts || [];
+  if (!facts.length) return null;
+
   var wrap = document.createElement('div');
   wrap.className = 'memory-facts';
   wrap.style.cssText = 'margin-top:10px;padding:10px 14px;background:rgba(92,143,184,0.08);border-left:2px solid var(--blue);font-size:11px;line-height:1.5;color:var(--text-sec);';
   var label = document.createElement('div');
   label.style.cssText = 'color:var(--text-muted);font-size:10px;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:4px;';
-  label.textContent = 'JARVIS memory · job_context';
+  label.textContent = 'JARVIS memory · job_context · ' + facts.length + ' fact' + (facts.length === 1 ? '' : 's');
   wrap.appendChild(label);
-
-  var facts = card.memory_facts || [];
-  if (!facts.length) {
-    var empty = document.createElement('div');
-    empty.style.cssText = 'color:var(--text-muted);font-style:italic;';
-    empty.textContent = 'No memory facts yet for this job — extractor backfill pending (Terminal A).';
-    wrap.appendChild(empty);
-    return wrap;
-  }
 
   facts.slice(0, 6).forEach(function (f) {
     var row = document.createElement('div');
@@ -1330,6 +1331,12 @@ function renderMemoryFactsPanel(card) {
     row.innerHTML = '<strong style="color:var(--text);">' + escapeHtml(kind) + '</strong> · ' + escapeHtml(valStr);
     wrap.appendChild(row);
   });
+  if (facts.length > 6) {
+    var more = document.createElement('div');
+    more.style.cssText = 'margin-top:4px;color:var(--text-muted);font-size:10px;';
+    more.textContent = '+ ' + (facts.length - 6) + ' more fact' + (facts.length - 6 === 1 ? '' : 's');
+    wrap.appendChild(more);
+  }
   return wrap;
 }
 
@@ -1728,6 +1735,10 @@ function laneForBookingStage(stageName) {
   if (!s) return 'call';
   if (/lost|dead|won|closed|complete/.test(s)) return null;  // terminal — exclude
   if (/qualified|site\s*visit|discovery|appointment|booked|scheduled|measured/.test(s)) return 'book';
+  // GHL "Stale Lead" stage = lead has gone cold but is salvageable. These
+  // belong in FOLLOW UP (chase via SMS/email/call) — NOT CALL (cold call).
+  // Per Marnin 2026-05-04: 137 stale leads were dominating the CALL lane.
+  if (/stale|aged|dormant/.test(s)) return 'followup';
   if (/new\s*lead|first\s*contact|no\s*contact|untouched|fresh|enquir/.test(s)) return 'call';
   return 'call';
 }
@@ -1736,6 +1747,7 @@ function nextActionForBookingStage(stageName) {
   var s = String(stageName || '').toLowerCase();
   if (/qualified/.test(s))   return 'Book site visit';
   if (/site\s*visit|discovery|appointment|booked/.test(s)) return 'Confirm appointment';
+  if (/stale|aged|dormant/.test(s)) return 'Chase stale lead';
   if (/new\s*lead|first\s*contact|no\s*contact|untouched|fresh|enquir/.test(s)) return 'First contact call';
   return 'Review GHL stage';
 }
