@@ -50,10 +50,17 @@
   <div class="panel">
     <h2>Parameters</h2>
     <div class="row">
+      <label>What to backfill</label>
+      <select id="kind">
+        <option value="sms">SMS / Email conversations (Slice 3)</option>
+        <option value="calls">Call recordings → Whisper transcripts (Slice 3.5)</option>
+      </select>
+    </div>
+    <div class="row">
       <label>Mode</label>
       <select id="mode">
-        <option value="dry">Dry run (no writes)</option>
-        <option value="live">LIVE — actually insert</option>
+        <option value="dry">Dry run (no writes / no spend)</option>
+        <option value="live">LIVE — actually insert / call OpenAI</option>
       </select>
     </div>
     <div class="row">
@@ -61,18 +68,21 @@
       <select id="pipeline">
         <option value="patio">patio</option>
         <option value="fencing">fencing</option>
-        <option value="both">both</option>
+        <option value="both" selected>both</option>
       </select>
     </div>
     <div class="row">
       <label>Max opportunities</label>
-      <input id="max_opps" type="number" min="1" max="50" value="3" />
+      <input id="max_opps" type="number" min="1" max="200" value="100" />
       <label>Window (days)</label>
-      <input id="window_days" type="number" min="1" max="90" value="30" />
+      <input id="window_days" type="number" min="1" max="180" value="90" />
     </div>
     <div class="row" style="margin-top: 16px;">
       <button id="run">Run backfill</button>
       <span id="status" class="muted"></span>
+    </div>
+    <div class="muted" style="margin-top: 8px; font-size: 11px;">
+      Calls mode: each transcript costs ~$0.006/min (Whisper). 50 calls × 3min = ~$1. Dry-run first to see counts.
     </div>
   </div>
 
@@ -124,6 +134,8 @@
       const session = (await sb.auth.getSession()).data.session;
       if (!session) { $('status').textContent = 'No session'; return; }
       const dry = $('mode').value === 'dry';
+      const kind = $('kind').value;
+      const action = kind === 'calls' ? 'backfill_call_transcripts' : 'backfill_ghl_conversations';
       const body = {
         dry_run: dry,
         pipeline: $('pipeline').value,
@@ -132,7 +144,7 @@
       };
       try {
         const r = await fetch(
-          window.SUPABASE_URL + '/functions/v1/ops-api?action=backfill_ghl_conversations',
+          window.SUPABASE_URL + '/functions/v1/ops-api?action=' + action,
           {
             method: 'POST',
             headers: {
@@ -150,12 +162,50 @@
           $('status').innerHTML = '<span class="err">HTTP ' + r.status + ' — ' + (j.error || 'unknown') + '</span>';
           $('summary').innerHTML = '<span class="err">Request failed</span>';
         } else {
-          renderSummary(j);
+          if (kind === 'calls') renderCallsSummary(j);
+          else renderSummary(j);
         }
       } catch (e) {
         $('status').innerHTML = '<span class="err">Network error: ' + (e && e.message || e) + '</span>';
       } finally {
         $('run').disabled = false;
+      }
+    }
+
+    function renderCallsSummary(j) {
+      const mode = j.dry_run ? '<span class="warn">DRY RUN (no spend)</span>' : '<span class="ok">LIVE (Whisper queued)</span>';
+      const counts = `
+        <div class="row">${mode}</div>
+        <table>
+          <tr><th>opps fetched (total)</th><td>${j.opps_total_fetched ?? '—'}</td></tr>
+          <tr><th>opps in window</th><td>${j.opps_in_window ?? '—'}</td></tr>
+          <tr><th>calls found</th><td>${j.calls_found ?? '—'}</td></tr>
+          <tr><th>with recording_url</th><td>${j.calls_with_recording ?? '—'}</td></tr>
+          <tr><th>without recording (skipped)</th><td>${j.calls_without_recording ?? '—'}</td></tr>
+          <tr><th>dedupe skipped (already transcribed)</th><td>${j.calls_dedupe_skipped ?? '—'}</td></tr>
+          <tr><th>would queue</th><td>${j.calls_would_queue ?? '—'}</td></tr>
+          <tr><th>actually queued</th><td>${j.calls_queued ?? 0}</td></tr>
+          <tr><th>transcribe-call POST failures</th><td class="${j.transcribe_call_failures ? 'err' : ''}">${j.transcribe_call_failures ?? 0}</td></tr>
+          <tr><th>errors</th><td>${(j.errors || []).length}</td></tr>
+        </table>
+        ${(j.errors || []).length ? '<h2>Errors</h2><pre class="err">' + JSON.stringify(j.errors.slice(0, 10), null, 2) + '</pre>' : ''}
+      `;
+      $('summary').innerHTML = counts;
+      $('status').innerHTML = j.dry_run
+        ? '<span class="warn">Dry-run done. Live cost estimate: ~$' +
+          (((j.calls_would_queue || 0) * 3 * 0.006).toFixed(2)) + ' (assumes 3min avg per call)</span>'
+        : '<span class="ok">Done. Whisper transcripts will land in business_events over next 1-2 minutes per call.</span>';
+
+      const opps = j.per_opp || [];
+      if (opps.length) {
+        let html = '<table><tr><th>opp_id</th><th>contactId</th><th>pipeline</th><th>calls</th><th>w/ recording</th><th>would queue</th><th>dedupe</th></tr>';
+        for (const o of opps) {
+          html += `<tr><td>${o.opp_id}</td><td>${o.contactId}</td><td>${o.pipeline}</td><td>${o.calls}</td><td>${o.with_recording}</td><td>${o.would_queue}</td><td>${o.dedupe_skipped}</td></tr>`;
+        }
+        html += '</table>';
+        $('per-opp').innerHTML = html;
+      } else {
+        $('per-opp').textContent = 'No opportunities returned.';
       }
     }
 
