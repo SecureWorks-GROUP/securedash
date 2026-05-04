@@ -1587,7 +1587,14 @@ function renderCounts(buckets) {
   document.getElementById('laneBarMeta').textContent = (b + f + c) + ' LEADS';
 }
 
-function renderSourceMeta(allCards) {
+// ops-api/list_proposed_actions has a hard-coded .limit(50) at the source,
+// so the cockpit cannot see proposals 51+ until Terminal A ships ticket
+// SECURE-SALE-LIST-PROPOSED-LIMIT-BUMP. Detect when we received the cap
+// and surface that visibly so reps know they may have a hidden tail of
+// JARVIS proposals queued.
+var OPS_API_LIST_PROPOSED_LIMIT = 50;
+
+function renderSourceMeta(allCards, proposals) {
   var el = document.getElementById('laneBarMeta');
   if (!el) return;
   var ghlFencing = 0, ghlPatio = 0, jobs = 0;
@@ -1600,7 +1607,29 @@ function renderSourceMeta(allCards) {
       jobs++;
     }
   });
-  el.textContent = (allCards.length || 0) + ' LEADS · GHL F ' + ghlFencing + ' / P ' + ghlPatio + ' · JOBS ' + jobs;
+
+  var proposalCount = (proposals && proposals.total) || 0;
+  var rawTotal = (proposals && proposals.raw_total) || 0;
+  var droppedByType = (proposals && proposals.dropped_by_type) || {};
+  var droppedTotal = Object.keys(droppedByType).reduce(function (acc, k) { return acc + droppedByType[k]; }, 0);
+  var atLimit = rawTotal >= OPS_API_LIST_PROPOSED_LIMIT;
+
+  var parts = [
+    (allCards.length || 0) + ' LEADS',
+    'GHL F ' + ghlFencing + ' / P ' + ghlPatio,
+    'JOBS ' + jobs,
+    'PROPS ' + proposalCount + (atLimit ? '+' : '') + (droppedTotal ? ' (' + droppedTotal + ' dropped)' : ''),
+  ];
+  el.innerHTML = parts.map(escapeHtml).join(' · ');
+
+  if (atLimit) {
+    // Add a small inline warning so reps know there may be more JARVIS
+    // proposals queued beyond what the API returned this load.
+    var warn = document.createElement('span');
+    warn.style.cssText = 'margin-left:10px;color:var(--amber);font-size:9px;letter-spacing:1px;text-transform:uppercase;font-weight:700;';
+    warn.textContent = '⚠ at API limit · server returns max ' + OPS_API_LIST_PROPOSED_LIMIT + ' (SECURE-SALE-LIST-PROPOSED-LIMIT-BUMP)';
+    el.appendChild(warn);
+  }
 }
 
 function renderHero(allCards, buckets) {
@@ -2112,7 +2141,7 @@ function loadAndRender(cloud) {
       renderLane('followup', buckets.followup);
       renderLane('call', buckets.call);
       renderCounts(buckets);
-      renderSourceMeta(allCards);
+      renderSourceMeta(allCards, proposals);
       renderHero(allCards, buckets);
       refreshFab();
       logLoadDiagnostics(booking, followup, proposals);
