@@ -1129,14 +1129,19 @@ function renderCard(card, lane) {
       }
     }
 
-    // Edit — backend endpoint not deployed; disabled + labelled.
-    var editBtn = document.createElement('button');
-    editBtn.type = 'button';
-    editBtn.textContent = 'Edit (not live)';
-    editBtn.disabled = true;
-    editBtn.title = 'Edit-and-send endpoint not deployed yet (SECURE-SALE-EDIT-AND-SEND)';
-    editBtn.style.cssText = 'opacity:0.45;cursor:not-allowed;';
-    actions.appendChild(editBtn);
+    // Edit & Send — wired to ops-api edit_and_send (Slice 1, 2026-05-04).
+    // Only shown for SMS dispatch types (you can't edit a phone call).
+    if (dispatchKind === 'sms') {
+      var editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.textContent = 'Edit & Send';
+      editBtn.title = 'Tweak the drafted SMS, then send through the same audit chain';
+      editBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        openProposalEditDrawer(prop, card);
+      });
+      actions.appendChild(editBtn);
+    }
 
     var rejectBtn = document.createElement('button');
     rejectBtn.type = 'button';
@@ -1148,14 +1153,29 @@ function renderCard(card, lane) {
     });
     actions.appendChild(rejectBtn);
 
-    // Snooze — backend endpoint not deployed; disabled + labelled.
+    // Snooze — wired to ops-api snooze_proposed_action (Slice 1, 2026-05-04).
     var snoozeBtn = document.createElement('button');
     snoozeBtn.type = 'button';
-    snoozeBtn.textContent = 'Snooze (not live)';
-    snoozeBtn.disabled = true;
-    snoozeBtn.title = 'Snooze endpoint not deployed yet (SECURE-SALE-SNOOZE-ENDPOINT)';
-    snoozeBtn.style.cssText = 'opacity:0.45;cursor:not-allowed;';
+    snoozeBtn.textContent = 'Snooze';
+    snoozeBtn.title = 'Pause this proposal until a chosen time';
+    snoozeBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      openSnoozeMenu(prop, card, snoozeBtn);
+    });
     actions.appendChild(snoozeBtn);
+
+    // Book Scope — wired (Slice 1). Only on booking-loop proposals.
+    if (prop.metadata && prop.metadata.loop === 'booking_scope') {
+      var bookBtn = document.createElement('button');
+      bookBtn.type = 'button';
+      bookBtn.textContent = 'Book Scope';
+      bookBtn.title = 'Lock in a scope window — generates customer confirmation SMS for your approval';
+      bookBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        openBookScopeDrawer(prop, card);
+      });
+      actions.appendChild(bookBtn);
+    }
   }
 
   // 3. LOG NOTE — wired add_note. Only for cards with a Supabase job_id
@@ -1195,16 +1215,20 @@ function renderCard(card, lane) {
   }
 
   // 6. CREATE JOB AFFORDANCE — booking-loop GHL cards with no Supabase job.
-  //    Backend endpoint not deployed; disabled + clearly labelled per
-  //    Marnin's brief. Reverts to the static badge style so reps SEE the
-  //    memory gap without thinking the button does something.
+  //    Wired (Slice 1, 2026-05-04) to ops-api create_job_for_opportunity.
+  //    Backend creates a typed stub (patio|fencing) the scoping tool will
+  //    discover via find_job + update on next save (no duplicate).
   if (card.loop === 'booking' && card.no_job_link) {
-    var noLink = document.createElement('span');
-    noLink.className = 'lcard-pill';
-    noLink.style.cssText = 'border-color:rgba(255,181,84,0.6);color:var(--amber);cursor:not-allowed;';
-    noLink.textContent = 'no Supabase job · memory off';
-    noLink.title = 'No Supabase job linked. JARVIS memory disabled. Backend create-job endpoint pending (SECURE-SALE-CREATE-JOB-FOR-OPP).';
-    actions.appendChild(noLink);
+    var createJobBtn = document.createElement('button');
+    createJobBtn.type = 'button';
+    createJobBtn.textContent = 'Create Job (memory off)';
+    createJobBtn.title = 'Create a Supabase jobs stub linked to this opportunity. Enables JARVIS memory + future facts. Scoping tool will pick up the same row.';
+    createJobBtn.style.cssText = 'border-color:rgba(255,181,84,0.6);color:var(--amber);';
+    createJobBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      handleCreateJobForOpp(card, createJobBtn);
+    });
+    actions.appendChild(createJobBtn);
   }
 
   // 7. JARVIS RATIONALE + EVIDENCE PANEL + MEMORY FACTS — inside expanded card.
@@ -1461,14 +1485,195 @@ function handleRejectWithReason(proposal, card) {
 
 function openNoteDrawer(card) {
   if (!card.job_id) { showActionToast('Need a Supabase job to log a note', 'error'); return; }
-  var text = window.prompt('Log a note on ' + card.customer_name + '\n\n(Internal — not customer facing.)');
+  // Marnin 2026-05-04: Add Note now defaults to two-way sync to GHL
+  // ('client_visible'). Operator can toggle to 'internal_only' for
+  // staff-only notes that don't appear in the GHL contact view.
+  var text = window.prompt('Log a note on ' + card.customer_name + '\n\nDefault: client-visible (syncs to GHL).\nPrefix with "INTERNAL: " for staff-only.');
   if (!text || !text.trim()) return;
+  var trimmed = text.trim();
+  var visibility = 'client_visible';
+  if (/^internal\s*:\s*/i.test(trimmed)) {
+    visibility = 'internal_only';
+    trimmed = trimmed.replace(/^internal\s*:\s*/i, '');
+  }
   var userId = (_profileCache && _profileCache.id) || null;
-  opsApiPost(_lastCloud, 'add_note', { jobId: card.job_id, userId: userId, text: text.trim() }).then(function () {
-    showActionToast('Note logged ✓', 'sent');
+  opsApiPost(_lastCloud, 'add_note', {
+    jobId: card.job_id,
+    userId: userId,
+    text: trimmed,
+    visibility: visibility,
+    sync_to_ghl: visibility === 'client_visible',
+  }).then(function (res) {
+    var label = visibility === 'internal_only' ? 'Internal note logged ✓' :
+                (res && res.ghl_synced ? 'Note logged + synced to GHL ✓' : 'Note logged (GHL push pending)');
+    showActionToast(label, 'sent');
   }).catch(function (err) {
     showActionToast('Note failed: ' + err.message, 'error');
   });
+}
+
+// ════════════════════════════════════════════════════════════
+// Slice 1 cockpit verbs (custom-loop framework, 2026-05-04)
+// All conform to docs/loops/secure-sale-loop-framework.md
+// ════════════════════════════════════════════════════════════
+
+// Verb: Edit & Send — operator tweaks the drafted SMS, ops-api updates
+// the row, audit chain captures the diff, then sends via existing path.
+function openProposalEditDrawer(proposal, card) {
+  var current = proposal.drafted_message || '';
+  var edited = window.prompt(
+    'Edit SMS to ' + (card.customer_name || card.contact_name || 'contact') +
+    '\n(' + (current.length) + ' chars currently)',
+    current
+  );
+  if (edited === null) return; // cancelled
+  var trimmed = String(edited).trim();
+  if (!trimmed) { showActionToast('Edited message is empty', 'error'); return; }
+  if (trimmed === current.trim()) {
+    // No diff — route through plain Approve & Send
+    return openProposalConfirm(proposal, card);
+  }
+  // Confirm before sending the edited version
+  if (!window.confirm('Send this edited SMS?\n\n' + trimmed.slice(0, 400))) return;
+  var pid = proposal.proposal_id || proposal.id;
+  var userId = (_profileCache && _profileCache.id) || null;
+  opsApiPost(_lastCloud, 'edit_and_send', {
+    action_id: pid,
+    edited_message: trimmed,
+    user_id: userId,
+  }).then(function () {
+    showActionToast('Edited & sent ✓', 'sent');
+    setTimeout(function () { reloadCardsKeepScroll(); }, 600);
+  }).catch(function (err) {
+    showActionToast('Edit & Send failed: ' + err.message, 'error');
+  });
+}
+
+// Verb: Snooze — pause the proposal until a chosen time. Quick choices
+// + custom datetime fallback. Backend stores in metadata.snoozed_until;
+// list endpoint hides snoozed rows automatically.
+function openSnoozeMenu(proposal, card, anchorBtn) {
+  var choices = [
+    { label: '1 hour', minutes: 60 },
+    { label: '4 hours', minutes: 240 },
+    { label: 'Tomorrow 9am', minutes: null, atHour: 9 },
+    { label: 'Next Monday 9am', minutes: null, atHour: 9, atDay: 1 },
+    { label: 'Custom…', minutes: null, custom: true },
+  ];
+  var labels = choices.map(function (c, i) { return (i + 1) + '. ' + c.label; }).join('\n');
+  var pick = window.prompt('Snooze until:\n\n' + labels + '\n\nEnter number 1-' + choices.length + ':');
+  if (!pick) return;
+  var idx = parseInt(pick, 10) - 1;
+  if (idx < 0 || idx >= choices.length) { showActionToast('Invalid choice', 'error'); return; }
+  var c = choices[idx];
+  var until;
+  if (c.minutes) {
+    until = new Date(Date.now() + c.minutes * 60000);
+  } else if (c.custom) {
+    var raw = window.prompt('Enter snooze-until datetime (YYYY-MM-DD HH:MM, local time):');
+    if (!raw) return;
+    until = new Date(raw);
+    if (isNaN(until.getTime())) { showActionToast('Invalid datetime', 'error'); return; }
+  } else {
+    // Fixed hour, possibly next-day or next-Monday
+    until = new Date();
+    until.setHours(c.atHour, 0, 0, 0);
+    if (until.getTime() <= Date.now()) until.setDate(until.getDate() + 1);
+    if (c.atDay !== undefined) {
+      while (until.getDay() !== c.atDay) until.setDate(until.getDate() + 1);
+    }
+  }
+  var pid = proposal.proposal_id || proposal.id;
+  var userId = (_profileCache && _profileCache.id) || null;
+  opsApiPost(_lastCloud, 'snooze_proposed_action', {
+    action_id: pid,
+    snooze_until: until.toISOString(),
+    user_id: userId,
+  }).then(function () {
+    showActionToast('Snoozed until ' + until.toLocaleString('en-AU', { weekday: 'short', hour: 'numeric', minute: '2-digit' }), 'sent');
+    setTimeout(function () { reloadCardsKeepScroll(); }, 600);
+  }).catch(function (err) {
+    showActionToast('Snooze failed: ' + err.message, 'error');
+  });
+}
+
+// Verb: Book Scope — finalize a booking proposal. Locks crew_availability +
+// emits a confirmation_sms proposal for the customer (still pending → rep
+// approves the confirmation send).
+function openBookScopeDrawer(proposal, card) {
+  var dt = window.prompt(
+    'Book scope window for ' + (card.customer_name || 'this lead') +
+    '\n\nEnter date+time (YYYY-MM-DD HH:MM, local):'
+  );
+  if (!dt) return;
+  var when = new Date(dt);
+  if (isNaN(when.getTime())) { showActionToast('Invalid datetime', 'error'); return; }
+  if (when.getTime() <= Date.now()) { showActionToast('Pick a future time', 'error'); return; }
+  var pid = proposal.proposal_id || proposal.id;
+  var userId = (_profileCache && _profileCache.id) || null;
+  // Default: assign to the rep who's logged in (caller).
+  var scoperId = userId;
+  opsApiPost(_lastCloud, 'book_scope', {
+    action_id: pid,
+    scope_window_iso: when.toISOString(),
+    scoper_user_id: scoperId,
+    user_id: userId,
+  }).then(function (res) {
+    var msg = 'Scope booked ✓';
+    if (res && res.confirmation_proposal_id) msg += ' — confirmation SMS drafted, pending your approval';
+    showActionToast(msg, 'sent');
+    setTimeout(function () { reloadCardsKeepScroll(); }, 800);
+  }).catch(function (err) {
+    showActionToast('Book Scope failed: ' + err.message, 'error');
+  });
+}
+
+// Verb: Create Job for Opportunity — backfills a Supabase jobs stub for
+// an unlinked GHL booking proposal. Scoping tool will discover the stub
+// and update it (no duplicate). Type inferred from pipeline_lane.
+function handleCreateJobForOpp(card, btn) {
+  if (!card.ghl_opportunity_id) {
+    showActionToast('No GHL opportunity id on this card', 'error');
+    return;
+  }
+  if (!confirm('Create Supabase job stub for ' + (card.customer_name || 'this lead') + '?\n\nLinks to GHL opportunity, enables JARVIS memory. Scoping tool will pick up the same row.')) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
+  var userId = (_profileCache && _profileCache.id) || null;
+  // Infer pipeline_lane: card.loop = 'booking', card.pipeline_lane should exist.
+  // Fallback: derive from action_payload of the first pending proposal.
+  var lane = card.pipeline_lane;
+  if (!lane && card.pending_proposals && card.pending_proposals[0]) {
+    var ap = card.pending_proposals[0].action_payload || {};
+    lane = ap.pipeline_lane;
+  }
+  if (!lane) {
+    showActionToast('Cannot infer pipeline_lane; refresh page', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Create Job (memory off)'; }
+    return;
+  }
+  var firstProp = (card.pending_proposals && card.pending_proposals[0]) || {};
+  opsApiPost(_lastCloud, 'create_job_for_opportunity', {
+    action_id: firstProp.proposal_id || firstProp.id || null,
+    ghl_opportunity_id: card.ghl_opportunity_id,
+    ghl_contact_id: card.contact_id || null,
+    pipeline_lane: lane,
+    user_id: userId,
+  }).then(function (res) {
+    var msg = res && res.created ? 'Job created ✓ JARVIS memory now active' : 'Existing job linked ✓';
+    showActionToast(msg, 'sent');
+    setTimeout(function () { reloadCardsKeepScroll(); }, 800);
+  }).catch(function (err) {
+    showActionToast('Create Job failed: ' + err.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Create Job (memory off)'; }
+  });
+}
+
+function reloadCardsKeepScroll() {
+  // Soft reload — re-fetches list_proposed_actions without full page refresh.
+  // Sale.html exposes a renderAll() / loadAll() if present; otherwise hard-refresh.
+  if (typeof loadAll === 'function') { loadAll(); return; }
+  if (typeof renderAll === 'function') { renderAll(); return; }
+  location.reload();
 }
 
 // MARNIN_MEMORY_POC toast — does NOT append the "stub-only" fluff because
