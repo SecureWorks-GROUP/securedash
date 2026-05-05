@@ -11170,7 +11170,13 @@ window.deleteDocument = async function(docId, fileName) {
 };
 
 async function submitJobNote() {
-  var input = document.getElementById('jdNoteInput');
+  // Multiple tabs have id="jdNoteInput" — find the one in the active/visible tab
+  var inputs = document.querySelectorAll('#jdNoteInput');
+  var input = null;
+  for (var i = 0; i < inputs.length; i++) {
+    if (inputs[i].offsetParent !== null) { input = inputs[i]; break; }
+  }
+  if (!input) input = inputs[inputs.length - 1]; // fallback to last
   var text = input.value.trim();
   if (!text || !_currentJobId) return;
 
