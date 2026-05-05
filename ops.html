@@ -4083,6 +4083,58 @@ function opsPost(action, body) {
 }
 
 // ════════════════════════════════════════════════════════════
+// FROZEN REVISIONS PICKER (Scope-Memory-Saving step 8 Option B)
+// ────────────────────────────────────────────────────────────
+// Lazy-fetches scope_revisions for a job and renders clickable links
+// that open the scoping tool with ?scope_revision_id=<uuid>. The tool
+// hydrates from get_scope_revision_for_viewer (frozen, hash-verified)
+// instead of jobs.scope_json (live, mutable).
+// ════════════════════════════════════════════════════════════
+async function toggleFrozenRevisions(jobId, jobType, anchor) {
+  var container = document.getElementById('frozenRevs_' + jobId);
+  if (!container) return;
+  if (container.style.display !== 'none') {
+    container.style.display = 'none';
+    if (anchor) anchor.innerHTML = 'View Frozen Revisions &#9662;';
+    return;
+  }
+  container.style.display = '';
+  if (anchor) anchor.innerHTML = 'Hide Frozen Revisions &#9652;';
+  if (container.dataset.loaded === '1') return;
+  container.innerHTML = '<span style="color:var(--sw-text-sec);font-style:italic;">Loading...</span>';
+  try {
+    var resp = await opsPost('list_scope_revisions_for_job', { job_id: jobId });
+    if (!resp || !resp.ok) {
+      var msg = (resp && resp.error && (resp.error.message || resp.error.code)) || 'Could not load frozen revisions';
+      container.innerHTML = '<span style="color:var(--sw-red);">' + escapeHtml(msg) + '</span>';
+      return;
+    }
+    if (!resp.revisions || resp.revisions.length === 0) {
+      container.innerHTML = '<span style="color:var(--sw-text-sec);font-style:italic;">No frozen revisions for this job yet. A revision is sealed each time the scope is signed off.</span>';
+      container.dataset.loaded = '1';
+      return;
+    }
+    var toolUrl = jobType === 'fencing'
+      ? 'https://marninms98-dotcom.github.io/fence-designer/'
+      : 'https://marninms98-dotcom.github.io/patio/';
+    var html = '';
+    resp.revisions.forEach(function(r) {
+      var label = 'r' + r.revision_number + (r.status === 'superseded' ? ' (superseded)' : '');
+      var sealed = r.frozen_at ? new Date(r.frozen_at).toLocaleString('en-AU') : '—';
+      var url = toolUrl + '?jobId=' + encodeURIComponent(jobId) + '&scope_revision_id=' + encodeURIComponent(r.id);
+      html += '<a href="' + url + '" target="_blank" style="display:flex;justify-content:space-between;font-size:11px;color:var(--sw-orange);padding:3px 0;border-bottom:1px solid var(--sw-border);text-decoration:none;font-weight:600;">';
+      html += '<span>&#128274; ' + escapeHtml(label) + '</span>';
+      html += '<span style="color:var(--sw-text-sec);font-weight:400;">sealed ' + escapeHtml(sealed) + ' &#8599;</span>';
+      html += '</a>';
+    });
+    container.innerHTML = html;
+    container.dataset.loaded = '1';
+  } catch (e) {
+    container.innerHTML = '<span style="color:var(--sw-red);">Error: ' + escapeHtml(e && e.message || String(e)) + '</span>';
+  }
+}
+
+// ════════════════════════════════════════════════════════════
 // AI ANNOTATIONS ENGINE
 // ════════════════════════════════════════════════════════════
 
@@ -10292,6 +10344,17 @@ function renderMoneyView(data) {
   if (j.scope_json) {
     html += '<div style="font-size:11px;padding:6px 0 2px;border-top:1px solid var(--sw-border);margin-top:6px;color:var(--sw-text-sec);">';
     html += renderScopeSummary(j.scope_json, j.type, j.id);
+    html += '</div>';
+  }
+  // Frozen Revisions picker (Scope-Memory-Saving step 8 Option B).
+  // Lazy-fetches list_scope_revisions_for_job on toggle and renders each
+  // revision as a link to the scoping tool with ?scope_revision_id=<uuid>
+  // (which the tool now hydrates from get_scope_revision_for_viewer
+  // instead of jobs.scope_json).
+  if (j.type !== 'miscellaneous' && j.id) {
+    html += '<div style="font-size:11px;padding:6px 0 2px;border-top:1px solid var(--sw-border);margin-top:6px;">';
+    html += '<a href="#" onclick="toggleFrozenRevisions(\'' + j.id + '\',\'' + (j.type || 'patio') + '\',this);return false;" style="color:var(--sw-mid);font-weight:600;text-decoration:none;">View Frozen Revisions &#9662;</a>';
+    html += '<div id="frozenRevs_' + j.id + '" style="display:none;margin-top:6px;"></div>';
     html += '</div>';
   }
   // Quote cards with expandable detail
