@@ -206,6 +206,7 @@ function selectJobPicker(prefix, jobId) {
   // Picker-specific post-select hooks
   if (prefix === 'po') onPOJobSelect(jobId);
   if (prefix === 'inv') onInvJobSelect(jobId);
+  if (prefix === 'wo') autoWOFromScope(jobId);
   if (prefix === 'assign') {
     // Hide label field when a job is selected
     var labelGroup = document.getElementById('assignLabelGroup');
@@ -869,6 +870,7 @@ async function submitWO() {
       scheduled_date: document.getElementById('woScheduledDate').value || null,
       price: priceVal ? parseFloat(priceVal) : null,
       special_instructions: document.getElementById('woInstructions').value || null,
+      scope_items: (typeof _woScopeItems !== 'undefined' && _woScopeItems.length > 0) ? _woScopeItems : null,
     });
     closeModal('woModal');
     loadWOs();

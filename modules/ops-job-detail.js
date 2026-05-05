@@ -3165,7 +3165,7 @@ window.handleDocFiles = function(files) {
     rowHtml += '<label style="font-size:11px;white-space:nowrap;display:flex;align-items:center;gap:3px"><input type="checkbox" id="' + rowId + '_vis" ' + (['site_photo','council_plans','engineering','work_order','approval'].includes(docType) ? 'checked' : '') + '> Trades</label>';
     rowHtml += '<span id="' + rowId + '_status" style="font-size:11px;color:var(--sw-text-sec)">Ready</span>';
     rowHtml += '</div>';
-    queue.innerHTML += rowHtml;
+    queue.insertAdjacentHTML('beforeend', rowHtml);
 
     // Start upload
     uploadOneDocument(file, _currentJobData.job.id, rowId);
@@ -3230,8 +3230,8 @@ window.uploadOneDocument = async function(file, jobId, rowId) {
 window.toggleDocVisibility = async function(docId, newValue) {
   try {
     await opsPost('toggle_document_visibility', { documentId: docId, visible_to_trades: newValue });
-    // Refresh
-    if (_currentJobId) openJobDetail(_currentJobId);
+    // Refresh (preserve active tab)
+    if (_currentJobId) refreshJobDetail();
   } catch (err) {
     alert('Error: ' + (err.message || err));
   }
@@ -3241,7 +3241,7 @@ window.deleteDocument = async function(docId, fileName) {
   if (!confirm('Delete "' + fileName + '"? This cannot be undone.')) return;
   try {
     await opsPost('delete_document', { documentId: docId });
-    if (_currentJobId) openJobDetail(_currentJobId);
+    if (_currentJobId) refreshJobDetail();
   } catch (err) {
     alert('Error: ' + (err.message || err));
   }

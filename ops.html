@@ -10968,7 +10968,7 @@ function renderFilesView(data) {
     html += '<div style="font-size:14px;font-weight:700;margin-top:16px;margin-bottom:8px;">Documents (' + allDocs.length + ')</div>';
     allDocs.forEach(function(doc) {
       var url = doc.storage_url || doc.pdf_url;
-      var name = doc.file_name || doc.type || 'Document';
+      var name = doc.file_name || doc.quote_number || ((doc.type || 'document').replace(/_/g, ' ') + (doc.version > 1 ? ' v' + doc.version : ''));
       var isVisible = doc.visible_to_trades;
 
       // Type badge colours
@@ -11020,7 +11020,7 @@ function renderFilesView(data) {
 
       // Date + uploaded by
       var metaLine = '';
-      if (doc.created_at) metaLine += fmtDate(doc.created_at);
+      if (doc.created_at) metaLine += new Date(doc.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
       if (doc.uploaded_by) metaLine += (metaLine ? ' &middot; ' : '') + escapeHtml(doc.uploaded_by);
       if (metaLine) {
         html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:2px;margin-left:40px">' + metaLine + '</div>';
@@ -11079,7 +11079,7 @@ window.handleDocFiles = function(files) {
     rowHtml += '<button id="' + rowId + '_btn" onclick="triggerPendingUpload(\'' + rowId + '\')" style="font-size:11px;padding:2px 10px;border:1px solid var(--sw-border);border-radius:4px;background:var(--sw-green,#22C55E);color:#fff;cursor:pointer;white-space:nowrap">Upload</button>';
     rowHtml += '<span id="' + rowId + '_status" style="font-size:11px;color:var(--sw-text-sec)">Ready</span>';
     rowHtml += '</div>';
-    queue.innerHTML += rowHtml;
+    queue.insertAdjacentHTML('beforeend', rowHtml);
   });
 };
 
@@ -11152,8 +11152,8 @@ window.uploadOneDocument = async function(file, jobId, rowId) {
 window.toggleDocVisibility = async function(docId, newValue) {
   try {
     await opsPost('toggle_document_visibility', { documentId: docId, visible_to_trades: newValue });
-    // Refresh
-    if (_currentJobId) openJobDetail(_currentJobId);
+    // Refresh (preserve active tab)
+    if (_currentJobId) refreshJobDetail();
   } catch (err) {
     alert('Error: ' + (err.message || err));
   }
@@ -11163,7 +11163,7 @@ window.deleteDocument = async function(docId, fileName) {
   if (!confirm('Delete "' + fileName + '"? This cannot be undone.')) return;
   try {
     await opsPost('delete_document', { documentId: docId });
-    if (_currentJobId) openJobDetail(_currentJobId);
+    if (_currentJobId) refreshJobDetail();
   } catch (err) {
     alert('Error: ' + (err.message || err));
   }

@@ -3214,13 +3214,16 @@ async function pipeline(client: any, params: URLSearchParams) {
     .select('id, type, status, client_name, client_phone, site_address, site_suburb, pricing_json, ghl_contact_id, ghl_opportunity_id, job_number, accepted_at, approvals_at, deposit_at, processing_at, scheduled_at, completed_at, created_at, updated_at, deposit_invoice_id, deposit_amount')
     .eq('org_id', DEFAULT_ORG_ID)
     .or('legacy.is.null,legacy.eq.false')
-    .or('job_number.not.is.null,status.eq.draft,type.eq.fencing')
+    // Show all jobs with a job_number, plus any active-stage job even without one.
+    // This keeps old quoted/complete junk without job_numbers off the board.
+    .or('job_number.not.is.null,status.not.in.(quoted,complete,invoiced,archived)')
     .order('updated_at', { ascending: false })
 
   if (statusFilter) {
     query = query.eq('status', statusFilter)
   } else {
-    query = query.in('status', ['draft', 'quoted', 'accepted', 'approvals', 'deposit', 'processing', 'scheduled', 'in_progress', 'complete', 'invoiced', 'awaiting_deposit', 'order_materials', 'awaiting_supplier', 'order_confirmed', 'schedule_install', 'rectification', 'final_payment', 'get_review', 'archived'])
+    // Exclude terminal + non-kanban statuses
+    query = query.not('status', 'in', '("lost","cancelled","draft","invoiced","archived")')
   }
   if (typeFilter) query = query.eq('type', typeFilter)
 
@@ -3228,7 +3231,7 @@ async function pipeline(client: any, params: URLSearchParams) {
   if (error) throw error
 
   if (!jobs || jobs.length === 0) {
-    return { columns: { draft: [], quoted: [], accepted: [], approvals: [], processing: [], scheduled: [], in_progress: [], complete: [], invoiced: [], awaiting_deposit: [], order_materials: [], awaiting_supplier: [], order_confirmed: [], schedule_install: [], rectification: [], final_payment: [], get_review: [], archived: [] }, total: 0 }
+    return { columns: {}, total: 0 }
   }
 
   // Only enrich non-draft jobs (drafts have no assignments/POs/invoices)
@@ -3359,17 +3362,14 @@ async function pipeline(client: any, params: URLSearchParams) {
       || (j.job_number || '').toLowerCase().includes(s)
   })
 
-  const columns: Record<string, any[]> = {
-    draft: [], quoted: [], accepted: [], approvals: [], processing: [], scheduled: [], in_progress: [], complete: [], invoiced: [],
-    awaiting_deposit: [], order_materials: [], awaiting_supplier: [], order_confirmed: [],
-    schedule_install: [], rectification: [], final_payment: [], get_review: [], archived: [],
-  }
+  const columns: Record<string, any[]> = {}
   for (const j of enriched) {
-    // Merge legacy statuses: deposit → accepted, processing → order_materials (patio/decking)
+    // Merge legacy statuses: deposit → accepted, processing → order_materials
     const col = j.status === 'deposit' ? 'accepted'
-      : (j.status === 'processing' && j.type !== 'fencing') ? 'order_materials'
+      : j.status === 'processing' ? 'order_materials'
       : j.status
-    if (columns[col] !== undefined) columns[col].push(j)
+    if (!columns[col]) columns[col] = []
+    columns[col].push(j)
   }
 
   return { columns, total: enriched.length }
@@ -4085,8 +4085,8 @@ async function updateJobStatus(client: any, body: any) {
   const status = body.status
   if (!jId || !status) throw new Error('jobId and status required')
 
-  const validStatuses = ['draft', 'quoted', 'accepted', 'approvals', 'deposit', 'processing', 'scheduled', 'in_progress', 'complete', 'invoiced', 'cancelled', 'lost', 'awaiting_deposit', 'order_materials', 'awaiting_supplier', 'order_confirmed', 'schedule_install', 'rectification', 'final_payment', 'get_review', 'archived']
-  if (!validStatuses.includes(status)) throw new Error('Invalid status: ' + status)
+  // Validate shape only — no hardcoded whitelist so new stages work without redeploying
+  if (!status || typeof status !== 'string' || status.length > 50) throw new Error('Invalid status')
 
   // Capture old status + job data for business_events dual-write
   const { data: jobBefore } = await client.from('jobs')
@@ -6891,7 +6891,7 @@ async function tradeJobDetail(client: any, params: URLSearchParams, userId: stri
       .select('id, type, status, client_name, client_phone, client_email, site_address, site_suburb, site_lat, site_lng, notes, job_number, scope_json, ghl_opportunity_id, ghl_contact_id')
       .eq('id', jobId).single(),
     client.from('job_documents')
-      .select('id, type, pdf_url, storage_url, file_name, visible_to_trades, version, created_at')
+      .select('id, type, pdf_url, storage_url, file_name, visible_to_trades, version, quote_number, created_at')
       .eq('job_id', jobId).order('created_at', { ascending: false }),
     client.from('job_media')
       .select('id, phase, type, storage_url, thumbnail_url, label, notes, po_id, created_at')
