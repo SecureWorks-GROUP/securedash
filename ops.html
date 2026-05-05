@@ -2655,6 +2655,7 @@
         <button class="sub-tab" onclick="showSubTab('workorders')" data-sub="workorders">Work Orders</button>
         <button class="sub-tab" onclick="showSubTab('tradebills')" data-sub="tradebills">Trade Bills</button>
         <button class="sub-tab" onclick="showSubTab('cleardebt')" data-sub="cleardebt" style="color:var(--sw-red,#e74c3c);">Clear Debt</button>
+        <button class="sub-tab" onclick="showSubTab('financehealth')" data-sub="financehealth" title="Read-only invoice-data-quality holes">Finance Health</button>
       </div>
 
       <!-- Invoices -->
@@ -2763,6 +2764,16 @@
         <div id="clearDebtStats" class="stat-grid" style="grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); margin-bottom:16px;"></div>
         <div id="clearDebtFilters" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:16px;"></div>
         <div id="clearDebtCards" style="display:flex;flex-direction:column;gap:12px;"></div>
+      </div>
+
+      <!-- Finance Health (read-only invoice data-quality holes) -->
+      <div id="subFinancehealth" class="sub-view">
+        <div id="financeHealthIntro" style="margin:0 0 16px 0;font-size:12px;color:var(--sw-text-sec);">
+          Read-only view of invoice-data-quality holes from the 2026-05-05 audit.
+          <a href="#" onclick="loadFinanceHealth();return false;" style="color:var(--sw-orange,#F15A29);">Refresh</a>
+          <span id="financeHealthAsOf" style="margin-left:12px;"></span>
+        </div>
+        <div id="financeHealthBody"></div>
       </div>
     </div>
 
@@ -7488,7 +7499,187 @@ function showSubTab(tab) {
   if (tab === 'quotes') loadQuotes();
   if (tab === 'tradebills') loadTradeBills();
   if (tab === 'cleardebt') loadClearDebt();
+  if (tab === 'financehealth') loadFinanceHealth();
 }
+
+// ════════════════════════════════════════════════════════════
+// FINANCE HEALTH (read-only invoice-data-quality holes)
+// Backed by ops-api action `finance_health_summary`. No Xero
+// writes. The "Try fuzzy-match" button calls existing `sync_job_invoices`.
+// Source: cio/operations/board/Finance-AI-First/finance-loop0-signoff/
+//         invoice-creation-audit.md §6.
+// ════════════════════════════════════════════════════════════
+
+var _financeHealthData = null;
+
+async function loadFinanceHealth() {
+  var body = document.getElementById('financeHealthBody');
+  if (!body) return;
+  body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--sw-text-sec);font-size:13px;">Loading invoice health…</div>';
+  try {
+    var data = await opsFetch('finance_health_summary', {});
+    _financeHealthData = data;
+    var asOfEl = document.getElementById('financeHealthAsOf');
+    if (asOfEl && data.as_of) {
+      asOfEl.textContent = 'as of ' + new Date(data.as_of).toLocaleString('en-AU');
+    }
+    body.innerHTML = renderFinanceHealthCards(data);
+  } catch (e) {
+    console.error('loadFinanceHealth error:', e);
+    body.innerHTML = '<div style="padding:24px;color:var(--sw-red,#e74c3c);font-size:13px;">Failed to load Finance Health summary: ' + (e && e.message ? e.message : 'unknown error') + '</div>';
+  }
+}
+
+function renderFinanceHealthCards(d) {
+  var c1 = d.card1_division_tag_holes || {};
+  var c2 = d.card2_job_link_holes || {};
+  var c3 = d.card3_quote_link_holes || {};
+  var c4 = d.card4_schema_integrity || {};
+
+  var html = '';
+  html += '<div class="stat-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-bottom:16px;">';
+  html += renderHealthStat('Division-tag holes', c1.lines_with_hole, c1.total_active_lines, c1.percentage, 'lines missing AccountCode or Tracking');
+  html += renderHealthStat('Job-link holes', c2.missing_job_id, c2.total_accrec, c2.percentage, 'ACCREC rows where job_id is NULL');
+  html += renderHealthStat('Quote-link holes', c3.missing_quote_link, c3.total_accrec, c3.percentage, 'ACCREC rows with no quote_document_ids');
+  html += renderHealthStat('Schema integrity', (c4.due_date_null||0)+(c4.due_date_before_invoice_date||0)+(c4.reference_null_or_empty||0), d.total_accrec, null, 'NULL due date / due-before-invoice / blank reference');
+  html += '</div>';
+
+  // Card 1 — Division-tag offenders
+  html += renderHealthCard(
+    'Card 1 · Division-tag holes',
+    'Active ACCREC line items where AccountCode is NULL or Tracking is empty. ' +
+      'Stamping these on the Xero side belongs in a later loop; this is the visibility step.',
+    renderC1Table(c1.offenders || [])
+  );
+
+  // Card 2 — Job-link offenders (Try fuzzy-match disabled — see tooltip)
+  html += renderHealthCard(
+    'Card 2 · Job-link holes',
+    'ACCREC rows in the local mirror with no `job_id`. The "Try fuzzy-match" button is disabled ' +
+      'in this slice because the existing `sync_job_invoices` action requires a `job_id` and ' +
+      'would mis-attribute invoices when a contact has multiple jobs. A proper fuzzy-backfill ships in Loop 1B.',
+    renderC2Table(c2.offenders || [])
+  );
+
+  // Card 3 — Quote-link metric only
+  html += renderHealthCard(
+    'Card 3 · Quote-link holes',
+    'ACCREC rows missing `quote_document_ids`. Fixing requires the unified invoice modal to ' +
+      'start passing the selected quote ids — separate slice. Display-only metric.',
+    '<div style="padding:12px;font-size:13px;color:var(--sw-text-sec);">No drill-down — fix is upstream in `createUnifiedInvoice`.</div>'
+  );
+
+  // Card 4 — Schema integrity
+  html += renderHealthCard(
+    'Card 4 · Schema integrity',
+    'Three sub-counts: due_date NULL, due_date earlier than invoice_date, reference NULL or empty.',
+    renderC4SubCounts(c4) + renderC4Table(c4.offenders || [])
+  );
+
+  return html;
+}
+
+function renderHealthStat(label, value, total, pct, sub) {
+  var ragClass = '';
+  if (typeof pct === 'number') {
+    if (pct >= 30) ragClass = ' rag-red';
+    else if (pct >= 10) ragClass = ' rag-amber';
+    else if (pct > 0) ragClass = '';
+  }
+  var headline = (value != null ? value : '–');
+  if (total != null) headline += ' / ' + total;
+  if (typeof pct === 'number') headline += ' <span style="font-size:14px;font-weight:600;color:var(--sw-text-sec);">(' + pct + '%)</span>';
+  return '<div class="stat-card' + ragClass + '"><div class="stat-body">' +
+    '<div class="stat-label">' + esc(label) + '</div>' +
+    '<div class="stat-value" style="font-size:18px;line-height:1.3;">' + headline + '</div>' +
+    '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:4px;">' + esc(sub) + '</div>' +
+    '</div></div>';
+}
+
+function renderHealthCard(title, blurb, body) {
+  return '<div style="background:var(--sw-card,#fff);border:1px solid var(--sw-border,rgba(41,60,70,0.12));margin-bottom:14px;">' +
+    '<div style="padding:14px 16px;border-bottom:1px solid var(--sw-border,rgba(41,60,70,0.08));">' +
+      '<div style="font-weight:700;color:var(--sw-dark,#293C46);font-size:14px;">' + esc(title) + '</div>' +
+      '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:4px;">' + esc(blurb) + '</div>' +
+    '</div>' +
+    '<div style="padding:8px 0;">' + body + '</div>' +
+  '</div>';
+}
+
+function renderC1Table(rows) {
+  if (!rows.length) return '<div style="padding:12px;font-size:13px;color:var(--sw-text-sec);">No offenders sampled.</div>';
+  var head = '<thead><tr>' +
+    '<th>Invoice #</th><th>Reference</th><th>Contact</th><th>Total</th><th>Status</th><th>Age</th><th>Missing</th><th></th>' +
+    '</tr></thead>';
+  var rowsHtml = rows.map(function(r) {
+    return '<tr>' +
+      '<td>' + esc(r.invoice_number || '') + '</td>' +
+      '<td>' + esc(r.reference || '') + '</td>' +
+      '<td>' + esc(r.contact_name || '') + '</td>' +
+      '<td>' + fmt$(r.total) + '</td>' +
+      '<td><span class="badge">' + esc(r.status || '') + '</span></td>' +
+      '<td>' + (r.age_days != null ? r.age_days + 'd' : '–') + '</td>' +
+      '<td style="font-size:11px;">' + esc((r.missing || []).join(', ')) + '</td>' +
+      '<td>' + financeHealthXeroLink(r.xero_invoice_id) + '</td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="data-table-wrap" style="padding:0 12px;"><table class="data-table">' + head + '<tbody>' + rowsHtml + '</tbody></table></div>';
+}
+
+function renderC2Table(rows) {
+  if (!rows.length) return '<div style="padding:12px;font-size:13px;color:var(--sw-text-sec);">No offenders.</div>';
+  var head = '<thead><tr>' +
+    '<th>Invoice #</th><th>Reference</th><th>Contact</th><th>Total</th><th>Status</th><th>Age</th><th>Fuzzy-match</th><th></th>' +
+    '</tr></thead>';
+  var rowsHtml = rows.map(function(r) {
+    return '<tr>' +
+      '<td>' + esc(r.invoice_number || '') + '</td>' +
+      '<td>' + esc(r.reference || '') + '</td>' +
+      '<td>' + esc(r.contact_name || '') + '</td>' +
+      '<td>' + fmt$(r.total) + '</td>' +
+      '<td><span class="badge">' + esc(r.status || '') + '</span></td>' +
+      '<td>' + (r.age_days != null ? r.age_days + 'd' : '–') + '</td>' +
+      '<td><button class="btn btn-secondary btn-sm" disabled title="Existing sync_job_invoices requires a job_id and would mis-attribute when a contact has multiple jobs. Proper fuzzy-backfill ships in Loop 1B.">Try fuzzy-match</button></td>' +
+      '<td>' + financeHealthXeroLink(r.xero_invoice_id) + '</td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="data-table-wrap" style="padding:0 12px;"><table class="data-table">' + head + '<tbody>' + rowsHtml + '</tbody></table></div>';
+}
+
+function renderC4SubCounts(c4) {
+  return '<div style="display:flex;gap:12px;flex-wrap:wrap;padding:0 16px 8px 16px;font-size:12px;">' +
+    '<div><strong>' + (c4.due_date_null||0) + '</strong> due_date NULL</div>' +
+    '<div><strong>' + (c4.due_date_before_invoice_date||0) + '</strong> due_date < invoice_date</div>' +
+    '<div><strong>' + (c4.reference_null_or_empty||0) + '</strong> reference NULL or empty</div>' +
+    '</div>';
+}
+
+function renderC4Table(rows) {
+  if (!rows.length) return '<div style="padding:12px;font-size:13px;color:var(--sw-text-sec);">No offenders.</div>';
+  var head = '<thead><tr>' +
+    '<th>Invoice #</th><th>Reference</th><th>Status</th><th>Invoice Date</th><th>Due Date</th><th>Issue</th><th></th>' +
+    '</tr></thead>';
+  var rowsHtml = rows.map(function(r) {
+    return '<tr>' +
+      '<td>' + esc(r.invoice_number || '') + '</td>' +
+      '<td>' + esc(r.reference || '') + '</td>' +
+      '<td><span class="badge">' + esc(r.status || '') + '</span></td>' +
+      '<td>' + esc(r.invoice_date || '–') + '</td>' +
+      '<td>' + esc(r.due_date || '–') + '</td>' +
+      '<td style="font-size:11px;">' + esc(r.issue || '') + '</td>' +
+      '<td>' + financeHealthXeroLink(r.xero_invoice_id) + '</td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="data-table-wrap" style="padding:0 12px;"><table class="data-table">' + head + '<tbody>' + rowsHtml + '</tbody></table></div>';
+}
+
+function financeHealthXeroLink(xeroInvoiceId) {
+  if (!xeroInvoiceId) return '';
+  return '<a href="https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=' +
+    encodeURIComponent(xeroInvoiceId) +
+    '" target="_blank" rel="noopener" style="font-size:11px;color:var(--sw-orange,#F15A29);">Xero ↗</a>';
+}
+
 
 async function loadFinancials() {
   loadInvoices();
