@@ -15094,13 +15094,100 @@
       }
       h += '<input type="text" id="expDesc" value="' + esc(desc) + '" placeholder="Tek screws, silicone..." style="width:100%;padding:10px;border:1.5px solid var(--sw-border);border-radius:8px;font-size:15px;font-family:var(--sw-font);box-sizing:border-box"></div>';
 
+      // ── Category — required for Xero AccountCode mapping ──
+      var cats = [
+        ['unknown', 'Pick a category'],
+        ['materials', 'Materials'],
+        ['fuel', 'Fuel'],
+        ['tools', 'Tools'],
+        ['parking', 'Parking / tolls'],
+        ['meals', 'Meals'],
+        ['accommodation', 'Accommodation'],
+        ['consumables', 'Consumables'],
+        ['utilities', 'Utilities'],
+        ['vehicle_maintenance', 'Vehicle maintenance'],
+        ['professional_services', 'Professional services'],
+        ['other', 'Other']
+      ];
+      h += '<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec)">Category</label>';
+      h += '<select id="expCategory" style="width:100%;padding:10px;border:1.5px solid var(--sw-border);border-radius:8px;font-size:15px;font-family:var(--sw-font);box-sizing:border-box;background:#fff">';
+      cats.forEach(function(c) { h += '<option value="' + c[0] + '">' + esc(c[1]) + '</option>'; });
+      h += '</select></div>';
+
+      // ── Payment method — drives the Xero behaviour ──
+      h += '<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec)">Paid with</label>';
+      h += '<select id="expPaymentMethod" style="width:100%;padding:10px;border:1.5px solid var(--sw-border);border-radius:8px;font-size:15px;font-family:var(--sw-font);box-sizing:border-box;background:#fff">';
+      h += '<option value="unknown">— select —</option>';
+      h += '<option value="personal_card" selected>My own card / cash (reimburse me)</option>';
+      h += '<option value="company_card">Company card</option>';
+      h += '<option value="cash">Company cash float</option>';
+      h += '<option value="supplier_invoice">Supplier sent us an invoice</option>';
+      h += '</select></div>';
+
+      // ── GST status — many small suppliers are non-GST ──
+      h += '<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec)">GST</label>';
+      h += '<select id="expGstStatus" style="width:100%;padding:10px;border:1.5px solid var(--sw-border);border-radius:8px;font-size:15px;font-family:var(--sw-font);box-sizing:border-box;background:#fff">';
+      h += '<option value="unknown">— select —</option>';
+      h += '<option value="included" selected>GST included in total</option>';
+      h += '<option value="excluded">GST shown separately</option>';
+      h += '<option value="non_gst_supplier">Supplier is not GST-registered</option>';
+      h += '</select></div>';
+
+      // ── Job picker with JARVIS suggestions ──
+      h += '<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec)">Link to job</label>';
+      h += '<select id="expJobChoice" style="width:100%;padding:10px;border:1.5px solid var(--sw-border);border-radius:8px;font-size:15px;font-family:var(--sw-font);box-sizing:border-box;background:#fff">';
+      var preselected = false;
+      if (_expenseJobId && !_expenseIsGeneral) {
+        var initialLabel = 'Current job';
+        if (_currentJob && _currentJob.job && _currentJob.job.id === _expenseJobId) {
+          initialLabel = _currentJob.job.job_number + ' — ' + (_currentJob.job.client_name || '');
+        }
+        h += '<option value="' + esc(_expenseJobId) + '" selected>' + esc(initialLabel) + '</option>';
+        preselected = true;
+      }
+      // JARVIS-ranked options
+      _expenseJarvisSuggestions.forEach(function(s) {
+        if (s.job_id === _expenseJobId) return; // dedupe
+        var pct = Math.round((s.score || 0) * 100);
+        var lbl = (s.job_number || '') + ' — ' + (s.client_name || '') + '  (' + pct + '%, ' + (s.reason || '') + ')';
+        h += '<option value="' + esc(s.job_id) + '"' + (!preselected ? ' selected' : '') + '>' + esc(lbl) + '</option>';
+        preselected = true;
+      });
+      h += '<option value="general"' + (_expenseIsGeneral ? ' selected' : '') + '>General business (no job)</option>';
+      h += '</select>';
+      h += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:4px">JARVIS suggested jobs based on your assignments and the supplier on the receipt.</div>';
+      h += '</div>';
+
+      // Business category only relevant when no job is chosen
+      h += '<div id="expBusinessCategoryWrap" style="margin-bottom:12px;' + (_expenseIsGeneral ? '' : 'display:none') + '">';
+      h += '<label style="font-size:12px;font-weight:600;color:var(--sw-text-sec)">Business category (general expense)</label>';
+      h += '<select id="expBusinessCategory" style="width:100%;padding:10px;border:1.5px solid var(--sw-border);border-radius:8px;font-size:15px;font-family:var(--sw-font);box-sizing:border-box;background:#fff">';
+      h += '<option value="general_stock">General stock</option>';
+      h += '<option value="vehicle">Vehicle</option>';
+      h += '<option value="overhead">Overhead</option>';
+      h += '<option value="training">Training</option>';
+      h += '<option value="other">Other</option>';
+      h += '</select></div>';
+
       if (ext.extraction_confidence) {
         var confPct = Math.round(ext.extraction_confidence * 100);
         h += '<div style="font-size:11px;color:var(--sw-text-sec);margin-bottom:8px">AI confidence: ' + confPct + '%</div>';
       }
+      if (_expenseUpload && _expenseUpload.sha256) {
+        h += '<div style="font-size:10px;color:var(--sw-text-sec);font-family:monospace;word-break:break-all">Receipt SHA256: ' + esc(_expenseUpload.sha256.slice(0, 16)) + '…</div>';
+      }
 
       h += '</div>';
       body.innerHTML = h;
+      // Toggle business_category visibility when job choice changes
+      var jobSel = document.getElementById('expJobChoice');
+      if (jobSel) {
+        jobSel.addEventListener('change', function() {
+          var isGen = jobSel.value === 'general';
+          var wrap = document.getElementById('expBusinessCategoryWrap');
+          if (wrap) wrap.style.display = isGen ? '' : 'none';
+        });
+      }
 
       var fh = '<div style="display:flex;gap:8px">';
       fh += '<button class="wiz-btn wiz-btn-secondary" onclick="closeExpenseOverlay()">Cancel</button>';
@@ -15115,7 +15202,7 @@
       body.innerHTML = '<div style="text-align:center;padding:40px 16px">' +
         '<div style="font-size:48px;margin-bottom:16px">&#9989;</div>' +
         '<div style="font-size:18px;font-weight:700;color:var(--sw-dark);margin-bottom:8px">Receipt submitted</div>' +
-        '<div style="font-size:14px;color:var(--sw-text-sec)">' + routedTo + ' will review it.</div>' +
+        '<div style="font-size:14px;color:var(--sw-text-sec);line-height:1.4">' + routedTo + ' will review it, then it goes to Xero as a DRAFT bill for finance to authorise.</div>' +
         '</div>';
       footer.innerHTML = '<button class="wiz-btn wiz-btn-primary" onclick="closeExpenseOverlay()">Done</button>';
     }
@@ -15128,44 +15215,76 @@
     renderExpenseStep();
   };
 
+  // Storage metadata captured from confirm_upload — needed by submit_expense
+  // to lock the receipt as evidence (sha256 immutable on first set).
+  var _expenseUpload = null;          // { bucket, path, sha256 }
+  var _expenseJarvisSuggestions = []; // ranked job suggestions from server
+
   window.expensePhotoCapture = function(input) {
     var file = input.files && input.files[0];
     if (!file) return;
     var statusEl = document.getElementById('expensePhotoStatus');
     if (statusEl) statusEl.textContent = 'Uploading receipt...';
 
-    // Compress and upload
+    // Compress, upload to dedicated expense-receipts bucket, confirm to get
+    // server-computed sha256, then submit_expense + Haiku extraction.
     compressImage(file).then(function(blob) {
       var fileName = 'expense-' + Date.now() + '.jpg';
       return api('get_upload_url', null, {
         jobId: _expenseJobId || 'general',
         fileName: fileName,
-        contentType: 'image/jpeg'
+        contentType: 'image/jpeg',
+        purpose: 'expense_receipt'
       }).then(function(urlData) {
-        return getAuthToken().then(function(token) {
-          return fetch(urlData.uploadUrl, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'image/jpeg', 'Authorization': 'Bearer ' + urlData.token },
-            body: blob
-          }).then(function(r) {
-            if (!r.ok) throw new Error('Upload failed');
-            _expensePhotoUrl = urlData.publicUrl;
-            return urlData;
+        return fetch(urlData.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'image/jpeg', 'Authorization': 'Bearer ' + urlData.token },
+          body: blob
+        }).then(function(r) {
+          if (!r.ok) throw new Error('Upload failed');
+          // Confirm — server reads bytes from storage, computes sha256.
+          return api('confirm_upload', null, {
+            jobId: _expenseJobId || null,
+            path: urlData.path,
+            bucket: urlData.bucket,
+            publicUrl: urlData.publicUrl,
+            purpose: 'expense_receipt'
           });
         });
       });
-    }).then(function() {
-      // Submit to ops-api for Haiku extraction
+    }).then(function(confirmed) {
+      _expensePhotoUrl = confirmed.url || confirmed.publicUrl;
+      _expenseUpload = {
+        bucket: confirmed.bucket,
+        path: confirmed.path,
+        sha256: confirmed.sha256 || null
+      };
       _expenseState = 'extracting';
       renderExpenseStep();
       return api('submit_expense', null, {
         job_id: _expenseJobId,
         receipt_photo_url: _expensePhotoUrl,
+        receipt_storage_path: _expenseUpload.path,
+        receipt_storage_bucket: _expenseUpload.bucket,
+        receipt_sha256: _expenseUpload.sha256,
         submitted_by: _user ? _user.id : null
       });
     }).then(function(result) {
       _expenseId = result.expense_id;
       _expenseExtraction = result.extraction || {};
+      // Fire-and-forget: ask server for ranked job suggestions while user
+      // reviews. If it fails, the review step still works (manual job pick).
+      try {
+        api('suggest_job_for_expense', null, {
+          submitter_id: _user ? _user.id : null,
+          merchant: _expenseExtraction.vendor_name || null,
+          receipt_date: _expenseExtraction.receipt_date || null,
+          total_amount: _expenseExtraction.total_amount || null
+        }).then(function(s) {
+          _expenseJarvisSuggestions = (s && s.suggestions) || [];
+          if (_expenseState === 'review') renderExpenseStep();
+        }).catch(function() { /* silent */ });
+      } catch (_e) { /* silent */ }
       _expenseState = 'review';
       renderExpenseStep();
     }).catch(function(err) {
@@ -15181,11 +15300,66 @@
     var btn = document.getElementById('expConfirmBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
 
-    // If the user edited the extraction, we could update, but the spine auto-processes
-    // For now just show success — the extraction is already saved
-    _expenseState = 'submitted';
-    renderExpenseStep();
-    toast('Expense submitted');
+    // Read user-corrected fields from the review form.
+    function val(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+    var vendor = val('expVendor').trim();
+    var amount = parseFloat(val('expAmount')) || null;
+    var desc = val('expDesc').trim();
+    var category = val('expCategory') || 'unknown';
+    var paymentMethod = val('expPaymentMethod') || 'unknown';
+    var gstStatus = val('expGstStatus') || 'unknown';
+    var businessCategory = val('expBusinessCategory') || null;
+    var jobChoice = val('expJobChoice') || ''; // 'general' | jobId | ''
+
+    var jarvisChosen = '';
+    var jarvisChosenVia = 'manual_search';
+    if (jobChoice === 'general') {
+      _expenseJobId = null;
+      _expenseIsGeneral = true;
+      jarvisChosenVia = 'general_business';
+    } else if (jobChoice && jobChoice.length > 8) {
+      _expenseJobId = jobChoice;
+      _expenseIsGeneral = false;
+      jarvisChosen = jobChoice;
+      // If the chosen id was the top JARVIS suggestion, mark it.
+      if (_expenseJarvisSuggestions.length && _expenseJarvisSuggestions[0].job_id === jobChoice) {
+        jarvisChosenVia = 'jarvis_top';
+      } else if (_expenseJarvisSuggestions.some(function(s) { return s.job_id === jobChoice; })) {
+        jarvisChosenVia = 'jarvis_alt';
+      }
+    }
+
+    // Reconstruct line_items if user edited the description.
+    var lineItems = (_expenseExtraction.line_items || []).slice();
+    if (desc && (lineItems.length === 0 || lineItems[0].description !== desc)) {
+      lineItems = [{ description: desc, quantity: 1, unit_price: amount, total: amount }];
+    }
+
+    var updateBody = {
+      expense_id: _expenseId,
+      vendor_name: vendor,
+      total_amount: amount,
+      line_items: lineItems,
+      category: category,
+      payment_method: paymentMethod,
+      gst_status: gstStatus,
+      job_id: _expenseJobId || null,
+      business_category: _expenseIsGeneral ? (businessCategory || 'general_stock') : null,
+      jarvis_job_suggestion: {
+        suggestions: _expenseJarvisSuggestions,
+        chosen: jarvisChosen,
+        chosen_via: jarvisChosenVia
+      }
+    };
+
+    api('update_expense', null, updateBody).then(function() {
+      _expenseState = 'submitted';
+      renderExpenseStep();
+      toast('Expense submitted');
+    }).catch(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Looks right ✓'; }
+      toast('Could not save corrections: ' + friendlyError(err), true);
+    });
   };
 
   // Render previous expenses for a job (called from job detail)
