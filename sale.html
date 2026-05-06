@@ -177,7 +177,10 @@
             // (email check via auth.getUser); allowlist here just lets the
             // browser issue the POST. Read-only against GHL + write-only into
             // business_events with default dry_run=true.
-            backfill_ghl_conversations:    1
+            backfill_ghl_conversations:    1,
+            // Quote Follow-Up Loop send path — atomic-claim handler in ops-api
+            // (parent card secure-sale-quote-followup-loop, B4 of contract).
+            send_quote_followup_sms:       1
           };
           if (opsActPost && OPS_POST_ALLOW[opsActPost]) return { blocked: false };
           return { blocked: true, reason: 'ops-api POST action "' + opsActPost + '" not in proposal-flow allowlist' };
@@ -1316,6 +1319,82 @@ function renderProposalDetailPanel(p, card) {
     wrap.appendChild(srcRow);
   }
 
+  // ── Quote Follow-Up Loop additive blocks (parent card secure-sale-quote-followup-loop, B6) ──
+  // Renders why_not_silent, evidence_refs[], evidence_gap_reason, prior_touches_30d[], and a
+  // confidence-decay tooltip — only for proposals from loop='quote_followup'. All other proposals
+  // render unchanged. Patterns reuse --green (panel) and --amber (warning) brand tokens.
+  function relativeTimeShort(iso) {
+    var t = Date.parse(iso); if (!t) return '?';
+    var hours = (Date.now() - t) / 3600000;
+    if (hours < 1) return Math.max(1, Math.round(hours * 60)) + 'm ago';
+    if (hours < 36) return Math.round(hours) + 'h ago';
+    return Math.round(hours / 24) + 'd ago';
+  }
+  if ((payload.loop === 'quote_followup') || (p.metadata && p.metadata.loop === 'quote_followup')) {
+    // Confidence decay tooltip — append " · decayed" to the existing meta row when applied
+    if (payload.confidence_decay_applied) {
+      var decayChip = document.createElement('div');
+      decayChip.style.cssText = 'margin-top:-6px;margin-bottom:8px;color:var(--text-muted);font-size:9px;letter-spacing:0.6px;font-style:italic;';
+      decayChip.textContent = 'confidence decayed for client-silence weeks · floor 0.20';
+      wrap.appendChild(decayChip);
+    }
+    // why_not_silent block
+    if (payload.why_not_silent) {
+      var wns = document.createElement('div');
+      wns.style.cssText = 'margin:8px 0;padding:8px 10px;background:rgba(76,175,142,0.08);border-left:2px solid var(--green);font-size:10px;line-height:1.5;color:var(--text-sec);';
+      wns.innerHTML = '<span style="color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;">Why not silent</span><br><span style="color:var(--text);">' + escapeHtml(String(payload.why_not_silent)) + '</span>';
+      wrap.appendChild(wns);
+    }
+    // evidence_refs[] block — compact list, max 5 visible
+    var refs = Array.isArray(payload.evidence_refs) ? payload.evidence_refs : [];
+    if (refs.length) {
+      var ev = document.createElement('div');
+      ev.style.cssText = 'margin:8px 0;padding:8px 10px;background:rgba(76,175,142,0.08);border-left:2px solid var(--green);font-size:10px;line-height:1.5;color:var(--text-sec);';
+      var evHead = document.createElement('div');
+      evHead.style.cssText = 'color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:3px;';
+      evHead.textContent = 'Evidence · ' + refs.length + ' client event' + (refs.length === 1 ? '' : 's') + ' (showing top ' + Math.min(refs.length, 5) + ')';
+      ev.appendChild(evHead);
+      refs.slice(0, 5).forEach(function (r) {
+        var line = document.createElement('div');
+        line.style.cssText = 'color:var(--text);font-size:10px;';
+        var et = (r && r.event_type) ? String(r.event_type) : '?';
+        var ch = (r && r.channel) ? String(r.channel) : '?';
+        var dir = (r && r.direction) ? String(r.direction) : '';
+        var when = (r && r.occurred_at) ? relativeTimeShort(r.occurred_at) : '?';
+        line.textContent = '· ' + et + ' · ' + ch + (dir ? ' (' + dir + ')' : '') + ' · ' + when;
+        ev.appendChild(line);
+      });
+      wrap.appendChild(ev);
+    }
+    // evidence_gap_reason — amber warning panel
+    if (payload.evidence_gap_reason) {
+      var gap = document.createElement('div');
+      gap.style.cssText = 'margin:8px 0;padding:8px 10px;background:rgba(255,181,84,0.12);border-left:2px solid var(--amber);color:var(--amber);font-size:10px;letter-spacing:0.3px;line-height:1.5;';
+      gap.innerHTML = '<strong>⚠ Evidence gap:</strong> ' + escapeHtml(String(payload.evidence_gap_reason));
+      wrap.appendChild(gap);
+    }
+    // prior_touches_30d[] cadence strip
+    var touches = Array.isArray(payload.prior_touches_30d) ? payload.prior_touches_30d : [];
+    if (touches.length) {
+      var cad = document.createElement('div');
+      cad.style.cssText = 'margin:8px 0;padding:6px 10px;background:rgba(76,175,142,0.05);border-left:2px solid var(--green);font-size:10px;line-height:1.4;color:var(--text-sec);overflow-x:auto;white-space:nowrap;';
+      var cadHead = document.createElement('div');
+      cadHead.style.cssText = 'color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px;';
+      cadHead.textContent = 'Recent cadence · last 30d · ' + touches.length + ' touch' + (touches.length === 1 ? '' : 'es');
+      cad.appendChild(cadHead);
+      var strip = document.createElement('div');
+      strip.style.cssText = 'color:var(--text);';
+      strip.textContent = touches.slice(0, 8).map(function (t) {
+        var ch = (t && t.channel) ? String(t.channel) : '?';
+        var dir = (t && t.direction) === 'in' ? '↓' : (t && t.direction) === 'out' ? '↑' : '·';
+        var when = (t && t.occurred_at) ? relativeTimeShort(t.occurred_at) : '';
+        return ch + dir + ' ' + when;
+      }).join('  ·  ');
+      cad.appendChild(strip);
+      wrap.appendChild(cad);
+    }
+  }
+
   // The drafted body
   var bodyLabel = document.createElement('div');
   bodyLabel.style.cssText = 'color:var(--text-muted);font-size:10px;letter-spacing:1px;text-transform:uppercase;margin-top:6px;';
@@ -2161,13 +2240,16 @@ async function opsApiGet(cloud, action, params) {
 // belong to other surfaces and would only confuse reps here).
 var COCKPIT_ALLOWED_ACTION_TYPES = {
   // Sales-loop SMS — Approve & Send goes through ops-api send_proposed_sms.
-  book_scope:          'sms',
-  send_booking_sms:    'sms',
-  scope_confirmation:  'sms',
-  send_followup_sms:   'sms',
-  deposit_followup:    'sms',
+  book_scope:                'sms',
+  send_booking_sms:          'sms',
+  scope_confirmation:        'sms',
+  send_followup_sms:         'sms',
+  deposit_followup:          'sms',
+  // Quote Follow-Up Loop SMS — Approve & Send goes through ops-api
+  // send_quote_followup_sms (atomic-claim per parent card B4).
+  send_quote_followup_sms:   'sms',
   // Call recommendation only — renders a tel: link. NEVER sends an SMS.
-  call_now:            'call'
+  call_now:                  'call'
 };
 
 // Two recommendation buckets for the human label + grouping.
@@ -2177,6 +2259,9 @@ function recommendationTypeFor(actionType) {
   }
   if (actionType === 'send_followup_sms' || actionType === 'deposit_followup' || actionType === 'call_now') {
     return 'Sales Follow-up';
+  }
+  if (actionType === 'send_quote_followup_sms') {
+    return 'Quote Follow-up';
   }
   return null;
 }
