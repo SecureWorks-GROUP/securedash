@@ -2903,6 +2903,7 @@
       <div class="jd-sub-view" id="jdComms"></div>
       <div class="jd-sub-view" id="jdHistory"></div>
       <div class="jd-sub-view" id="jdJarvis"></div>
+      <div id="jdNotesPanel" class="jd-sub-view-notes"></div>
     </div>
     <!-- Action drawer removed — actions are contextual in tabs -->
     <div class="jd-drawer" id="jdDrawer" style="display:none;"></div>
@@ -4061,7 +4062,11 @@ function opsFetch(action, params) {
     });
   }
   return fetch(url, { cache: 'no-store', headers: { 'x-api-key': window.SW_API_KEY, 'Authorization': 'Bearer ' + window.SUPABASE_ANON_KEY } }).then(function(resp) {
-    if (!resp.ok) throw new Error('API error: ' + resp.status);
+    if (!resp.ok) {
+      return resp.json().catch(function() { return {}; }).then(function(err) {
+        throw new Error(err.error || 'API error: ' + resp.status);
+      });
+    }
     return resp.json();
   });
 }
@@ -9071,7 +9076,7 @@ async function openJobDetail(jobId) {
 
   // Show loading
   document.getElementById('jdHealthTop').innerHTML = '<div class="loading" style="padding:8px;">Loading...</div>';
-  var _clrIds = ['jdOverview','jdMoney','jdBuild','jdFiles','jdComms','jdHistory'];
+  var _clrIds = ['jdOverview','jdMoney','jdBuild','jdFiles','jdComms','jdHistory','jdNotesPanel'];
   _clrIds.forEach(function(id) { var el = document.getElementById(id); if (el) el.innerHTML = ''; });
 
   try {
@@ -9185,6 +9190,7 @@ function showJobSubView(tab) {
   if (tab === 'comms') renderCommsView(_currentJobData);
   if (tab === 'history') renderHistoryView(_currentJobData);
   if (tab === 'jarvis') renderJarvisView(_currentJobData);
+  renderNotesPanel(_currentJobData);
 }
 
 // ── JARVIS Context Panel ──
@@ -9990,8 +9996,6 @@ function renderOverviewView(data) {
   });
   if (evts.length > 5) html += '<div style="margin-top:6px;"><a href="#" onclick="event.preventDefault();showJobSubView(\x27history\x27)" style="font-size:11px;color:var(--sw-mid);">View full history &#8594;</a></div>';
   html += '</div>';
-  html += buildNotesHTML(data);
-
   document.getElementById('jdOverview').innerHTML = html;
 }
 
@@ -10540,8 +10544,6 @@ function renderMoneyView(data) {
     html += '<span class="jd-margin-bar-label" style="color:' + marginColor + '">Margin: ' + marginPct + '%</span></div>';
     html += '</div>';
   }
-  html += buildNotesHTML(data);
-
   document.getElementById('jdMoney').innerHTML = html;
 }
 
@@ -10569,7 +10571,6 @@ function renderBuildView(data) {
     }
     if (pj.client_notes) html += '<div style="margin-top:8px;font-size:12px;"><strong>Client Notes:</strong> ' + escapeHtml(pj.client_notes) + '</div>';
     if (pj.internal_notes) html += '<div style="margin-top:4px;font-size:12px;color:var(--sw-text-sec);"><strong>Internal:</strong> ' + escapeHtml(pj.internal_notes) + '</div>';
-    html += buildNotesHTML(data);
     document.getElementById('jdBuild').innerHTML = html;
     return;
   }
@@ -10661,7 +10662,6 @@ function renderBuildView(data) {
 
   // Labour Reconciliation placeholder — loads async
   html += '<div id="jdLabourRecon" style="margin-top:16px;"></div>';
-  html += buildNotesHTML(data);
 
   document.getElementById('jdBuild').innerHTML = html;
 
@@ -10937,11 +10937,17 @@ function buildNotesHTML(data) {
     h += '<div style="font-size:12px;color:var(--sw-text-sec);">No notes yet</div>';
   }
   h += '<div class="jd-note-input-wrap">';
-  h += '<textarea class="jd-note-input" id="jdNoteInput" placeholder="Add a note..."></textarea>';
+  h += '<textarea class="jd-note-input" placeholder="Add a note..."></textarea>';
   h += '<button class="btn btn-primary btn-sm" onclick="submitJobNote()">Add</button>';
   h += '</div>';
   h += '</div>';
   return h;
+}
+
+function renderNotesPanel(data) {
+  var el = document.getElementById('jdNotesPanel');
+  if (!el || !data) return;
+  el.innerHTML = buildNotesHTML(data);
 }
 
 // ── Files View ──
@@ -11092,12 +11098,8 @@ function renderFilesView(data) {
     });
   }
 
-  // Notes
-  html += buildNotesHTML(data);
-  var noteEvents = (data.events || []).filter(function(ev) { return ev.event_type === 'note' || ev.event_type === 'note_added' || ev.event_type === 'site_note'; });
-
-  if (!readiness && jobPhotos.length === 0 && receiptPhotos.length === 0 && (data.documents || []).length === 0 && noteEvents.length === 0) {
-    html = '<div class="empty-state"><div class="empty-state-icon">&#128247;</div><div class="empty-state-text">No files or notes yet</div></div>' + html.slice(html.lastIndexOf('<div class="jd-note-input-wrap">'));
+  if (!readiness && jobPhotos.length === 0 && receiptPhotos.length === 0 && (data.documents || []).length === 0) {
+    html = '<div class="empty-state"><div class="empty-state-icon">&#128247;</div><div class="empty-state-text">No files yet</div></div>';
   }
 
   document.getElementById('jdFiles').innerHTML = html;
@@ -11233,21 +11235,11 @@ window.deleteDocument = async function(docId, fileName) {
 };
 
 async function submitJobNote() {
-  // Multiple tabs have id="jdNoteInput" — find the one in the active/visible tab
-  var inputs = document.querySelectorAll('#jdNoteInput');
-  var input = null;
-  for (var i = 0; i < inputs.length; i++) {
-    if (inputs[i].offsetParent !== null) { input = inputs[i]; break; }
-  }
-  if (!input) input = inputs[inputs.length - 1]; // fallback to last
-  var text = input.value.trim();
+  var input = document.querySelector('#jdNotesPanel .jd-note-input');
+  var text = input ? input.value.trim() : '';
   if (!text || !_currentJobId) return;
-
   try {
-    await opsPost('add_note', {
-      job_id: _currentJobId,
-      text: text,
-    });
+    await opsPost('add_note', { job_id: _currentJobId, text: text });
     input.value = '';
     showToast('Note added', 'success');
     refreshJobDetail();
