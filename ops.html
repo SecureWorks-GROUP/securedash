@@ -11039,6 +11039,7 @@ function renderFilesView(data) {
       var url = doc.storage_url || doc.pdf_url;
       var name = doc.file_name || doc.quote_number || ((doc.type || 'document').replace(/_/g, ' ') + (doc.version > 1 ? ' v' + doc.version : ''));
       var isVisible = doc.visible_to_trades;
+      console.log('[FILES DEBUG] doc:', doc.id, 'visible_to_trades:', doc.visible_to_trades, 'isVisible:', isVisible, 'type:', typeof doc.visible_to_trades);
 
       // Type badge colours
       var typeColors = {
