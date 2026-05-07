@@ -180,14 +180,25 @@
             backfill_ghl_conversations:    1,
             // Quote Follow-Up Loop send path — atomic-claim handler in ops-api
             // (parent card secure-sale-quote-followup-loop, B4 of contract).
-            send_quote_followup_sms:       1
+            send_quote_followup_sms:       1,
+            // Quote-nurture v3 — internal task approval handlers (atomic-claim
+            // per memory feedback_atomic_claim_pattern). Approval fires no
+            // external mutation: just marks proposal status=approved + emits
+            // business_event. No SMS, no GHL call.
+            approve_scoper_call_task:      1,
+            approve_quote_review_task:     1
           };
           if (opsActPost && OPS_POST_ALLOW[opsActPost]) return { blocked: false };
           return { blocked: true, reason: 'ops-api POST action "' + opsActPost + '" not in proposal-flow allowlist' };
         }
         if (path === '/functions/v1/ops-api' && method === 'GET') {
           var opsActGet = u.searchParams.get('action');
-          var OPS_GET_ALLOW = { list_proposed_actions: 1 };
+          var OPS_GET_ALLOW = {
+            list_proposed_actions: 1,
+            // Quote-nurture v3 — read-only stale review tasks (>3 days pending).
+            // Powers the "ESCALATED" badge on D30 review cards in sale.html.
+            list_stale_quote_review_tasks: 1
+          };
           if (opsActGet && OPS_GET_ALLOW[opsActGet]) return { blocked: false };
           return { blocked: true, reason: 'ops-api GET action "' + opsActGet + '" not in read-only allowlist' };
         }
@@ -1130,6 +1141,34 @@ function renderCard(card, lane) {
         openProposalConfirm(prop, card);
       });
       actions.appendChild(sendBtn);
+    } else if (dispatchKind === 'call_task') {
+      // propose_scoper_call_task — internal task creator. Approval marks the
+      // proposal as approved and emits a business_event. NO customer SMS or
+      // GHL call is dispatched. (per parent card secure-sale-quote-followup-loop reframe v3)
+      var callTaskBtn = document.createElement('button');
+      callTaskBtn.className = 'primary';
+      callTaskBtn.type = 'button';
+      callTaskBtn.textContent = 'Approve call task';
+      callTaskBtn.title = 'Marks the call task approved. No customer SMS or external mutation. Talk-track stays with the rep.';
+      callTaskBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        approveScoperCallTask(prop, card, callTaskBtn);
+      });
+      actions.appendChild(callTaskBtn);
+    } else if (dispatchKind === 'review_task') {
+      // propose_quote_review_task — D30 internal review. Three sub-actions:
+      // refresh_price | archive_lost | reactivate. Approval routes to ops-api
+      // approve_quote_review_task with the chosen sub-action. No customer SMS.
+      var reviewBtn = document.createElement('button');
+      reviewBtn.className = 'primary';
+      reviewBtn.type = 'button';
+      reviewBtn.textContent = 'Approve review';
+      reviewBtn.title = 'D30 review task — pick refresh / archive / reactivate. No customer SMS.';
+      reviewBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        openQuoteReviewTaskMenu(prop, card, reviewBtn);
+      });
+      actions.appendChild(reviewBtn);
     } else if (dispatchKind === 'call') {
       // call_now is a CALL recommendation. Render a tel: link if we have a
       // phone, otherwise show why it can't be called.
@@ -1331,6 +1370,55 @@ function renderProposalDetailPanel(p, card) {
     return Math.round(hours / 24) + 'd ago';
   }
   if ((payload.loop === 'quote_followup') || (p.metadata && p.metadata.loop === 'quote_followup')) {
+    // ── v3 cadence-planner chip row (ticket_tier · slot · voice · objection) ──
+    // Renders ONLY when the proposal carries v3 fields. v1 proposals (no
+    // slot_day) still render with the legacy blocks below.
+    if (payload.slot_day || payload.ticket_tier || payload.voice_anchor) {
+      var chips = [];
+      if (payload.ticket_tier) {
+        chips.push('<span style="color:var(--text);">tier <strong>' + escapeHtml(String(payload.ticket_tier)) + '</strong></span>');
+      }
+      if (payload.slot_day) {
+        chips.push('<span style="color:var(--text);">slot <strong>D' + escapeHtml(String(payload.slot_day)) + '</strong></span>');
+      }
+      if (payload.voice_anchor) {
+        var voiceLabel = payload.voice_anchor === 'fencing_khairo_v1' ? 'Khairo' :
+                         payload.voice_anchor === 'patio_nithin_v1' ? 'Nithin' :
+                         String(payload.voice_anchor);
+        chips.push('<span style="color:var(--text);">voice <strong>' + escapeHtml(voiceLabel) + '</strong></span>');
+      }
+      if (payload.urgency_basis && payload.urgency_basis !== 'none') {
+        chips.push('<span style="color:var(--amber);">urgency <strong>' + escapeHtml(String(payload.urgency_basis)) + '</strong></span>');
+      }
+      if (payload.expected_objection) {
+        chips.push('<span style="color:var(--text-muted);">objection <strong>' + escapeHtml(String(payload.expected_objection)) + '</strong></span>');
+      }
+      if (chips.length) {
+        var chipRow = document.createElement('div');
+        chipRow.style.cssText = 'margin:6px 0 8px 0;padding:6px 10px;background:rgba(76,175,142,0.05);border-left:2px solid var(--green);font-size:10px;letter-spacing:0.3px;';
+        chipRow.innerHTML = chips.join(' · ');
+        wrap.appendChild(chipRow);
+      }
+      if (payload.risk_reversal_used) {
+        var rr = document.createElement('div');
+        rr.style.cssText = 'margin:6px 0 8px 0;padding:6px 10px;background:rgba(76,175,142,0.05);border-left:2px solid var(--green);font-size:10px;letter-spacing:0.3px;color:var(--text-sec);';
+        rr.innerHTML = '<span style="color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;">Risk reversal</span><br><span style="color:var(--text);">' + escapeHtml(String(payload.risk_reversal_used)) + '</span>';
+        wrap.appendChild(rr);
+      }
+      // Playbook traceability row — which file + which version + status produced this draft.
+      if (payload.playbook_path) {
+        var pbRow = document.createElement('div');
+        pbRow.style.cssText = 'margin:4px 0;color:var(--text-muted);font-size:9px;letter-spacing:0.5px;';
+        var pbStatusColour = payload.playbook_status === 'active' ? 'var(--text-muted)' : 'var(--amber)';
+        var pbStatusLabel = payload.playbook_status === 'scaffold_safe_mode' ? ' · SAFE MODE' :
+                            payload.playbook_status === 'active' ? '' :
+                            ' · ' + String(payload.playbook_status || '');
+        pbRow.innerHTML = 'playbook: <code style="color:var(--text-sec);">' + escapeHtml(String(payload.playbook_path)) + '</code>' +
+                          (payload.playbook_version ? ' @ <code style="color:var(--text-sec);">' + escapeHtml(String(payload.playbook_version).slice(0, 8)) + '</code>' : '') +
+                          '<span style="color:' + pbStatusColour + ';">' + pbStatusLabel + '</span>';
+        wrap.appendChild(pbRow);
+      }
+    }
     // Confidence decay tooltip — append " · decayed" to the existing meta row when applied
     if (payload.confidence_decay_applied) {
       var decayChip = document.createElement('div');
@@ -1393,12 +1481,86 @@ function renderProposalDetailPanel(p, card) {
       cad.appendChild(strip);
       wrap.appendChild(cad);
     }
+
+    // ── propose_scoper_call_task — talk_track[] + voicemail_script panel ──
+    if (p.action_type === 'propose_scoper_call_task') {
+      var tt = Array.isArray(payload.talk_track) ? payload.talk_track : [];
+      if (tt.length) {
+        var ttBox = document.createElement('div');
+        ttBox.style.cssText = 'margin:8px 0;padding:8px 10px;background:rgba(92,143,184,0.08);border-left:2px solid var(--blue);font-size:11px;line-height:1.5;color:var(--text-sec);';
+        var ttHead = document.createElement('div');
+        ttHead.style.cssText = 'color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:4px;';
+        ttHead.textContent = 'Talk-track · ' + tt.length + ' bullet' + (tt.length === 1 ? '' : 's');
+        ttBox.appendChild(ttHead);
+        var ol = document.createElement('ol');
+        ol.style.cssText = 'margin:4px 0 0 18px;padding:0;color:var(--text);';
+        tt.forEach(function (line) {
+          var li = document.createElement('li');
+          li.style.cssText = 'margin-bottom:3px;';
+          li.textContent = String(line);
+          ol.appendChild(li);
+        });
+        ttBox.appendChild(ol);
+        wrap.appendChild(ttBox);
+      }
+      if (payload.voicemail_script) {
+        var vm = document.createElement('div');
+        vm.style.cssText = 'margin:8px 0;padding:8px 10px;background:rgba(92,143,184,0.05);border-left:2px solid var(--blue);font-size:10px;line-height:1.5;color:var(--text-sec);';
+        vm.innerHTML = '<span style="color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;">Voicemail (≤20s)</span><br><span style="color:var(--text);">' + escapeHtml(String(payload.voicemail_script)) + '</span>';
+        wrap.appendChild(vm);
+      }
+      if (payload.demoted_from_sms) {
+        var dem = document.createElement('div');
+        dem.style.cssText = 'margin:6px 0;padding:6px 10px;background:rgba(255,181,84,0.08);border-left:2px solid var(--amber);color:var(--amber);font-size:10px;letter-spacing:0.3px;';
+        dem.textContent = 'SAFE MODE: SMS slot demoted to call task (Nithin playbook awaiting approval)';
+        wrap.appendChild(dem);
+      }
+    }
+
+    // ── propose_quote_review_task — D30 review options + ESCALATED badge ──
+    if (p.action_type === 'propose_quote_review_task') {
+      var opts = Array.isArray(payload.review_options) ? payload.review_options : [];
+      if (opts.length) {
+        var rvBox = document.createElement('div');
+        rvBox.style.cssText = 'margin:8px 0;padding:8px 10px;background:rgba(92,143,184,0.08);border-left:2px solid var(--blue);font-size:11px;line-height:1.5;color:var(--text-sec);';
+        var rvHead = document.createElement('div');
+        rvHead.style.cssText = 'color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:4px;';
+        rvHead.textContent = 'D30 review options · routed to ' + escapeHtml(String(payload.assigned_rep || 'rep'));
+        rvBox.appendChild(rvHead);
+        opts.forEach(function (opt) {
+          var row = document.createElement('div');
+          row.style.cssText = 'margin:3px 0;';
+          row.innerHTML = '· <strong style="color:var(--text);">' + escapeHtml(String(opt.label || opt.key || '?')) + '</strong>';
+          rvBox.appendChild(row);
+        });
+        wrap.appendChild(rvBox);
+      }
+      // ESCALATED badge — set by openProposalDetailPanel caller via a global
+      // map populated from list_stale_quote_review_tasks on page load. The
+      // proposal_id is used as the join key.
+      var stale = window.__SW_STALE_REVIEW_TASKS || {};
+      var pid = (p && (p.proposal_id || p.id)) || null;
+      if (pid && stale[pid]) {
+        var esc = document.createElement('div');
+        esc.style.cssText = 'margin:8px 0;padding:8px 10px;background:rgba(231,76,60,0.12);border-left:2px solid #E74C3C;color:#E74C3C;font-size:10px;letter-spacing:0.5px;text-transform:uppercase;font-weight:700;';
+        esc.textContent = 'ESCALATED — older than 3 days · auto-routed to Shaun (CC Marnin)';
+        wrap.appendChild(esc);
+      }
+    }
   }
 
   // The drafted body
   var bodyLabel = document.createElement('div');
   bodyLabel.style.cssText = 'color:var(--text-muted);font-size:10px;letter-spacing:1px;text-transform:uppercase;margin-top:6px;';
-  bodyLabel.textContent = (p.action_type === 'call_now') ? 'Call talk-track' : 'Drafted message';
+  if (p.action_type === 'call_now') {
+    bodyLabel.textContent = 'Call talk-track';
+  } else if (p.action_type === 'propose_scoper_call_task') {
+    bodyLabel.textContent = 'Call task summary';
+  } else if (p.action_type === 'propose_quote_review_task') {
+    bodyLabel.textContent = 'D30 review summary';
+  } else {
+    bodyLabel.textContent = 'Drafted message';
+  }
   wrap.appendChild(bodyLabel);
 
   var body = document.createElement('div');
@@ -1640,6 +1802,90 @@ function openProposalEditDrawer(proposal, card) {
   }).catch(function (err) {
     showActionToast('Edit & Send failed: ' + err.message, 'error');
   });
+}
+
+// ════════════════════════════════════════════════════════════
+// Quote-nurture v3 cadence task handlers
+//   - approveScoperCallTask: marks propose_scoper_call_task approved.
+//                            NO customer SMS. NO GHL call. Pure task.
+//   - openQuoteReviewTaskMenu: D30 review — refresh / archive / reactivate.
+//                              NO customer SMS. Optional state flip on archive.
+// Both routes hit ops-api atomic-claim handlers (parent card secure-sale-
+// quote-followup-loop reframe v3).
+// ════════════════════════════════════════════════════════════
+function approveScoperCallTask(proposal, card, anchorBtn) {
+  var pid = proposalId(proposal);
+  if (!pid) { showActionToast('Proposal id missing', 'error'); return; }
+  var contactDisplay = (card.customer_name || 'this customer') + (card.phone ? ' · ' + card.phone : '');
+  if (!confirm('Approve call task for ' + contactDisplay + '?\n\nThis marks the task approved for the rep to action manually.\nNO customer SMS will be sent.\nNO GHL mutation will fire.')) return;
+  if (anchorBtn) { anchorBtn.disabled = true; anchorBtn.textContent = 'Approving…'; }
+  var userId = (_profileCache && _profileCache.id) || null;
+  opsApiPost(_lastCloud, 'approve_scoper_call_task', { action_id: pid, user_id: userId }).then(function () {
+    showActionToast('Call task approved ✓ — over to the rep', 'sent');
+    setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 700);
+  }).catch(function (err) {
+    showActionToast('Approve failed: ' + err.message, 'error');
+    if (anchorBtn) { anchorBtn.disabled = false; anchorBtn.textContent = 'Approve call task'; }
+    console.error('[sale] approve_scoper_call_task failed:', err);
+  });
+}
+
+function openQuoteReviewTaskMenu(proposal, card, anchorBtn) {
+  var pid = proposalId(proposal);
+  if (!pid) { showActionToast('Proposal id missing', 'error'); return; }
+  var pick = window.prompt('D30 review for ' + (card.customer_name || 'customer') + '\n\n1. Refresh price (re-quote, restart cadence)\n2. Archive as lost (capture lost_reason)\n3. Reactivate (fresh approach)\n\nEnter 1, 2, or 3:');
+  if (!pick) return;
+  var idx = parseInt(pick, 10);
+  var subAction = null;
+  if (idx === 1) subAction = 'refresh_price';
+  else if (idx === 2) subAction = 'archive_lost';
+  else if (idx === 3) subAction = 'reactivate';
+  else { showActionToast('Invalid choice', 'error'); return; }
+
+  var lostReason = null;
+  if (subAction === 'archive_lost') {
+    lostReason = window.prompt('Lost reason (price | scope | went-with-another | disappeared | spouse-no | other):');
+    if (lostReason === null) return;
+    lostReason = String(lostReason || '').trim();
+  }
+
+  if (anchorBtn) { anchorBtn.disabled = true; anchorBtn.textContent = 'Approving…'; }
+  var userId = (_profileCache && _profileCache.id) || null;
+  opsApiPost(_lastCloud, 'approve_quote_review_task', {
+    action_id: pid,
+    user_id: userId,
+    sub_action: subAction,
+    lost_reason: lostReason || null,
+  }).then(function () {
+    var label = subAction === 'archive_lost' ? 'Archived as lost ✓' :
+                subAction === 'refresh_price' ? 'Marked for re-quote ✓' :
+                'Marked for reactivation ✓';
+    showActionToast(label, 'sent');
+    setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 700);
+  }).catch(function (err) {
+    showActionToast('Approve failed: ' + err.message, 'error');
+    if (anchorBtn) { anchorBtn.disabled = false; anchorBtn.textContent = 'Approve review'; }
+    console.error('[sale] approve_quote_review_task failed:', err);
+  });
+}
+
+// Page-load helper — populate window.__SW_STALE_REVIEW_TASKS for the
+// "ESCALATED" badge in the renderer. Read-only ops-api GET. If the endpoint
+// is not deployed yet, fail soft (no badge) — never crash the page.
+async function loadStaleQuoteReviewTasks(cloud) {
+  try {
+    var data = await opsApiGet(cloud, 'list_stale_quote_review_tasks', {});
+    var rows = (data && data.tasks) || [];
+    var byId = {};
+    rows.forEach(function (r) {
+      if (r && r.proposal_id) byId[r.proposal_id] = r;
+    });
+    window.__SW_STALE_REVIEW_TASKS = byId;
+  } catch (e) {
+    // Endpoint not deployed yet, RPC missing, or rep has no tasks.
+    // Silent fail — the badge just won't render.
+    window.__SW_STALE_REVIEW_TASKS = {};
+  }
 }
 
 // Verb: Snooze — pause the proposal until a chosen time. Quick choices
@@ -2249,7 +2495,12 @@ var COCKPIT_ALLOWED_ACTION_TYPES = {
   // send_quote_followup_sms (atomic-claim per parent card B4).
   send_quote_followup_sms:   'sms',
   // Call recommendation only — renders a tel: link. NEVER sends an SMS.
-  call_now:                  'call'
+  call_now:                  'call',
+  // Quote-nurture v3 — internal task creators (no customer-facing send).
+  // Approval routes to ops-api approve_scoper_call_task / approve_quote_review_task.
+  // Per parent card secure-sale-quote-followup-loop reframe v3.
+  propose_scoper_call_task:  'call_task',
+  propose_quote_review_task: 'review_task'
 };
 
 // Two recommendation buckets for the human label + grouping.
@@ -2262,6 +2513,12 @@ function recommendationTypeFor(actionType) {
   }
   if (actionType === 'send_quote_followup_sms') {
     return 'Quote Follow-up';
+  }
+  if (actionType === 'propose_scoper_call_task') {
+    return 'Quote Follow-up · Call task';
+  }
+  if (actionType === 'propose_quote_review_task') {
+    return 'Quote Follow-up · D30 review';
   }
   return null;
 }
@@ -2404,6 +2661,10 @@ function loadAndRender(cloud) {
   var profile = cloud.auth && cloud.auth.getUser ? cloud.auth.getUser() : null;
   _profileCache = profile;
   var pipelines = pipelineForRep(profile);
+
+  // Fire-and-forget the stale-review-task loader so the ESCALATED badge
+  // can render on the next paint. Soft-fails if the endpoint isn't deployed.
+  loadStaleQuoteReviewTasks(cloud);
 
   Promise.all([
     fetchBookingCards(cloud, pipelines),
