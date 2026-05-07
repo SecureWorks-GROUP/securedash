@@ -9157,7 +9157,7 @@ async function refreshJobDetail() {
       var activeTab = document.querySelector('.jd-tab.active');
       var tab = activeTab ? activeTab.getAttribute('data-jd-tab') : 'timeline';
       showJobSubView(tab);
-    } catch(e) {}
+    } catch(e) { console.error('refreshJobDetail error:', e); }
   }
 }
 
@@ -11214,13 +11214,18 @@ window.uploadOneDocument = async function(file, jobId, rowId) {
   }
 };
 
+var _togglingDoc = false;
 window.toggleDocVisibility = async function(docId, newValue) {
+  if (_togglingDoc) return;
+  _togglingDoc = true;
   try {
     await opsPost('toggle_document_visibility', { documentId: docId, visible_to_trades: newValue });
-    // Refresh (preserve active tab)
-    if (_currentJobId) refreshJobDetail();
+    showToast(newValue ? 'Visible to trades' : 'Hidden from trades', 'success');
+    if (_currentJobId) await refreshJobDetail();
   } catch (err) {
-    alert('Error: ' + (err.message || err));
+    showToast('Error: ' + (err.message || err), 'warning');
+  } finally {
+    _togglingDoc = false;
   }
 };
 
