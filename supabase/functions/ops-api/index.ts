@@ -708,13 +708,6 @@ serve(async (req: Request) => {
           .select('id')
         results.accepted_to_deposit = depMoved?.length || 0
 
-        // 3. scheduled jobs → processing
-        const { data: schedMoved } = await client.from('jobs')
-          .update({ status: 'processing', processing_at: new Date().toISOString() })
-          .eq('status', 'scheduled')
-          .select('id')
-        results.scheduled_to_processing = schedMoved?.length || 0
-
         return json({ success: true, migrated: results })
       }
       case 'create_unified_invoice': return json(await createUnifiedInvoice(client, body))
@@ -3216,14 +3209,14 @@ async function pipeline(client: any, params: URLSearchParams) {
     .or('legacy.is.null,legacy.eq.false')
     // Show all jobs with a job_number, plus any active-stage job even without one.
     // This keeps old quoted/complete junk without job_numbers off the board.
-    .or('job_number.not.is.null,status.not.in.(quoted,complete,invoiced,archived)')
+    .or('job_number.not.is.null,status.not.in.(quoted,complete,archived)')
     .order('updated_at', { ascending: false })
 
   if (statusFilter) {
     query = query.eq('status', statusFilter)
   } else {
     // Exclude terminal + non-kanban statuses
-    query = query.not('status', 'in', '("lost","cancelled","draft","invoiced","archived")')
+    query = query.not('status', 'in', '("lost","cancelled","draft","archived")')
   }
   if (typeFilter) query = query.eq('type', typeFilter)
 
