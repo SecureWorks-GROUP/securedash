@@ -1,0 +1,22 @@
+name: Deploy ops-api Edge Function
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/ops-api/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy ops-api
+        run: supabase functions deploy ops-api --no-verify-jwt --project-ref kevgrhcjxspbxgovpmfl
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
