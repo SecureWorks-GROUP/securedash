@@ -97,16 +97,93 @@ var SUB_STAGE_ORDER = {
   complete: ['Needs Invoice', 'Awaiting Payment', 'Get Sign-off'],
 };
 
-function renderKanban(container, columns) {
-  var order = _showDrafts
-    ? ['draft', 'quoted', 'accepted', 'approvals', 'processing', 'in_progress', 'complete', 'invoiced']
-    : ['quoted', 'accepted', 'approvals', 'processing', 'in_progress', 'complete', 'invoiced'];
-  var html = '<div class="kanban-container">';
+var __OPS_PIPELINE_SM = window.SW_STATE_MACHINE || {};
+var STATUS_MAPPING_GAP_LABEL = 'Status Mapping Gap';
+var STATUS_MAPPING_GAP_COLOR = '#831843';
+var STATUS_MAPPING_GAP_KEY = '__status_mapping_gap__';
+var OPS_PIPELINE_FALLBACK_ACTIVE_STATUSES = [
+  'draft', 'quoted', 'partially_accepted', 'accepted', 'awaiting_deposit',
+  'approvals', 'order_materials', 'awaiting_supplier', 'order_confirmed',
+  'schedule_install', 'scheduled', 'in_progress', 'rectification', 'complete',
+  'final_payment', 'get_review', 'invoiced', 'processing', 'deposit'
+];
+var SALES_DRAWER_STAGES = ['quoted', 'partially_accepted'];
 
-  order.forEach(function(status) {
+function statusLabelOrGap(s) {
+  if (s == null || s === '') return STATUS_MAPPING_GAP_LABEL;
+  return STATUS_LABELS[s] || (STATUS_MAPPING_GAP_LABEL + ' (' + s + ')');
+}
+
+function __opsPipelineStageListFor(typeKey) {
+  var source = null;
+  if (typeKey === 'fencing' && __OPS_PIPELINE_SM.FENCING_STAGES) source = __OPS_PIPELINE_SM.FENCING_STAGES;
+  else if ((typeKey === 'patio' || typeKey === 'decking') && __OPS_PIPELINE_SM.PATIO_STAGES) source = __OPS_PIPELINE_SM.PATIO_STAGES;
+  else if (__OPS_PIPELINE_SM.ACTIVE_STATUSES) source = __OPS_PIPELINE_SM.ACTIVE_STATUSES;
+  var stages = source ? source.slice() : OPS_PIPELINE_FALLBACK_ACTIVE_STATUSES.slice();
+
+  ['schedule_install', 'rectification', 'final_payment', 'get_review', 'processing', 'deposit'].forEach(function(status) {
+    if (stages.indexOf(status) === -1) stages.push(status);
+  });
+
+  if (_showDrafts && stages.indexOf('draft') === -1) stages.unshift('draft');
+  return stages.filter(function(status) {
+    if (status === 'draft') return _showDrafts;
+    return status !== 'cancelled' && status !== 'archived' && status !== 'lost';
+  });
+}
+
+function __partitionStages(stages) {
+  var sales = [];
+  var ops = [];
+  stages.forEach(function(status) {
+    if (SALES_DRAWER_STAGES.indexOf(status) !== -1) sales.push(status);
+    else ops.push(status);
+  });
+  return { sales: sales, ops: ops };
+}
+
+function __extractGapJobs(columns) {
+  if (!columns) return [];
+  var canonical = __OPS_PIPELINE_SM.STATUS_MAP ? Object.keys(__OPS_PIPELINE_SM.STATUS_MAP) : Object.keys(STATUS_LABELS);
+  var canon = {};
+  canonical.forEach(function(status) { canon[status] = true; });
+  var gap = [];
+  Object.keys(columns).forEach(function(status) {
+    if (!canon[status]) {
+      (columns[status] || []).forEach(function(j) { gap.push(j); });
+    }
+  });
+  return gap;
+}
+
+function __renderSalesDrawer(columns, salesStages) {
+  var html = '';
+  salesStages.forEach(function(status) {
     var jobs = columns[status] || [];
     html += '<div class="kanban-col" data-status="' + status + '" ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
-    html += '<div class="kanban-col-header">' + STATUS_LABELS[status] + '<span class="count">' + jobs.length + '</span></div>';
+    html += '<div class="kanban-col-header">' + statusLabelOrGap(status) + '<span class="count">' + jobs.length + '</span></div>';
+    html += '<div class="kanban-body">';
+    if (jobs.length === 0) {
+      html += '<div style="text-align:center; padding:20px; color:var(--sw-text-sec); font-size:12px;">No jobs</div>';
+    } else {
+      jobs.forEach(function(j) { html += renderKanbanCard(j, status); });
+    }
+    html += '</div></div>';
+  });
+  return html;
+}
+
+function renderKanban(container, columns) {
+  var typeKey = _jobFilter === 'fencing' || _jobFilter === 'patio' || _jobFilter === 'decking' ? _jobFilter : null;
+  var parts = __partitionStages(__opsPipelineStageListFor(typeKey));
+  var html = '<div class="kanban-container">';
+
+  html += __renderSalesDrawer(columns, parts.sales);
+
+  parts.ops.forEach(function(status) {
+    var jobs = columns[status] || [];
+    html += '<div class="kanban-col" data-status="' + status + '" ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
+    html += '<div class="kanban-col-header">' + statusLabelOrGap(status) + '<span class="count">' + jobs.length + '</span></div>';
     html += '<div class="kanban-body">';
 
     if (jobs.length === 0) {
@@ -145,6 +222,17 @@ function renderKanban(container, columns) {
 
     html += '</div></div>';
   });
+
+  var gapJobs = __extractGapJobs(columns);
+  html += '<div class="kanban-col" data-status="' + STATUS_MAPPING_GAP_KEY + '" style="border-left:3px solid ' + STATUS_MAPPING_GAP_COLOR + ';">';
+  html += '<div class="kanban-col-header" style="color:' + STATUS_MAPPING_GAP_COLOR + ';">' + STATUS_MAPPING_GAP_LABEL + '<span class="count">' + gapJobs.length + '</span></div>';
+  html += '<div class="kanban-body">';
+  if (gapJobs.length === 0) {
+    html += '<div style="text-align:center; padding:20px; color:var(--sw-text-sec); font-size:12px;">All statuses mapped</div>';
+  } else {
+    gapJobs.forEach(function(j) { html += renderKanbanCard(j, j.status || STATUS_MAPPING_GAP_KEY); });
+  }
+  html += '</div></div>';
 
   html += '</div>';
   container.innerHTML = html;
@@ -291,4 +379,3 @@ function renderJobList(container, columns) {
   html += '</tbody></table></div>';
   container.innerHTML = html;
 }
-
