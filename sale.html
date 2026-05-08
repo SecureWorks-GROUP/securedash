@@ -186,7 +186,13 @@
             // external mutation: just marks proposal status=approved + emits
             // business_event. No SMS, no GHL call.
             approve_scoper_call_task:      1,
-            approve_quote_review_task:     1
+            approve_quote_review_task:     1,
+            // Per-scoper playbook MD upload — Marnin-only edit surface for
+            // the per-rep playbooks the cadence_planner reads. Server-side
+            // gate enforces marnin@secureworkswa.com.au + filename allowlist
+            // + YAML frontmatter validation. No customer touch — only writes
+            // to wiki_pages mirror.
+            update_playbook:               1
           };
           if (opsActPost && OPS_POST_ALLOW[opsActPost]) return { blocked: false };
           return { blocked: true, reason: 'ops-api POST action "' + opsActPost + '" not in proposal-flow allowlist' };
@@ -473,6 +479,76 @@
     @media (max-width: 720px) {
       .poc-banner { flex-direction: column; align-items: stretch; padding: 12px 16px; }
       .poc-fire-btn { min-width: 0; width: 100%; }
+    }
+
+    /* ── Playbook editor panel ──
+       Hidden unless URL includes ?playbook=1 or #playbook. Marnin-only edit
+       surface for the per-scoper MD playbooks the cadence_planner reads from
+       wiki_pages at runtime. Server-side: ops-api update_playbook gate
+       requires marnin@secureworkswa.com.au JWT; non-Marnin attempts get 403.
+    */
+    .pb-panel {
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px 24px;
+      background: linear-gradient(90deg, rgba(76,106,124,0.08), rgba(76,106,124,0.02));
+      border-bottom: 1px solid var(--rule);
+      border-left: 3px solid var(--mid-blue, #4C6A7C);
+    }
+    .pb-panel[data-visible="true"] { display: flex; }
+    .pb-panel-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap;
+    }
+    .pb-panel-tag {
+      font-size: 9px; font-weight: 700; letter-spacing: 2.5px;
+      text-transform: uppercase; color: var(--mid-blue, #4C6A7C);
+    }
+    .pb-panel-title {
+      font-size: 13px; font-weight: 700; color: var(--text);
+      letter-spacing: 0.5px;
+    }
+    .pb-panel-sub {
+      font-size: 10.5px; color: var(--text-muted);
+      letter-spacing: 0.5px; margin-top: 2px;
+    }
+    .pb-controls {
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    }
+    .pb-controls select, .pb-controls button {
+      font-size: 11px; font-weight: 700; letter-spacing: 1px;
+      text-transform: uppercase; padding: 8px 12px;
+      border: 1px solid var(--rule); background: #fff;
+      color: var(--text); cursor: pointer; border-radius: 2px;
+    }
+    .pb-controls button.primary {
+      background: var(--orange); color: #fff; border-color: var(--orange);
+    }
+    .pb-controls button.primary:hover { filter: brightness(1.1); }
+    .pb-controls button[disabled] { opacity: 0.55; cursor: not-allowed; }
+    .pb-textarea {
+      width: 100%; min-height: 240px; max-height: 560px;
+      padding: 10px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px; line-height: 1.5;
+      border: 1px solid var(--rule); border-radius: 2px;
+      background: #fafbfc; color: var(--text);
+      resize: vertical;
+    }
+    .pb-status {
+      font-size: 11px; padding: 8px 10px; border-radius: 2px;
+      background: rgba(76,106,124,0.06); color: var(--text);
+      letter-spacing: 0.3px;
+    }
+    .pb-status[data-tone="ok"] {
+      background: rgba(76,127,76,0.10); color: #2f6d2f;
+    }
+    .pb-status[data-tone="error"] {
+      background: rgba(241,90,41,0.12); color: #b3411e;
+    }
+    @media (max-width: 720px) {
+      .pb-panel { padding: 12px 16px; }
     }
 
     /* ── Performance strip (desktop only) ── */
@@ -880,6 +956,37 @@
       <div class="poc-banner-sub">Marnin-only · controlled canary · audit chain captured</div>
     </div>
     <button class="poc-fire-btn" id="marninPocFireBtn" type="button">Send test SMS to Marnin</button>
+  </section>
+
+  <!-- Playbook editor panel — Marnin-only edit surface for per-scoper
+       playbooks (Khairo + Nithin quote-followup; booking-* once those MD
+       files ship). Hidden by default; show with ?playbook=1 or #playbook.
+       Server-side ops-api 'update_playbook' is JWT-gated to Marnin and
+       validates filename allowlist + YAML frontmatter (status enum,
+       voice_anchor, sign_off_pattern) before upserting wiki_pages. The
+       cadence_planner reads filesystem first then wiki_pages, so the
+       next cron tick (Mon-Fri 9:45 / 15:45 AWST) picks up the edit. -->
+  <section class="pb-panel" id="playbookEditorPanel" aria-label="Playbook editor" hidden>
+    <div class="pb-panel-head">
+      <div class="pb-panel-text">
+        <div class="pb-panel-tag">Playbook editor · Marnin only</div>
+        <div class="pb-panel-title">Per-scoper MD skill playbooks</div>
+        <div class="pb-panel-sub">Edit Khairo / Nithin (and booking, once those land). Updates wiki_pages mirror; next cron tick picks up. No customer SMS fires from here.</div>
+      </div>
+      <div class="pb-controls">
+        <select id="pbFilenameSelect" aria-label="Choose playbook">
+          <option value="quote-followup-khairo.md">quote-followup-khairo.md</option>
+          <option value="quote-followup-nithin.md">quote-followup-nithin.md</option>
+          <option value="booking-khairo.md">booking-khairo.md (once shipped)</option>
+          <option value="booking-nithin.md">booking-nithin.md (once shipped)</option>
+        </select>
+        <button id="pbLoadBtn" type="button">Load</button>
+        <button id="pbValidateBtn" type="button">Validate</button>
+        <button id="pbSaveBtn" type="button" class="primary">Save</button>
+      </div>
+    </div>
+    <textarea id="pbContent" class="pb-textarea" spellcheck="false" placeholder="Click Load to fetch the current playbook. Edit the markdown. Validate before saving. YAML frontmatter (status, voice_anchor, sign_off_pattern, etc.) is checked server-side before any write."></textarea>
+    <div id="pbStatus" class="pb-status">Idle. Pick a playbook + click Load.</div>
   </section>
 
   <!-- Performance strip (desktop) -->
@@ -2095,6 +2202,127 @@ async function fireMarninPocSms() {
       btn.addEventListener('click', fireMarninPocSms);
       btn.dataset.wired = '1';
     }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attach);
+  } else {
+    attach();
+  }
+})();
+
+// ── Playbook editor (Marnin-only) ──
+// Loads the current playbook content from the wiki_pages mirror (read via
+// Supabase REST through the user JWT) and posts edits via ops-api
+// update_playbook. Server-side gate enforces marnin@secureworkswa.com.au.
+function pbSetStatus(msg, tone) {
+  var el = document.getElementById('pbStatus');
+  if (!el) return;
+  el.textContent = msg;
+  if (tone) el.dataset.tone = tone; else delete el.dataset.tone;
+}
+
+async function pbLoadCurrent() {
+  var sel = document.getElementById('pbFilenameSelect');
+  var ta = document.getElementById('pbContent');
+  if (!sel || !ta) return;
+  var filename = sel.value;
+  pbSetStatus('Loading ' + filename + ' from wiki_pages mirror…', null);
+  try {
+    var token = await getUserAccessToken();
+    if (!token) throw new Error('Not signed in');
+    var base = window.SUPABASE_URL || 'https://kevgrhcjxspbxgovpmfl.supabase.co';
+    var url = base + '/rest/v1/wiki_pages?select=content,updated_at&domain=eq.playbooks&filename=eq.' + encodeURIComponent(filename);
+    var res = await fetch(url, {
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'apikey': (window.SUPABASE_ANON_KEY || ''),
+      }
+    });
+    if (!res.ok) {
+      var msg = 'wiki_pages read HTTP ' + res.status;
+      try { var j = await res.json(); if (j && j.message) msg = j.message; } catch (_) {}
+      throw new Error(msg);
+    }
+    var rows = await res.json();
+    if (!Array.isArray(rows) || rows.length === 0) {
+      ta.value = '';
+      pbSetStatus('No row in wiki_pages for ' + filename + '. Save will INSERT a new row.', null);
+      return;
+    }
+    ta.value = String(rows[0].content || '');
+    pbSetStatus('Loaded ' + ta.value.length + ' chars · last updated ' + (rows[0].updated_at || 'unknown'), 'ok');
+  } catch (e) {
+    pbSetStatus('Load failed: ' + (e && e.message ? e.message : String(e)), 'error');
+  }
+}
+
+async function pbValidate() {
+  return pbSubmit(true);
+}
+
+async function pbSave() {
+  return pbSubmit(false);
+}
+
+async function pbSubmit(dryRun) {
+  var sel = document.getElementById('pbFilenameSelect');
+  var ta = document.getElementById('pbContent');
+  var saveBtn = document.getElementById('pbSaveBtn');
+  var validateBtn = document.getElementById('pbValidateBtn');
+  if (!sel || !ta) return;
+  var filename = sel.value;
+  var content = ta.value || '';
+  if (!content.trim()) { pbSetStatus('Content empty. Load first or paste content.', 'error'); return; }
+  if (saveBtn) saveBtn.disabled = true;
+  if (validateBtn) validateBtn.disabled = true;
+  pbSetStatus((dryRun ? 'Validating ' : 'Saving ') + filename + ' (' + content.length + ' chars)…', null);
+  try {
+    var token = await getUserAccessToken();
+    if (!token) throw new Error('Not signed in');
+    var base = window.SUPABASE_URL || 'https://kevgrhcjxspbxgovpmfl.supabase.co';
+    var res = await fetch(base + '/functions/v1/ops-api?action=update_playbook', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: filename, content: content, dry_run: !!dryRun }),
+    });
+    var data = {};
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) {
+      throw new Error(data.error || ('ops-api update_playbook HTTP ' + res.status));
+    }
+    if (dryRun) {
+      var fmStatus = data && data.frontmatter && data.frontmatter.status;
+      var emCount = data && typeof data.em_dash_count === 'number' ? data.em_dash_count : 0;
+      pbSetStatus('Validated · status="' + (fmStatus || '?') + '" · em-dashes ' + emCount + ' · ' + (data.em_dash_note || ''), 'ok');
+    } else {
+      pbSetStatus('Saved (' + (data.mode || 'upserted') + ') · status="' + (data.frontmatter_status || '?') + '" · ' + (data.note || ''), 'ok');
+    }
+  } catch (e) {
+    pbSetStatus((dryRun ? 'Validate' : 'Save') + ' failed: ' + (e && e.message ? e.message : String(e)), 'error');
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+    if (validateBtn) validateBtn.disabled = false;
+  }
+}
+
+(function wirePlaybookEditor() {
+  function attach() {
+    var panel = document.getElementById('playbookEditorPanel');
+    var show = false;
+    try {
+      var params = new URLSearchParams(window.location.search || '');
+      show = params.get('playbook') === '1' || String(window.location.hash || '').indexOf('playbook') >= 0;
+    } catch (_) {}
+    if (panel && show) {
+      panel.hidden = false;
+      panel.dataset.visible = 'true';
+    }
+    var loadBtn = document.getElementById('pbLoadBtn');
+    if (loadBtn && !loadBtn.dataset.wired) { loadBtn.addEventListener('click', pbLoadCurrent); loadBtn.dataset.wired = '1'; }
+    var validateBtn = document.getElementById('pbValidateBtn');
+    if (validateBtn && !validateBtn.dataset.wired) { validateBtn.addEventListener('click', pbValidate); validateBtn.dataset.wired = '1'; }
+    var saveBtn = document.getElementById('pbSaveBtn');
+    if (saveBtn && !saveBtn.dataset.wired) { saveBtn.addEventListener('click', pbSave); saveBtn.dataset.wired = '1'; }
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', attach);
