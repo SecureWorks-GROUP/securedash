@@ -12,3 +12,5 @@ CLAUDE.local.md
 scratch/
 drafts/
 
+# Local browser/test audit output
+.gstack/
