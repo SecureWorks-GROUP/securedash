@@ -186,7 +186,13 @@
             // external mutation: just marks proposal status=approved + emits
             // business_event. No SMS, no GHL call.
             approve_scoper_call_task:      1,
-            approve_quote_review_task:     1
+            approve_quote_review_task:     1,
+            // Per-scoper playbook MD upload — Marnin-only edit surface for
+            // the per-rep playbooks the cadence_planner reads. Server-side
+            // gate enforces marnin@secureworkswa.com.au + filename allowlist
+            // + YAML frontmatter validation. No customer touch — only writes
+            // to wiki_pages mirror.
+            update_playbook:               1
           };
           if (opsActPost && OPS_POST_ALLOW[opsActPost]) return { blocked: false };
           return { blocked: true, reason: 'ops-api POST action "' + opsActPost + '" not in proposal-flow allowlist' };
