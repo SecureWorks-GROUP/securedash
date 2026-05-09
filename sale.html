@@ -1276,6 +1276,18 @@ function renderCard(card, lane) {
         openQuoteReviewTaskMenu(prop, card, reviewBtn);
       });
       actions.appendChild(reviewBtn);
+    } else if (dispatchKind === 'booking_approval') {
+      // propose_scoper_booking_approval is currently executed through the
+      // Railway/JARVIS approval tool, not ops-api. Render it so the sales
+      // cockpit is honest about pending booking work, but do not pretend the
+      // browser can commit calendar/SMS side effects yet.
+      var bookingBtn = document.createElement('button');
+      bookingBtn.className = 'primary';
+      bookingBtn.type = 'button';
+      bookingBtn.textContent = 'Review booking';
+      bookingBtn.disabled = true;
+      bookingBtn.title = 'Visible here for review. Final approval still runs through JARVIS/terminal until the ops-api booking approval endpoint is shipped.';
+      actions.appendChild(bookingBtn);
     } else if (dispatchKind === 'call') {
       // call_now is a CALL recommendation. Render a tel: link if we have a
       // phone, otherwise show why it can't be called.
@@ -1656,6 +1668,60 @@ function renderProposalDetailPanel(p, card) {
     }
   }
 
+  // ── Booking handshake approval — scoper-facing M2/customer confirmation review ──
+  if (p.action_type === 'propose_scoper_booking_approval') {
+    var bookingBox = document.createElement('div');
+    bookingBox.style.cssText = 'margin:8px 0;padding:8px 10px;background:rgba(92,143,184,0.08);border-left:2px solid var(--blue);font-size:10px;line-height:1.5;color:var(--text-sec);';
+
+    var bookingHead = document.createElement('div');
+    bookingHead.style.cssText = 'color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:4px;';
+    bookingHead.textContent = 'Booking approval';
+    bookingBox.appendChild(bookingHead);
+
+    var picked = payload.jarvis_picked_slot || {};
+    var lines = [];
+    if (payload.calendar_target) lines.push('calendar: ' + String(payload.calendar_target));
+    if (picked.start_iso) lines.push('picked slot: ' + String(picked.start_iso));
+    if (payload.jarvis_presentation) lines.push('presentation: ' + String(payload.jarvis_presentation));
+    if (payload.route_reasoning && payload.route_reasoning.evidence_gap) {
+      lines.push('route status: ' + String(payload.route_reasoning.evidence_gap));
+    }
+    if (Array.isArray(picked.evidence_gaps) && picked.evidence_gaps.length) {
+      lines.push('slot gaps: ' + picked.evidence_gaps.map(String).join(', '));
+    }
+    if (lines.length) {
+      var bookingMeta = document.createElement('div');
+      bookingMeta.style.cssText = 'color:var(--text);';
+      bookingMeta.textContent = lines.join(' · ');
+      bookingBox.appendChild(bookingMeta);
+    }
+
+    var m2 = payload.m2_drafted_message || (p.metadata && p.metadata.m2_drafted_message);
+    if (m2) {
+      var m2Box = document.createElement('div');
+      m2Box.style.cssText = 'margin-top:7px;color:var(--text);';
+      m2Box.innerHTML = '<span style="color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;">Customer confirmation draft</span><br>' + escapeHtml(String(m2));
+      bookingBox.appendChild(m2Box);
+    }
+
+    var bookingRefs = Array.isArray(payload.evidence_refs) ? payload.evidence_refs : [];
+    if (bookingRefs.length) {
+      var refLine = document.createElement('div');
+      refLine.style.cssText = 'margin-top:7px;color:var(--text-muted);';
+      refLine.textContent = 'evidence: ' + bookingRefs.map(function (r) {
+        return r && r.source ? String(r.source) : 'source';
+      }).slice(0, 5).join(' · ');
+      bookingBox.appendChild(refLine);
+    }
+
+    var approvalGap = document.createElement('div');
+    approvalGap.style.cssText = 'margin-top:7px;color:var(--amber);';
+    approvalGap.textContent = 'Approval is not browser-live yet: use JARVIS/terminal approval until ops-api booking approval is shipped.';
+    bookingBox.appendChild(approvalGap);
+
+    wrap.appendChild(bookingBox);
+  }
+
   // The drafted body
   var bodyLabel = document.createElement('div');
   bodyLabel.style.cssText = 'color:var(--text-muted);font-size:10px;letter-spacing:1px;text-transform:uppercase;margin-top:6px;';
@@ -1665,6 +1731,8 @@ function renderProposalDetailPanel(p, card) {
     bodyLabel.textContent = 'Call task summary';
   } else if (p.action_type === 'propose_quote_review_task') {
     bodyLabel.textContent = 'D30 review summary';
+  } else if (p.action_type === 'propose_scoper_booking_approval') {
+    bodyLabel.textContent = 'Booking summary';
   } else {
     bodyLabel.textContent = 'Drafted message';
   }
@@ -2728,13 +2796,20 @@ var COCKPIT_ALLOWED_ACTION_TYPES = {
   // Approval routes to ops-api approve_scoper_call_task / approve_quote_review_task.
   // Per parent card secure-sale-quote-followup-loop reframe v3.
   propose_scoper_call_task:  'call_task',
-  propose_quote_review_task: 'review_task'
+  propose_quote_review_task: 'review_task',
+  // Booking handshake v1 — visible review card only. Approval still executes
+  // through the JARVIS/Railway tool until ops-api grows the booking approval
+  // bridge.
+  propose_scoper_booking_approval: 'booking_approval'
 };
 
 // Two recommendation buckets for the human label + grouping.
 function recommendationTypeFor(actionType) {
   if (actionType === 'book_scope' || actionType === 'send_booking_sms' || actionType === 'scope_confirmation') {
     return 'Booking Scope';
+  }
+  if (actionType === 'propose_scoper_booking_approval') {
+    return 'Booking Scope · Scoper approval';
   }
   if (actionType === 'send_followup_sms' || actionType === 'deposit_followup' || actionType === 'call_now') {
     return 'Sales Follow-up';
