@@ -411,23 +411,6 @@
       text-transform: uppercase;
     }
     .brand span { color: var(--orange); }
-    .app-nav {
-      display: flex;
-      gap: 18px;
-    }
-    .app-nav a {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      padding: 4px 0;
-      border-bottom: 1px solid transparent;
-    }
-    .app-nav a.active {
-      color: var(--text);
-      border-bottom-color: var(--orange);
-    }
     .section-tabs {
       display: flex;
       gap: 1px;
@@ -636,6 +619,81 @@
       letter-spacing: 1.2px;
       text-align: center;
       text-transform: uppercase;
+    }
+    .calendar-week {
+      display: grid;
+      grid-template-columns: 58px repeat(7, minmax(130px, 1fr));
+      border-top: 1px solid var(--rule);
+      border-left: 1px solid var(--rule);
+      overflow-x: auto;
+    }
+    .calendar-cell,
+    .calendar-day-head,
+    .calendar-time {
+      min-height: 44px;
+      border-right: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+      background: var(--bg);
+    }
+    .calendar-day-head {
+      min-height: 48px;
+      padding: 10px 12px;
+      background: var(--surface-1);
+      color: var(--text);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+    .calendar-time {
+      padding: 8px 8px;
+      background: var(--surface-1);
+      color: var(--text-muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-align: right;
+    }
+    .calendar-cell {
+      position: relative;
+      min-width: 130px;
+    }
+    .calendar-event {
+      position: absolute;
+      left: 5px;
+      right: 5px;
+      top: 4px;
+      min-height: 34px;
+      padding: 7px 8px;
+      background: rgba(76,175,142,0.12);
+      border-left: 2px solid var(--green);
+      color: var(--text);
+      overflow: hidden;
+      z-index: 2;
+    }
+    .calendar-event[data-tone="book"] {
+      background: rgba(92,143,184,0.13);
+      border-left-color: var(--blue);
+    }
+    .calendar-event[data-tone="attention"] {
+      background: rgba(255,181,84,0.13);
+      border-left-color: var(--amber);
+    }
+    .calendar-event-title {
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .calendar-event-meta {
+      margin-top: 2px;
+      color: var(--text-sec);
+      font-size: 9px;
+      line-height: 1.3;
+    }
+    .calendar-undated {
+      margin-top: 16px;
     }
     .signout-btn {
       background: transparent;
@@ -998,6 +1056,47 @@
       flex-direction: column;
     }
     .lcard.open .lcard-actions { display: flex; }
+    .proposal-preview {
+      margin-top: 10px;
+      padding: 9px 10px;
+      background: rgba(76,175,142,0.07);
+      border-left: 2px solid var(--green);
+      color: var(--text);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .proposal-preview-label {
+      color: var(--text-muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .proposal-detail,
+    .memory-facts {
+      display: none;
+    }
+    .lcard.open .proposal-detail,
+    .lcard.open .memory-facts {
+      display: block;
+    }
+    .proposal-audit {
+      margin-top: 10px;
+      border-top: 1px solid var(--rule);
+      padding-top: 8px;
+    }
+    .proposal-audit summary {
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+    .proposal-audit-body {
+      margin-top: 8px;
+    }
     .action-group {
       display: flex;
       flex-direction: column;
@@ -1132,7 +1231,6 @@
       .app-header {
         padding: 14px 16px;
       }
-      .app-nav { display: none; }
       .section-tabs {
         padding: 0;
         overflow-x: auto;
@@ -1225,11 +1323,6 @@
   <!-- App header -->
   <header class="app-header">
     <div class="brand">SecureWorks Group <span>/ Sale</span></div>
-    <nav class="app-nav">
-      <a href="#" class="active">Today</a>
-      <a href="ops.html">Ops</a>
-      <a href="ceo.html">CEO</a>
-    </nav>
     <button class="signout-btn" id="signoutBtn">Sign out</button>
   </header>
 
@@ -1640,6 +1733,10 @@ function renderCard(card, lane) {
   var actions = $('.lcard-actions', el);
   var primaryProposal = (card.pending_proposals && card.pending_proposals.length) ? card.pending_proposals[0] : null;
   var primaryDispatchKind = primaryProposal ? COCKPIT_ALLOWED_ACTION_TYPES[primaryProposal.action_type] : null;
+  if (primaryProposal) {
+    var preview = renderProposalPreview(primaryProposal);
+    if (preview) el.insertBefore(preview, actions);
+  }
 
   // 1. DIAL — only for call lane, OS-handled tel: link, no automation.
   if (lane === 'call' && card.phone && primaryDispatchKind !== 'call' && primaryDispatchKind !== 'call_task') {
@@ -1867,6 +1964,29 @@ function renderCard(card, lane) {
   });
 
   return el;
+}
+
+function previewLabelForProposal(p) {
+  if (!p) return 'Proposed text';
+  if (p.action_type === 'propose_scoper_call_task' || p.action_type === 'call_now') return 'Proposed call';
+  if (p.action_type === 'propose_scoper_booking_approval') return 'Proposed booking';
+  if (p.action_type === 'propose_quote_review_task') return 'Proposed review';
+  return 'Proposed text';
+}
+
+function renderProposalPreview(p) {
+  var text = (p && p.drafted_message) || (p && p.action_payload && p.action_payload.m2_drafted_message) || '';
+  if (!text) return null;
+  var box = document.createElement('div');
+  box.className = 'proposal-preview';
+  var label = document.createElement('div');
+  label.className = 'proposal-preview-label';
+  label.textContent = previewLabelForProposal(p);
+  var body = document.createElement('div');
+  body.textContent = String(text).replace(/\s+/g, ' ').trim();
+  box.appendChild(label);
+  box.appendChild(body);
+  return box;
 }
 
 // Render the full JARVIS rationale + drafted body + brand-lint warnings + evidence
@@ -2196,6 +2316,55 @@ function renderProposalDetailPanel(p, card) {
     wrap.appendChild(warn);
   }
 
+  return compactProposalDetailPanel(wrap, p, payload);
+}
+
+function compactProposalDetailPanel(wrap, p, payload) {
+  var original = Array.from(wrap.children);
+  wrap.innerHTML = '';
+
+  var head = document.createElement('div');
+  head.style.cssText = 'margin-bottom:8px;color:var(--text);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;';
+  head.textContent = 'Why this action';
+  wrap.appendChild(head);
+
+  var reason = payload.context_signal_summary || payload.why_not_silent || payload.reason || (p.metadata && p.metadata.source) || '';
+  if (reason) {
+    var reasonBox = document.createElement('div');
+    reasonBox.style.cssText = 'color:var(--text);font-size:11px;line-height:1.5;';
+    reasonBox.textContent = String(reason);
+    wrap.appendChild(reasonBox);
+  }
+
+  var chips = [];
+  if (payload.ticket_tier) chips.push('tier ' + payload.ticket_tier);
+  if (payload.slot_day) chips.push('D' + payload.slot_day);
+  if (payload.expected_objection) chips.push('objection ' + payload.expected_objection);
+  if (typeof p.confidence_score === 'number') chips.push('confidence ' + Number(p.confidence_score).toFixed(2));
+  if (chips.length) {
+    var chip = document.createElement('div');
+    chip.style.cssText = 'margin-top:8px;color:var(--text-muted);font-size:9px;letter-spacing:1.1px;text-transform:uppercase;';
+    chip.textContent = chips.join(' · ');
+    wrap.appendChild(chip);
+  }
+
+  if (payload.evidence_gap_reason) {
+    var gap = document.createElement('div');
+    gap.style.cssText = 'margin-top:8px;color:var(--amber);font-size:10px;line-height:1.45;';
+    gap.textContent = 'Evidence gap: ' + String(payload.evidence_gap_reason);
+    wrap.appendChild(gap);
+  }
+
+  var details = document.createElement('details');
+  details.className = 'proposal-audit';
+  var summary = document.createElement('summary');
+  summary.textContent = 'Full explanation and evidence';
+  var body = document.createElement('div');
+  body.className = 'proposal-audit-body';
+  original.forEach(function (child) { body.appendChild(child); });
+  details.appendChild(summary);
+  details.appendChild(body);
+  wrap.appendChild(details);
   return wrap;
 }
 
@@ -3113,46 +3282,84 @@ function renderCalendarSection(allCards, approvedBooking) {
     return;
   }
 
-  var groups = {};
-  items.forEach(function (item) {
-    var key = shortDateLabel(item.start);
-    (groups[key] = groups[key] || []).push(item);
+  var timed = items.filter(function (i) { return i.start && !isNaN(new Date(i.start).getTime()); });
+  var undated = items.filter(function (i) { return !i.start || isNaN(new Date(i.start).getTime()); });
+  var baseDate = timed.length ? new Date(timed[0].start) : new Date();
+  var monday = new Date(baseDate);
+  var day = monday.getDay() || 7;
+  monday.setDate(monday.getDate() - day + 1);
+  monday.setHours(0, 0, 0, 0);
+  var days = Array.from({ length: 7 }, function (_, idx) {
+    var d = new Date(monday);
+    d.setDate(monday.getDate() + idx);
+    return d;
   });
-  var labels = Object.keys(groups).sort(function (a, b) {
-    var da = groups[a][0].start ? new Date(groups[a][0].start).getTime() : Infinity;
-    var db = groups[b][0].start ? new Date(groups[b][0].start).getTime() : Infinity;
-    return da - db;
-  }).slice(0, 7);
+  var hours = [];
+  for (var h = 7; h <= 17; h++) hours.push(h);
 
-  var grid = document.createElement('div');
-  grid.className = 'section-grid';
-  labels.forEach(function (label) {
+  var week = document.createElement('div');
+  week.className = 'calendar-week';
+  week.appendChild(document.createElement('div'));
+  days.forEach(function (d) {
+    var head = document.createElement('div');
+    head.className = 'calendar-day-head';
+    head.textContent = d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+    week.appendChild(head);
+  });
+
+  hours.forEach(function (hour) {
+    var time = document.createElement('div');
+    time.className = 'calendar-time';
+    time.textContent = (hour > 12 ? hour - 12 : hour) + (hour >= 12 ? 'pm' : 'am');
+    week.appendChild(time);
+    days.forEach(function (d) {
+      var cell = document.createElement('div');
+      cell.className = 'calendar-cell';
+      var dayEvents = timed.filter(function (item) {
+        var start = new Date(item.start);
+        return start.toDateString() === d.toDateString() && start.getHours() === hour;
+      });
+      dayEvents.forEach(function (item, idx) {
+        var card = item.card || {};
+        var p = item.proposal || {};
+        var payload = p.action_payload || {};
+        var meta = p.metadata || {};
+        var name = card.customer_name || p.contact_name || p.job_number || 'Booking';
+        var addr = cardAddress(card) || payload.address || payload.site_address || meta.address || '';
+        var ev = document.createElement('div');
+        ev.className = 'calendar-event';
+        ev.dataset.tone = item.tone;
+        ev.style.top = (4 + idx * 42) + 'px';
+        ev.innerHTML = '<div class="calendar-event-title"></div><div class="calendar-event-meta"></div>';
+        $('.calendar-event-title', ev).textContent = name;
+        $('.calendar-event-meta', ev).textContent = item.status + ' · ' + shortTimeLabel(item.start) + (addr ? ' · ' + addr : '');
+        cell.appendChild(ev);
+      });
+      week.appendChild(cell);
+    });
+  });
+  root.appendChild(week);
+
+  if (undated.length) {
     var panel = document.createElement('section');
-    panel.className = 'section-panel';
-    panel.innerHTML = '<div class="section-panel-title"></div><div class="micro-list"></div>';
-    $('.section-panel-title', panel).textContent = label;
+    panel.className = 'calendar-undated section-panel';
+    panel.innerHTML = '<div class="section-panel-title">Needs time attached</div><div class="micro-list"></div>';
     var list = $('.micro-list', panel);
-    groups[label].forEach(function (item) {
+    undated.slice(0, 12).forEach(function (item) {
       var card = item.card || {};
       var p = item.proposal || {};
       var payload = p.action_payload || {};
-      var meta = p.metadata || {};
       var name = card.customer_name || p.contact_name || p.job_number || 'Booking';
-      var scoper = payload.scoper || payload.scoper_name || meta.scoper || cardRepLabel(card);
-      var target = payload.calendar_target || meta.calendar_target || (meta.approver_evidence && meta.approver_evidence.calendar_target) || '';
-      var route = payload.route_status || meta.route_status || payload.routing_status || meta.routing_status || 'route status pending';
-      var addr = cardAddress(card) || payload.address || payload.site_address || meta.address || '';
       list.appendChild(renderMicroCard({
         name: name,
-        meta: item.status + ' · ' + (shortTimeLabel(item.start) || 'time not attached'),
-        line1: scoper + (target ? ' · ' + target : ''),
-        line2: (addr ? addr + ' · ' : '') + route,
+        meta: item.status,
+        line1: cardRepLabel(card),
+        line2: payload.route_status || 'Calendar stage exists but no exact appointment time was available to this view.',
         tone: item.tone,
       }));
     });
-    grid.appendChild(panel);
-  });
-  root.appendChild(grid);
+    root.appendChild(panel);
+  }
 }
 
 function boardColumnFor(card) {
