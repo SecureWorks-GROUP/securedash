@@ -164,6 +164,7 @@
             send_proposed_sms:             1,
             dismiss_proposed_action:       1,
             add_note:                      1,
+            update_job_status:             1,
             // Slice 1 cockpit verbs — custom-loop framework canon 2026-05-04.
             // Every entry conforms to the framework's cockpit operations vocabulary
             // (docs/loops/secure-sale-loop-framework.md). No verbs invented in
@@ -1899,6 +1900,16 @@ function renderCard(card, lane) {
       openNoteDrawer(card);
     });
     actions.appendChild(noteBtn);
+
+    var moveStageBtn = document.createElement('button');
+    moveStageBtn.type = 'button';
+    moveStageBtn.textContent = 'Move stage';
+    moveStageBtn.title = 'Move the Supabase stage, then let the backend sync the matching GHL stage.';
+    moveStageBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      openMoveStageDrawer(card);
+    });
+    actions.appendChild(moveStageBtn);
   }
 
   // 4. STUB BUTTONS — paths with no JARVIS draft yet on this card.
@@ -1907,7 +1918,7 @@ function renderCard(card, lane) {
   if (lane === 'call' && (!card.pending_proposals || !card.pending_proposals.length)) {
     actions.appendChild(makeStubBtn('No AI draft', null, 'JARVIS has not queued a draft for this lead — extractor / proposal-writer pending'));
   } else if (lane === 'book') {
-    actions.appendChild(makeStubBtn('Move stage', null, 'Cap 1 governance — backend SECURE-SALE-MOVE-STAGE-PROPOSAL pending'));
+    actions.appendChild(makeStubBtn('Move stage', null, 'Create/link the Supabase job first, then stage movement can sync from cockpit to GHL.'));
   } else if (lane === 'followup' && (!card.pending_proposals || !card.pending_proposals.length)) {
     actions.appendChild(makeStubBtn('No AI draft', null, 'JARVIS has not queued a draft for this lead'));
   }
@@ -2545,6 +2556,84 @@ function openNoteDrawer(card) {
     showActionToast(label, 'sent');
   }).catch(function (err) {
     showActionToast('Note failed: ' + err.message, 'error');
+  });
+}
+
+var SALES_STAGE_OPTIONS = [
+  ['draft', 'Draft / enquiry'],
+  ['quoted', 'Quoted'],
+  ['partially_accepted', 'Partially accepted'],
+  ['accepted', 'Accepted'],
+  ['awaiting_deposit', 'Awaiting deposit'],
+  ['deposit', 'Deposit received'],
+  ['approvals', 'Approvals'],
+  ['order_materials', 'Order materials'],
+  ['processing', 'Processing'],
+  ['awaiting_supplier', 'Awaiting supplier'],
+  ['order_confirmed', 'Order confirmed'],
+  ['schedule_install', 'Schedule install'],
+  ['scheduled', 'Scheduled'],
+  ['in_progress', 'In progress'],
+  ['complete', 'Complete'],
+  ['final_payment', 'Final payment'],
+  ['invoiced', 'Invoiced'],
+  ['get_review', 'Get review'],
+  ['lost', 'Lost'],
+  ['archived', 'Archived'],
+];
+
+function stageOptionLabel(value) {
+  for (var i = 0; i < SALES_STAGE_OPTIONS.length; i++) {
+    if (SALES_STAGE_OPTIONS[i][0] === value) return SALES_STAGE_OPTIONS[i][1];
+  }
+  return stageLabel(value);
+}
+
+function openMoveStageDrawer(card) {
+  if (!card.job_id) { showActionToast('Need a Supabase job before moving stage', 'error'); return; }
+  var current = String(card.pipeline_stage || '').trim();
+  var menu = SALES_STAGE_OPTIONS.map(function (opt, idx) {
+    var marker = opt[0] === current ? ' * current' : '';
+    return (idx + 1) + '. ' + opt[1] + ' [' + opt[0] + ']' + marker;
+  }).join('\n');
+  var raw = window.prompt(
+    'Move stage for ' + (card.customer_name || 'this job') +
+    '\n\nCurrent: ' + stageLabel(current) +
+    '\n\nType a number or exact stage key:\n\n' + menu
+  );
+  if (raw === null) return;
+  raw = String(raw || '').trim().toLowerCase();
+  if (!raw) return;
+  var idx = /^\d+$/.test(raw) ? parseInt(raw, 10) - 1 : -1;
+  var next = idx >= 0 && SALES_STAGE_OPTIONS[idx] ? SALES_STAGE_OPTIONS[idx][0] : raw;
+  var allowed = SALES_STAGE_OPTIONS.some(function (opt) { return opt[0] === next; });
+  if (!allowed) {
+    showActionToast('Unknown stage: ' + raw, 'error');
+    return;
+  }
+  if (next === current) {
+    showActionToast('Already at ' + stageOptionLabel(next), 'info');
+    return;
+  }
+  if (!window.confirm(
+    'Move ' + (card.customer_name || 'this job') + ' from ' + stageLabel(current) +
+    ' to ' + stageOptionLabel(next) + '?\n\nThis updates Supabase first and the backend will sync the matching GHL stage when a GHL opportunity is linked.'
+  )) return;
+  var userId = (_profileCache && _profileCache.id) || null;
+  var userEmail = (_profileCache && (_profileCache.email || _profileCache.user_email)) || null;
+  showActionToast('Moving stage…', 'info');
+  opsApiPost(_lastCloud, 'update_job_status', {
+    jobId: card.job_id,
+    status: next,
+    userId: userId,
+    operator_email: userEmail,
+    source: 'secure_sale_cockpit',
+  }).then(function (res) {
+    var suffix = res && res.ghl_sync_failed ? ' · GHL sync needs review' : '';
+    showActionToast('Stage moved to ' + stageOptionLabel(next) + suffix, 'sent');
+    setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 800);
+  }).catch(function (err) {
+    showActionToast('Stage move failed: ' + err.message, 'error');
   });
 }
 
