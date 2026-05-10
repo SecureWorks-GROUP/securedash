@@ -183,10 +183,11 @@
             send_quote_followup_sms:       1,
             // Quote-nurture v3 — internal task approval handlers (atomic-claim
             // per memory feedback_atomic_claim_pattern). Approval fires no
-            // external mutation: just marks proposal status=approved + emits
-            // business_event. No SMS, no GHL call.
+            // customer SMS or GHL call. Call-task approval may mirror an
+            // internal CRM note through ops-api; it does not message clients.
             approve_scoper_call_task:      1,
             approve_quote_review_task:     1,
+            approve_booking_proposal:      1,
             // Per-scoper playbook MD upload — Marnin-only edit surface for
             // the per-rep playbooks the cadence_planner reads. Server-side
             // gate enforces marnin@secureworkswa.com.au + filename allowlist
@@ -709,6 +710,48 @@
       letter-spacing: 0.2px;
       line-height: 1.45;
     }
+    .lcard-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .stage-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 3px 7px;
+      border: 1px solid var(--rule-strong);
+      color: var(--text-sec);
+      background: rgba(242,239,235,0.03);
+      border-radius: 3px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      line-height: 1.2;
+      text-transform: uppercase;
+      max-width: 100%;
+    }
+    .stage-badge[data-tone="book"] {
+      color: var(--blue);
+      border-color: rgba(92,143,184,0.45);
+      background: rgba(92,143,184,0.08);
+    }
+    .stage-badge[data-tone="followup"] {
+      color: var(--green);
+      border-color: rgba(76,175,142,0.45);
+      background: rgba(76,175,142,0.08);
+    }
+    .stage-badge[data-tone="call"] {
+      color: var(--amber);
+      border-color: rgba(255,181,84,0.45);
+      background: rgba(255,181,84,0.08);
+    }
+    .stage-badge[data-tone="attention"] {
+      color: var(--orange);
+      border-color: rgba(241,90,41,0.5);
+      background: rgba(241,90,41,0.09);
+    }
     .lcard-row {
       display: flex;
       align-items: center;
@@ -739,13 +782,33 @@
     /* Card expanded actions (toggle via .open) */
     .lcard-actions {
       display: none;
-      gap: 8px;
+      gap: 10px;
       margin-top: 12px;
       padding-top: 10px;
       border-top: 1px solid var(--rule);
-      flex-wrap: wrap;
+      flex-direction: column;
     }
     .lcard.open .lcard-actions { display: flex; }
+    .action-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .action-group-label {
+      color: var(--text-muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+    .action-group-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .action-group[data-group="Call"] .action-group-label { color: var(--amber); }
+    .action-group[data-group="Message"] .action-group-label { color: var(--green); }
+    .action-group[data-group="Booking"] .action-group-label { color: var(--blue); }
     .lcard-actions a,
     .lcard-actions button {
       font-size: 10px;
@@ -1116,6 +1179,83 @@ function jobTypeLabel(t) {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
+function stageLabel(stage) {
+  return String(stage || 'Unstaged').replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function stageTone(card, lane) {
+  var s = String((card && card.pipeline_stage) || '').toLowerCase();
+  if (/stale|aged|dormant|no\s*contact|untouched/.test(s)) return 'attention';
+  if (lane === 'book' || lane === 'followup' || lane === 'call') return lane;
+  return 'neutral';
+}
+
+function renderStageBadges(card, lane) {
+  var root = document.createElement('div');
+  root.className = 'lcard-badges';
+
+  function add(label, tone, title) {
+    if (!label) return;
+    var badge = document.createElement('span');
+    badge.className = 'stage-badge';
+    badge.dataset.tone = tone || 'neutral';
+    badge.textContent = label;
+    if (title) badge.title = title;
+    root.appendChild(badge);
+  }
+
+  var source = card.source === 'ghl' ? 'GHL' : 'Supabase';
+  add(source, card.source === 'ghl' ? 'book' : 'followup', source + ' source');
+  add('Stage: ' + stageLabel(card.pipeline_stage), stageTone(card, lane), 'Current ' + source + ' stage');
+  if (card.linked_job_status) {
+    add('Job: ' + stageLabel(card.linked_job_status), 'followup', 'Linked Supabase job status');
+  } else if (card.no_job_link) {
+    add('Memory off', 'attention', 'No linked Supabase job yet');
+  }
+
+  return root.childNodes.length ? root : null;
+}
+
+function groupActionButtons(actions, lane) {
+  var controls = Array.from(actions.children).filter(function (el) {
+    return el && (el.tagName === 'A' || el.tagName === 'BUTTON');
+  });
+  if (!controls.length) return;
+
+  var order = ['Call', 'Message', 'Booking', 'Record'];
+  var buckets = { Call: [], Message: [], Booking: [], Record: [] };
+
+  controls.forEach(function (control) {
+    var label = String(control.textContent || '').toLowerCase();
+    var group = 'Record';
+    if (/dial|call|phone/.test(label)) {
+      group = 'Call';
+    } else if (/book|stage|create job|review/.test(label)) {
+      group = 'Booking';
+    } else if (/send|sms|draft|reject|snooze/.test(label)) {
+      group = lane === 'book' ? 'Booking' : 'Message';
+    }
+    buckets[group].push(control);
+  });
+
+  actions.innerHTML = '';
+  order.forEach(function (groupName) {
+    if (!buckets[groupName].length) return;
+    var group = document.createElement('div');
+    group.className = 'action-group';
+    group.dataset.group = groupName;
+    var label = document.createElement('div');
+    label.className = 'action-group-label';
+    label.textContent = groupName;
+    var row = document.createElement('div');
+    row.className = 'action-group-controls';
+    buckets[groupName].forEach(function (control) { row.appendChild(control); });
+    group.appendChild(label);
+    group.appendChild(row);
+    actions.appendChild(group);
+  });
+}
+
 // ────────────────────────────────────────────────────────────
 // Lane assignment (v1: status-based, with age tiebreakers)
 //
@@ -1196,6 +1336,7 @@ function renderCard(card, lane) {
       '<div class="lcard-time"></div>' +
     '</div>' +
     '<div class="lcard-meta"></div>' +
+    '<div class="lcard-badges"></div>' +
     '<div class="lcard-row">' +
       '<div class="lcard-val"></div>' +
       '<div class="lcard-pill"></div>' +
@@ -1205,6 +1346,9 @@ function renderCard(card, lane) {
   $('.lcard-name', el).textContent = card.customer_name;
   $('.lcard-time', el).textContent = relTime(card.last_activity);
   $('.lcard-meta', el).textContent = meta.join(' · ');
+  var badges = renderStageBadges(card, lane);
+  var badgeSlot = $('.lcard-badges', el);
+  if (badges && badgeSlot) badgeSlot.replaceWith(badges);
   $('.lcard-val', el).textContent = val ? '$' + fmtMoney(val) : (card.next_suggested_action || '—');
   var pillEl = $('.lcard-pill', el);
   pillEl.textContent = pill.label;
@@ -1213,13 +1357,15 @@ function renderCard(card, lane) {
   // Action buttons. Wired actions go through ops-api proposal flow (server-gated);
   // stubs stay for paths with no live endpoint yet.
   var actions = $('.lcard-actions', el);
+  var primaryProposal = (card.pending_proposals && card.pending_proposals.length) ? card.pending_proposals[0] : null;
+  var primaryDispatchKind = primaryProposal ? COCKPIT_ALLOWED_ACTION_TYPES[primaryProposal.action_type] : null;
 
   // 1. DIAL — only for call lane, OS-handled tel: link, no automation.
-  if (lane === 'call' && card.phone) {
+  if (lane === 'call' && card.phone && primaryDispatchKind !== 'call' && primaryDispatchKind !== 'call_task') {
     var dial = document.createElement('a');
     dial.className = 'primary';
     dial.href = 'tel:' + String(card.phone).replace(/[^+0-9]/g, '');
-    dial.textContent = 'Dial';
+    dial.textContent = 'Call';
     actions.appendChild(dial);
   }
 
@@ -1233,9 +1379,9 @@ function renderCard(card, lane) {
   //                    "(not live)" label per Marnin's brief — never silently
   //                    fire a 404. (Backend tickets SECURE-SALE-EDIT-AND-SEND
   //                    + SECURE-SALE-SNOOZE-ENDPOINT.)
-  if (card.pending_proposals && card.pending_proposals.length) {
-    var prop = card.pending_proposals[0]; // newest first
-    var dispatchKind = COCKPIT_ALLOWED_ACTION_TYPES[prop.action_type]; // 'sms' | 'call'
+  if (primaryProposal) {
+    var prop = primaryProposal; // newest first
+    var dispatchKind = primaryDispatchKind; // 'sms' | 'call' | 'call_task' | 'review_task'
 
     if (dispatchKind === 'sms') {
       var sendBtn = document.createElement('button');
@@ -1249,14 +1395,25 @@ function renderCard(card, lane) {
       });
       actions.appendChild(sendBtn);
     } else if (dispatchKind === 'call_task') {
-      // propose_scoper_call_task — internal task creator. Approval marks the
-      // proposal as approved and emits a business_event. NO customer SMS or
-      // GHL call is dispatched. (per parent card secure-sale-quote-followup-loop reframe v3)
+      // propose_scoper_call_task — internal task creator. Approval records
+      // the manual call outcome and marks the proposal approved. NO customer
+      // SMS or GHL call is dispatched.
+      if (card.phone) {
+        var callTaskDial = document.createElement('a');
+        callTaskDial.className = 'primary';
+        callTaskDial.href = 'tel:' + String(card.phone).replace(/[^+0-9]/g, '');
+        callTaskDial.textContent = 'Call';
+        callTaskDial.title = 'Call the customer manually. Talk-track is in the expanded panel.';
+        callTaskDial.addEventListener('click', function (e) { e.stopPropagation(); });
+        actions.appendChild(callTaskDial);
+      } else {
+        actions.appendChild(makeStubBtn('Call (no phone)', null, 'No phone number on this quote follow-up task'));
+      }
       var callTaskBtn = document.createElement('button');
       callTaskBtn.className = 'primary';
       callTaskBtn.type = 'button';
-      callTaskBtn.textContent = 'Approve call task';
-      callTaskBtn.title = 'Marks the call task approved. No customer SMS or external mutation. Talk-track stays with the rep.';
+      callTaskBtn.textContent = 'Mark Called / Approve call task';
+      callTaskBtn.title = 'Records the manual call outcome, approves the task, and logs the note. No customer SMS.';
       callTaskBtn.addEventListener('click', function (e) {
         e.stopPropagation();
         approveScoperCallTask(prop, card, callTaskBtn);
@@ -1277,16 +1434,15 @@ function renderCard(card, lane) {
       });
       actions.appendChild(reviewBtn);
     } else if (dispatchKind === 'booking_approval') {
-      // propose_scoper_booking_approval is currently executed through the
-      // Railway/JARVIS approval tool, not ops-api. Render it so the sales
-      // cockpit is honest about pending booking work, but do not pretend the
-      // browser can commit calendar/SMS side effects yet.
       var bookingBtn = document.createElement('button');
       bookingBtn.className = 'primary';
       bookingBtn.type = 'button';
       bookingBtn.textContent = 'Review booking';
-      bookingBtn.disabled = true;
-      bookingBtn.title = 'Visible here for review. Final approval still runs through JARVIS/terminal until the ops-api booking approval endpoint is shipped.';
+      bookingBtn.title = 'Dry-run first, then approve. Uses JARVIS calendar recheck and booking approval path.';
+      bookingBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        approveBookingProposal(prop, card, bookingBtn);
+      });
       actions.appendChild(bookingBtn);
     } else if (dispatchKind === 'call') {
       // call_now is a CALL recommendation. Render a tel: link if we have a
@@ -1353,12 +1509,13 @@ function renderCard(card, lane) {
     }
   }
 
-  // 3. LOG NOTE — wired add_note. Only for cards with a Supabase job_id
-  //    (server requires jobId).
+  // 3. LOG INTERNAL NOTE — wired add_note. Only for cards with a Supabase
+  //    job_id (server requires jobId). Browser sends staff-only notes.
   if (card.job_id) {
     var noteBtn = document.createElement('button');
     noteBtn.type = 'button';
-    noteBtn.textContent = 'Log note';
+    noteBtn.textContent = 'Log Internal Note';
+    noteBtn.title = 'Internal note. Mirrors to GHL CRM notes and never messages the customer.';
     noteBtn.addEventListener('click', function (e) {
       e.stopPropagation();
       openNoteDrawer(card);
@@ -1421,6 +1578,8 @@ function renderCard(card, lane) {
     if (memEl) el.appendChild(memEl);
   }
 
+  groupActionButtons(actions, lane);
+
   el.addEventListener('click', function (e) {
     if (e.target.closest('a, button, textarea, input, select, label')) return;
     el.classList.toggle('open');
@@ -1435,6 +1594,10 @@ function renderProposalDetailPanel(p, card) {
   var wrap = document.createElement('div');
   wrap.className = 'proposal-detail';
   wrap.style.cssText = 'margin-top:10px;padding:12px 14px;background:rgba(76,175,142,0.08);border-left:2px solid var(--green);font-size:11px;line-height:1.55;color:var(--text-sec);';
+  var detailHead = document.createElement('div');
+  detailHead.style.cssText = 'margin-bottom:8px;color:var(--text);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;';
+  detailHead.textContent = 'Why JARVIS picked this';
+  wrap.appendChild(detailHead);
 
   // Recommendation type label — Booking Scope vs Sales Follow-up.
   var recType = recommendationTypeFor(p.action_type);
@@ -1915,27 +2078,20 @@ function handleRejectWithReason(proposal, card) {
 
 function openNoteDrawer(card) {
   if (!card.job_id) { showActionToast('Need a Supabase job to log a note', 'error'); return; }
-  // Marnin 2026-05-04: Add Note now defaults to two-way sync to GHL
-  // ('client_visible'). Operator can toggle to 'internal_only' for
-  // staff-only notes that don't appear in the GHL contact view.
-  var text = window.prompt('Log a note on ' + card.customer_name + '\n\nDefault: client-visible (syncs to GHL).\nPrefix with "INTERNAL: " for staff-only.');
+  // Sales cockpit notes are staff-only. They are mirrored as GHL CRM notes
+  // so LeadConnector and Supabase stay aligned; no customer message is sent.
+  var text = window.prompt('Log an internal note on ' + card.customer_name + '\n\nStaff-only. Saved to Supabase evidence and mirrored as a GHL internal note. Clients will not see this.');
   if (!text || !text.trim()) return;
-  var trimmed = text.trim();
-  var visibility = 'client_visible';
-  if (/^internal\s*:\s*/i.test(trimmed)) {
-    visibility = 'internal_only';
-    trimmed = trimmed.replace(/^internal\s*:\s*/i, '');
-  }
+  var trimmed = text.trim().replace(/^internal\s*:\s*/i, '');
   var userId = (_profileCache && _profileCache.id) || null;
   opsApiPost(_lastCloud, 'add_note', {
     jobId: card.job_id,
     userId: userId,
     text: trimmed,
-    visibility: visibility,
-    sync_to_ghl: visibility === 'client_visible',
+    visibility: 'internal_only',
+    sync_to_ghl: true,
   }).then(function (res) {
-    var label = visibility === 'internal_only' ? 'Internal note logged ✓' :
-                (res && res.ghl_synced ? 'Note logged + synced to GHL ✓' : 'Note logged (GHL push pending)');
+    var label = res && res.ghl_synced ? 'Internal note logged + mirrored to GHL ✓' : 'Internal note logged ✓';
     showActionToast(label, 'sent');
   }).catch(function (err) {
     showActionToast('Note failed: ' + err.message, 'error');
@@ -1981,8 +2137,8 @@ function openProposalEditDrawer(proposal, card) {
 
 // ════════════════════════════════════════════════════════════
 // Quote-nurture v3 cadence task handlers
-//   - approveScoperCallTask: marks propose_scoper_call_task approved.
-//                            NO customer SMS. NO GHL call. Pure task.
+//   - approveScoperCallTask: marks propose_scoper_call_task called/approved.
+//                            NO customer SMS. NO GHL call automation.
 //   - openQuoteReviewTaskMenu: D30 review — refresh / archive / reactivate.
 //                              NO customer SMS. Optional state flip on archive.
 // Both routes hit ops-api atomic-claim handlers (parent card secure-sale-
@@ -1992,16 +2148,60 @@ function approveScoperCallTask(proposal, card, anchorBtn) {
   var pid = proposalId(proposal);
   if (!pid) { showActionToast('Proposal id missing', 'error'); return; }
   var contactDisplay = (card.customer_name || 'this customer') + (card.phone ? ' · ' + card.phone : '');
-  if (!confirm('Approve call task for ' + contactDisplay + '?\n\nThis marks the task approved for the rep to action manually.\nNO customer SMS will be sent.\nNO GHL mutation will fire.')) return;
-  if (anchorBtn) { anchorBtn.disabled = true; anchorBtn.textContent = 'Approving…'; }
+  if (!confirm('Mark this quote follow-up call as called for ' + contactDisplay + '?\n\nThis approves the call task and records the manual outcome.\nNO customer SMS will be sent.')) return;
+  if (anchorBtn) { anchorBtn.disabled = true; anchorBtn.textContent = 'Recording...'; }
   var userId = (_profileCache && _profileCache.id) || null;
-  opsApiPost(_lastCloud, 'approve_scoper_call_task', { action_id: pid, user_id: userId }).then(function () {
-    showActionToast('Call task approved ✓ — over to the rep', 'sent');
+  opsApiPost(_lastCloud, 'approve_scoper_call_task', { action_id: pid, user_id: userId, outcome: 'called' }).then(function () {
+    showActionToast('Call marked called ✓', 'sent');
     setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 700);
   }).catch(function (err) {
     showActionToast('Approve failed: ' + err.message, 'error');
-    if (anchorBtn) { anchorBtn.disabled = false; anchorBtn.textContent = 'Approve call task'; }
+    if (anchorBtn) { anchorBtn.disabled = false; anchorBtn.textContent = 'Mark Called / Approve call task'; }
     console.error('[sale] approve_scoper_call_task failed:', err);
+  });
+}
+
+function approveBookingProposal(proposal, card, anchorBtn) {
+  var pid = proposalId(proposal);
+  if (!pid) { showActionToast('Proposal id missing', 'error'); return; }
+  var customer = card.customer_name || 'this customer';
+  var payload = proposal.action_payload || {};
+  var picked = payload.jarvis_picked_slot || payload.picked_slot || payload.recommended_slot || payload.slot || {};
+  var pickedHuman = picked.human || picked.label || picked.start_iso || picked.start || payload.picked_slot_human || payload.recommended_time || 'the proposed slot';
+  var userId = (_profileCache && _profileCache.id) || null;
+
+  showActionToast('Dry-running booking approval for ' + customer + '…', 'info');
+  if (anchorBtn) { anchorBtn.disabled = true; anchorBtn.textContent = 'Checking…'; }
+
+  opsApiPost(_lastCloud, 'approve_booking_proposal', {
+    proposal_id: pid,
+    approver_user_id: userId,
+    m2_drafted_message: payload.m2_drafted_message || proposal.drafted_message || '',
+    commit: false,
+  }).then(function (dry) {
+    var summary = 'Booking dry-run passed for ' + customer + '.\n\nProposed time: ' + pickedHuman +
+      '\n\nApproving for real will recheck calendar availability, write the scoper calendar event, advance booking state, and hand off the customer confirmation through the existing JARVIS booking path.';
+    var result = dry && dry.result;
+    if (result && result.reason) summary += '\n\nDry-run note: ' + result.reason;
+    if (!window.confirm(summary + '\n\nApprove this booking now?')) {
+      showActionToast('Booking approval cancelled after dry-run', 'info');
+      if (anchorBtn) { anchorBtn.disabled = false; anchorBtn.textContent = 'Review booking'; }
+      return null;
+    }
+    if (anchorBtn) anchorBtn.textContent = 'Approving…';
+    return opsApiPost(_lastCloud, 'approve_booking_proposal', {
+      proposal_id: pid,
+      approver_user_id: userId,
+      m2_drafted_message: payload.m2_drafted_message || proposal.drafted_message || '',
+      commit: true,
+    }).then(function () {
+      showActionToast('Booking approved ✓ calendar/customer handoff complete', 'sent');
+      setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 900);
+    });
+  }).catch(function (err) {
+    showActionToast('Booking approval failed: ' + err.message, 'error');
+    if (anchorBtn) { anchorBtn.disabled = false; anchorBtn.textContent = 'Review booking'; }
+    console.error('[sale] approve_booking_proposal failed:', err);
   });
 }
 
