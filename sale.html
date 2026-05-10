@@ -428,6 +428,215 @@
       color: var(--text);
       border-bottom-color: var(--orange);
     }
+    .section-tabs {
+      display: flex;
+      gap: 1px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--rule);
+      background: var(--rule);
+    }
+    .section-tab {
+      flex: 0 0 auto;
+      min-width: 122px;
+      padding: 13px 16px;
+      border: 0;
+      border-top: 2px solid transparent;
+      background: var(--bg);
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.6px;
+      line-height: 1.2;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .section-tab[data-active="true"] {
+      color: var(--text);
+      border-top-color: var(--orange);
+      background: var(--surface-1);
+    }
+    .sale-pane[hidden] { display: none !important; }
+    .section-shell {
+      padding: 22px 24px 80px;
+      max-width: 1640px;
+      margin: 0 auto;
+    }
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 18px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--rule);
+      margin-bottom: 16px;
+    }
+    .section-kicker {
+      color: var(--text-muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    .section-title {
+      margin-top: 4px;
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+    }
+    .section-note {
+      max-width: 620px;
+      color: var(--text-sec);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .section-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--rule);
+    }
+    .section-panel {
+      min-height: 160px;
+      padding: 14px;
+      background: var(--bg);
+    }
+    .section-panel-title {
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.8px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .micro-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .micro-card {
+      border-left: 2px solid var(--rule-strong);
+      background: var(--surface-1);
+      padding: 10px 12px;
+      color: var(--text-sec);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .micro-card[data-tone="book"] { border-left-color: var(--blue); }
+    .micro-card[data-tone="followup"] { border-left-color: var(--green); }
+    .micro-card[data-tone="call"] { border-left-color: var(--amber); }
+    .micro-card[data-tone="attention"] { border-left-color: var(--orange); }
+    .micro-card-name {
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+    .micro-card-meta {
+      color: var(--text-muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .micro-card-line { margin-top: 4px; }
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--rule);
+      margin-bottom: 18px;
+    }
+    .metric-box {
+      background: var(--surface-1);
+      padding: 18px 16px;
+    }
+    .metric-box-label {
+      color: var(--text-muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.8px;
+      text-transform: uppercase;
+    }
+    .metric-box-value {
+      color: var(--text);
+      font-size: 30px;
+      font-weight: 700;
+      margin-top: 5px;
+    }
+    .metric-box-note {
+      color: var(--text-sec);
+      font-size: 10px;
+      line-height: 1.4;
+      margin-top: 4px;
+    }
+    .board-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(170px, 1fr));
+      gap: 1px;
+      background: var(--rule);
+      overflow-x: auto;
+    }
+    .board-col {
+      min-width: 170px;
+      background: var(--bg);
+      padding: 12px;
+    }
+    .board-col-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 9px;
+      margin-bottom: 10px;
+    }
+    .board-col-title {
+      color: var(--text);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+    .board-col-count {
+      color: var(--text-muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+    .spark-row {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+    .spark-line {
+      display: grid;
+      grid-template-columns: 92px 1fr 52px;
+      gap: 10px;
+      align-items: center;
+      color: var(--text-sec);
+      font-size: 11px;
+    }
+    .spark-track {
+      height: 8px;
+      background: var(--surface-2);
+      overflow: hidden;
+    }
+    .spark-bar {
+      height: 8px;
+      background: var(--green);
+    }
+    .section-empty {
+      padding: 36px 16px;
+      border: 1px dashed var(--rule-strong);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-align: center;
+      text-transform: uppercase;
+    }
     .signout-btn {
       background: transparent;
       border: 1px solid var(--rule-strong);
@@ -924,6 +1133,30 @@
         padding: 14px 16px;
       }
       .app-nav { display: none; }
+      .section-tabs {
+        padding: 0;
+        overflow-x: auto;
+      }
+      .section-tab {
+        min-width: 104px;
+        padding: 12px 10px;
+      }
+      .section-shell {
+        padding: 16px 16px 96px;
+      }
+      .section-head {
+        display: block;
+      }
+      .section-note {
+        margin-top: 8px;
+      }
+      .section-grid,
+      .metric-row {
+        grid-template-columns: 1fr;
+      }
+      .board-grid {
+        grid-template-columns: repeat(6, minmax(210px, 78vw));
+      }
       .perf {
         grid-template-columns: 1fr;
       }
@@ -1007,6 +1240,13 @@
     <span>PIPE <strong id="mPipe">—</strong></span>
   </div>
 
+  <nav class="section-tabs" aria-label="Sales cockpit sections">
+    <button class="section-tab" type="button" data-section-tab="actions" data-active="true">Actions</button>
+    <button class="section-tab" type="button" data-section-tab="calendar" data-active="false">Calendar</button>
+    <button class="section-tab" type="button" data-section-tab="board" data-active="false">Board</button>
+    <button class="section-tab" type="button" data-section-tab="performance" data-active="false">Performance</button>
+  </nav>
+
   <!-- MARNIN_MEMORY_POC banner — Marnin-only test send path.
        Server-side: JWT-gated to marnin@secureworkswa.com.au; recipient,
        phone, body, action_type all hardcoded; rate-cap 3/hour.
@@ -1052,78 +1292,119 @@
     <div id="pbStatus" class="pb-status">Idle. Pick a playbook + click Load.</div>
   </section>
 
-  <!-- Performance strip (desktop) -->
-  <section class="perf">
-    <div class="perf-tile hero">
-      <div class="perf-label">Active Queue</div>
-      <div class="perf-num"><span class="c">#</span><span id="heroCount">—</span></div>
-      <div class="perf-sub" id="heroSub">Loading your queue…</div>
-    </div>
-    <div class="perf-tile">
-      <div class="perf-label">Pipeline value</div>
-      <div class="perf-num"><span class="c">$</span><span id="pipeVal">—</span></div>
-      <div class="perf-sub" id="pipeSub">Sum of open quotes</div>
-    </div>
-    <div class="perf-tile">
-      <div class="perf-label">Quotes out</div>
-      <div class="perf-num"><span id="quotesCount">—</span></div>
-      <div class="perf-sub" id="quotesSub">Awaiting reply</div>
-    </div>
-  </section>
+  <div class="sale-pane" id="sectionActions" data-section-pane="actions">
+    <!-- Performance strip (desktop) -->
+    <section class="perf">
+      <div class="perf-tile hero">
+        <div class="perf-label">Active Queue</div>
+        <div class="perf-num"><span class="c">#</span><span id="heroCount">—</span></div>
+        <div class="perf-sub" id="heroSub">Loading your queue…</div>
+      </div>
+      <div class="perf-tile">
+        <div class="perf-label">Pipeline value</div>
+        <div class="perf-num"><span class="c">$</span><span id="pipeVal">—</span></div>
+        <div class="perf-sub" id="pipeSub">Sum of open quotes</div>
+      </div>
+      <div class="perf-tile">
+        <div class="perf-label">Quotes out</div>
+        <div class="perf-num"><span id="quotesCount">—</span></div>
+        <div class="perf-sub" id="quotesSub">Awaiting reply</div>
+      </div>
+    </section>
 
-  <!-- Lane bar -->
-  <div class="lane-bar">
-    <div class="lane-bar-title">Today · Sorted by intent</div>
-    <div class="lane-bar-meta" id="laneBarMeta">— LEADS</div>
+    <!-- Lane bar -->
+    <div class="lane-bar">
+      <div class="lane-bar-title">Actions · Highest intent first</div>
+      <div class="lane-bar-meta" id="laneBarMeta">— LEADS</div>
+    </div>
+
+    <!-- Mobile chip switcher (order: BOOK first, FOLLOW UP middle, CALL last) -->
+    <nav class="m-chips" role="tablist" aria-label="Lane switcher">
+      <button class="m-chip" data-lane="book" data-active="true" role="tab">
+        <span class="m-chip-count" id="chipBookCount">0</span> BOOK
+      </button>
+      <button class="m-chip" data-lane="followup" data-active="false" role="tab">
+        <span class="m-chip-count" id="chipFollowupCount">0</span> FOLLOW UP
+      </button>
+      <button class="m-chip" data-lane="call" data-active="false" role="tab">
+        <span class="m-chip-count" id="chipCallCount">0</span> CALL
+      </button>
+    </nav>
+
+    <!-- Lanes: filled by JS. Desktop = 3 lanes side-by-side; mobile = one at a time.
+         Order: BOOK · FOLLOW UP · CALL. FOLLOW UP is channel-flexible (text or email). -->
+    <section class="lanes" id="lanesRoot">
+      <div class="lane" data-lane="book" data-active="true">
+        <div class="lane-head">
+          <div class="lane-title">BOOK</div>
+          <div class="lane-count" id="laneBookCount">0 LEADS</div>
+        </div>
+        <div class="lane-cards" id="laneBookCards">
+          <div class="state-msg">Loading…</div>
+        </div>
+      </div>
+      <div class="lane" data-lane="followup" data-active="false">
+        <div class="lane-head">
+          <div class="lane-title">FOLLOW UP</div>
+          <div class="lane-count" id="laneFollowupCount">0 LEADS</div>
+        </div>
+        <div class="lane-cards" id="laneFollowupCards">
+          <div class="state-msg">Loading…</div>
+        </div>
+      </div>
+      <div class="lane" data-lane="call" data-active="false">
+        <div class="lane-head">
+          <div class="lane-title">CALL</div>
+          <div class="lane-count" id="laneCallCount">0 LEADS</div>
+        </div>
+        <div class="lane-cards" id="laneCallCards">
+          <div class="state-msg">Loading…</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Mobile FAB: shows primary action of the active lane -->
+    <button class="m-fab" id="mFab" data-disabled="true">SELECT A LANE</button>
   </div>
 
-  <!-- Mobile chip switcher (order: BOOK first, FOLLOW UP middle, CALL last) -->
-  <nav class="m-chips" role="tablist" aria-label="Lane switcher">
-    <button class="m-chip" data-lane="book" data-active="true" role="tab">
-      <span class="m-chip-count" id="chipBookCount">0</span> BOOK
-    </button>
-    <button class="m-chip" data-lane="followup" data-active="false" role="tab">
-      <span class="m-chip-count" id="chipFollowupCount">0</span> FOLLOW UP
-    </button>
-    <button class="m-chip" data-lane="call" data-active="false" role="tab">
-      <span class="m-chip-count" id="chipCallCount">0</span> CALL
-    </button>
-  </nav>
-
-  <!-- Lanes: filled by JS. Desktop = 3 lanes side-by-side; mobile = one at a time.
-       Order: BOOK · FOLLOW UP · CALL. FOLLOW UP is channel-flexible (text or email). -->
-  <section class="lanes" id="lanesRoot">
-    <div class="lane" data-lane="book" data-active="true">
-      <div class="lane-head">
-        <div class="lane-title">BOOK</div>
-        <div class="lane-count" id="laneBookCount">0 LEADS</div>
+  <section class="sale-pane section-shell" id="sectionCalendar" data-section-pane="calendar" hidden>
+    <div class="section-head">
+      <div>
+        <div class="section-kicker">Booking visibility</div>
+        <div class="section-title">Calendar</div>
       </div>
-      <div class="lane-cards" id="laneBookCards">
-        <div class="state-msg">Loading…</div>
-      </div>
+      <div class="section-note">Shows dated booking proposals, approved booking proof, and stage-derived appointments from the current sale data. Microsoft Calendar writes still happen only through the approved JARVIS booking bridge.</div>
     </div>
-    <div class="lane" data-lane="followup" data-active="false">
-      <div class="lane-head">
-        <div class="lane-title">FOLLOW UP</div>
-        <div class="lane-count" id="laneFollowupCount">0 LEADS</div>
-      </div>
-      <div class="lane-cards" id="laneFollowupCards">
-        <div class="state-msg">Loading…</div>
-      </div>
-    </div>
-    <div class="lane" data-lane="call" data-active="false">
-      <div class="lane-head">
-        <div class="lane-title">CALL</div>
-        <div class="lane-count" id="laneCallCount">0 LEADS</div>
-      </div>
-      <div class="lane-cards" id="laneCallCards">
-        <div class="state-msg">Loading…</div>
-      </div>
+    <div id="calendarSection">
+      <div class="section-empty">Loading calendar view...</div>
     </div>
   </section>
 
-  <!-- Mobile FAB: shows primary action of the active lane -->
-  <button class="m-fab" id="mFab" data-disabled="true">SELECT A LANE</button>
+  <section class="sale-pane section-shell" id="sectionBoard" data-section-pane="board" hidden>
+    <div class="section-head">
+      <div>
+        <div class="section-kicker">Read-only stages</div>
+        <div class="section-title">Board</div>
+      </div>
+      <div class="section-note">Stages are mirrored from GHL and Supabase. This board is for visibility; action buttons stay on the cards in Actions.</div>
+    </div>
+    <div id="boardSection">
+      <div class="section-empty">Loading board...</div>
+    </div>
+  </section>
+
+  <section class="sale-pane section-shell" id="sectionPerformance" data-section-pane="performance" hidden>
+    <div class="section-head">
+      <div>
+        <div class="section-kicker">Loaded sales snapshot</div>
+        <div class="section-title">Performance</div>
+      </div>
+      <div class="section-note">Early reporting from the jobs currently loaded into the cockpit. Weekly accepted-vs-quoted reporting will move here once the reporting aggregate is wired.</div>
+    </div>
+    <div id="performanceSection">
+      <div class="section-empty">Loading performance...</div>
+    </div>
+  </section>
 
 </main>
 
@@ -1437,7 +1718,7 @@ function renderCard(card, lane) {
       var bookingBtn = document.createElement('button');
       bookingBtn.className = 'primary';
       bookingBtn.type = 'button';
-      bookingBtn.textContent = 'Review booking';
+      bookingBtn.textContent = 'Review slot';
       bookingBtn.title = 'Dry-run first, then approve. Uses JARVIS calendar recheck and booking approval path.';
       bookingBtn.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -1509,13 +1790,13 @@ function renderCard(card, lane) {
     }
   }
 
-  // 3. LOG INTERNAL NOTE — wired add_note. Only for cards with a Supabase
+  // 3. ADD INTERNAL NOTE — wired add_note. Only for cards with a Supabase
   //    job_id (server requires jobId). Browser sends staff-only notes.
   if (card.job_id) {
     var noteBtn = document.createElement('button');
     noteBtn.type = 'button';
-    noteBtn.textContent = 'Log Internal Note';
-    noteBtn.title = 'Internal note. Mirrors to GHL CRM notes and never messages the customer.';
+    noteBtn.textContent = 'Add internal note';
+    noteBtn.title = 'Staff-only note. Saved to job evidence and mirrored to GHL internal note. Not sent to customer.';
     noteBtn.addEventListener('click', function (e) {
       e.stopPropagation();
       openNoteDrawer(card);
@@ -1879,7 +2160,7 @@ function renderProposalDetailPanel(p, card) {
 
     var approvalGap = document.createElement('div');
     approvalGap.style.cssText = 'margin-top:7px;color:var(--amber);';
-    approvalGap.textContent = 'Approval is not browser-live yet: use JARVIS/terminal approval until ops-api booking approval is shipped.';
+    approvalGap.textContent = 'Browser approval is live: JARVIS dry-runs the slot, rechecks calendar availability, then writes only after confirmation.';
     bookingBox.appendChild(approvalGap);
 
     wrap.appendChild(bookingBox);
@@ -2080,7 +2361,7 @@ function openNoteDrawer(card) {
   if (!card.job_id) { showActionToast('Need a Supabase job to log a note', 'error'); return; }
   // Sales cockpit notes are staff-only. They are mirrored as GHL CRM notes
   // so LeadConnector and Supabase stay aligned; no customer message is sent.
-  var text = window.prompt('Log an internal note on ' + card.customer_name + '\n\nStaff-only. Saved to Supabase evidence and mirrored as a GHL internal note. Clients will not see this.');
+  var text = window.prompt('Add internal note on ' + card.customer_name + '\n\nStaff-only. Saved to job evidence and mirrored to GHL internal note. Not sent to customer.');
   if (!text || !text.trim()) return;
   var trimmed = text.trim().replace(/^internal\s*:\s*/i, '');
   var userId = (_profileCache && _profileCache.id) || null;
@@ -2185,7 +2466,7 @@ function approveBookingProposal(proposal, card, anchorBtn) {
     if (result && result.reason) summary += '\n\nDry-run note: ' + result.reason;
     if (!window.confirm(summary + '\n\nApprove this booking now?')) {
       showActionToast('Booking approval cancelled after dry-run', 'info');
-      if (anchorBtn) { anchorBtn.disabled = false; anchorBtn.textContent = 'Review booking'; }
+      if (anchorBtn) { anchorBtn.disabled = false; anchorBtn.textContent = 'Review slot'; }
       return null;
     }
     if (anchorBtn) anchorBtn.textContent = 'Approving…';
@@ -2200,7 +2481,7 @@ function approveBookingProposal(proposal, card, anchorBtn) {
     });
   }).catch(function (err) {
     showActionToast('Booking approval failed: ' + err.message, 'error');
-    if (anchorBtn) { anchorBtn.disabled = false; anchorBtn.textContent = 'Review booking'; }
+    if (anchorBtn) { anchorBtn.disabled = false; anchorBtn.textContent = 'Review slot'; }
     console.error('[sale] approve_booking_proposal failed:', err);
   });
 }
@@ -2700,6 +2981,335 @@ function renderHero(allCards, buckets) {
 }
 
 // ────────────────────────────────────────────────────────────
+// Top-level cockpit sections — read-only visibility around the same card data.
+// Actions remains the write surface; these panes make calendar, board, and
+// performance state easier to understand without inventing new business truth.
+// ────────────────────────────────────────────────────────────
+
+var _activeSaleSection = 'actions';
+var _sectionCache = { allCards: [], booking: [], followup: [], proposals: null, approvedBooking: [] };
+
+function shortDateLabel(ts) {
+  if (!ts) return 'No time';
+  var d = new Date(ts);
+  if (isNaN(d.getTime())) return 'No time';
+  return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function shortTimeLabel(ts) {
+  if (!ts) return '';
+  var d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }).replace(':00', '');
+}
+
+function cardRepLabel(card) {
+  var lane = String(card && card.pipeline_lane || card && card._raw && card._raw.type || '').toLowerCase();
+  if (lane === 'fencing') return 'Khairo';
+  if (lane === 'patio') return 'Nithin';
+  var target = String(card && card.calendar_target || '').toLowerCase();
+  if (target.indexOf('khairo') >= 0) return 'Khairo';
+  if (target.indexOf('nithin') >= 0) return 'Nithin';
+  return 'Unassigned';
+}
+
+function proposalSlot(proposal) {
+  var payload = (proposal && proposal.action_payload) || {};
+  var meta = (proposal && proposal.metadata) || {};
+  var sources = [payload, meta, payload.booking || {}, payload.slot || {}, meta.slot || {}, meta.approver_evidence || {}];
+  var keys = ['jarvis_picked_slot', 'picked_slot', 'recommended_slot', 'start_iso', 'slot_start', 'start', 'scope_start', 'scope_window_iso'];
+  var start = null, end = null, raw = null;
+
+  sources.forEach(function (src) {
+    if (!src || start) return;
+    keys.forEach(function (k) {
+      if (!src || start || src[k] == null) return;
+      var v = src[k];
+      raw = v;
+      if (typeof v === 'string') {
+        var iso = v.match(/\d{4}-\d{2}-\d{2}T[0-9:.+-]+/);
+        start = iso ? iso[0] : v;
+      } else if (typeof v === 'object') {
+        start = v.start_iso || v.start || v.from || v.date_time || null;
+        end = v.end_iso || v.end || v.to || null;
+      }
+    });
+  });
+
+  if (!end) {
+    sources.forEach(function (src) {
+      if (!src || end) return;
+      end = src.end_iso || src.slot_end || src.end || src.scope_end || null;
+    });
+  }
+
+  return { start: start, end: end, raw: raw };
+}
+
+function cardAddress(card) {
+  var raw = card && card._raw || {};
+  return raw.site_address || raw.address || raw.site_suburb || raw.suburb || '';
+}
+
+function renderMicroCard(item) {
+  var el = document.createElement('article');
+  el.className = 'micro-card';
+  el.dataset.tone = item.tone || 'followup';
+  el.innerHTML =
+    '<div class="micro-card-name"></div>' +
+    '<div class="micro-card-meta"></div>' +
+    '<div class="micro-card-line"></div>' +
+    '<div class="micro-card-line"></div>';
+  $('.micro-card-name', el).textContent = item.name || 'Unknown';
+  $('.micro-card-meta', el).textContent = item.meta || '';
+  var lines = $$('.micro-card-line', el);
+  if (lines[0]) lines[0].textContent = item.line1 || '';
+  if (lines[1]) lines[1].textContent = item.line2 || '';
+  return el;
+}
+
+function renderCalendarSection(allCards, approvedBooking) {
+  var root = document.getElementById('calendarSection');
+  if (!root) return;
+  root.innerHTML = '';
+
+  var items = [];
+  (allCards || []).forEach(function (card) {
+    (card.pending_proposals || []).forEach(function (p) {
+      if (p.action_type !== 'propose_scoper_booking_approval'
+          && p.action_type !== 'book_scope'
+          && p.action_type !== 'send_booking_sms'
+          && p.action_type !== 'scope_confirmation') return;
+      var slot = proposalSlot(p);
+      items.push({
+        card: card,
+        proposal: p,
+        status: p.action_type === 'propose_scoper_booking_approval' ? 'Needs approval' : 'Proposed',
+        start: slot.start,
+        end: slot.end,
+        tone: p.action_type === 'propose_scoper_booking_approval' ? 'attention' : 'book',
+      });
+    });
+    var s = String(card.pipeline_stage || '').toLowerCase();
+    if (card.loop === 'booking' && /appointment|booked|scheduled|site\s*visit/.test(s) && !(card.pending_proposals || []).length) {
+      items.push({ card: card, proposal: null, status: 'Visible in GHL stage', start: null, end: null, tone: 'book' });
+    }
+  });
+
+  (approvedBooking || []).forEach(function (p) {
+    var slot = proposalSlot(p);
+    items.push({
+      card: null,
+      proposal: p,
+      status: p.action_type === 'propose_booking_confirmation_to_customer' ? 'Confirmation drafted' : 'Approved',
+      start: slot.start,
+      end: slot.end,
+      tone: 'followup',
+    });
+  });
+
+  if (!items.length) {
+    root.innerHTML = '<div class="section-empty">No dated bookings visible from current sale data. Proposed bookings will appear here when JARVIS includes a slot.</div>';
+    return;
+  }
+
+  var groups = {};
+  items.forEach(function (item) {
+    var key = shortDateLabel(item.start);
+    (groups[key] = groups[key] || []).push(item);
+  });
+  var labels = Object.keys(groups).sort(function (a, b) {
+    var da = groups[a][0].start ? new Date(groups[a][0].start).getTime() : Infinity;
+    var db = groups[b][0].start ? new Date(groups[b][0].start).getTime() : Infinity;
+    return da - db;
+  }).slice(0, 7);
+
+  var grid = document.createElement('div');
+  grid.className = 'section-grid';
+  labels.forEach(function (label) {
+    var panel = document.createElement('section');
+    panel.className = 'section-panel';
+    panel.innerHTML = '<div class="section-panel-title"></div><div class="micro-list"></div>';
+    $('.section-panel-title', panel).textContent = label;
+    var list = $('.micro-list', panel);
+    groups[label].forEach(function (item) {
+      var card = item.card || {};
+      var p = item.proposal || {};
+      var payload = p.action_payload || {};
+      var meta = p.metadata || {};
+      var name = card.customer_name || p.contact_name || p.job_number || 'Booking';
+      var scoper = payload.scoper || payload.scoper_name || meta.scoper || cardRepLabel(card);
+      var target = payload.calendar_target || meta.calendar_target || (meta.approver_evidence && meta.approver_evidence.calendar_target) || '';
+      var route = payload.route_status || meta.route_status || payload.routing_status || meta.routing_status || 'route status pending';
+      var addr = cardAddress(card) || payload.address || payload.site_address || meta.address || '';
+      list.appendChild(renderMicroCard({
+        name: name,
+        meta: item.status + ' · ' + (shortTimeLabel(item.start) || 'time not attached'),
+        line1: scoper + (target ? ' · ' + target : ''),
+        line2: (addr ? addr + ' · ' : '') + route,
+        tone: item.tone,
+      }));
+    });
+    grid.appendChild(panel);
+  });
+  root.appendChild(grid);
+}
+
+function boardColumnFor(card) {
+  var s = String(card && card.pipeline_stage || '').toLowerCase();
+  if (/stale|aged|dormant|review/.test(s)) return 'stale';
+  if (/accepted|deposit|invoice/.test(s)) return 'accepted';
+  if (/quoted|quote sent/.test(s)) return 'quoted';
+  if (/follow/.test(s)) return 'followup';
+  if (/qualified|book|appointment|site\s*visit|scheduled|measured/.test(s)) return 'qualified';
+  if (/new|lead|enquir|first|untouched|no\s*contact|draft/.test(s)) return 'new';
+  return card && card.loop === 'booking' ? 'qualified' : 'followup';
+}
+
+function renderBoardSection(allCards) {
+  var root = document.getElementById('boardSection');
+  if (!root) return;
+  root.innerHTML = '';
+  var columns = [
+    ['new', 'New / First contact'],
+    ['qualified', 'Qualified / Book'],
+    ['quoted', 'Quoted'],
+    ['followup', 'Follow-up'],
+    ['accepted', 'Accepted / Deposit'],
+    ['stale', 'Stale / Review'],
+  ];
+  var grouped = {};
+  columns.forEach(function (c) { grouped[c[0]] = []; });
+  (allCards || []).forEach(function (card) {
+    var key = boardColumnFor(card);
+    (grouped[key] = grouped[key] || []).push(card);
+  });
+
+  var grid = document.createElement('div');
+  grid.className = 'board-grid';
+  columns.forEach(function (col) {
+    var key = col[0], label = col[1], items = grouped[key] || [];
+    var node = document.createElement('section');
+    node.className = 'board-col';
+    node.innerHTML = '<div class="board-col-head"><div class="board-col-title"></div><div class="board-col-count"></div></div><div class="micro-list"></div>';
+    $('.board-col-title', node).textContent = label;
+    $('.board-col-count', node).textContent = items.length;
+    var list = $('.micro-list', node);
+    items.slice(0, 18).forEach(function (card) {
+      var raw = card._raw || {};
+      var val = card.loop === 'follow_up' ? jobValue(raw) : null;
+      list.appendChild(renderMicroCard({
+        name: card.customer_name,
+        meta: (card.source === 'ghl' ? 'GHL' : 'Supabase') + ' · ' + stageLabel(card.pipeline_stage),
+        line1: (card.pipeline_lane || raw.type || 'job') + (val ? ' · $' + fmtMoney(val) : ''),
+        line2: (card.pending_proposals && card.pending_proposals.length ? 'JARVIS proposal ready' : (card.next_suggested_action || 'Review')),
+        tone: key === 'stale' ? 'attention' : (key === 'qualified' ? 'book' : (key === 'quoted' || key === 'followup' ? 'followup' : 'call')),
+      }));
+    });
+    if (items.length > 18) {
+      var more = document.createElement('div');
+      more.className = 'section-empty';
+      more.textContent = '+' + (items.length - 18) + ' more in this stage';
+      list.appendChild(more);
+    }
+    grid.appendChild(node);
+  });
+  root.appendChild(grid);
+}
+
+function renderPerformanceSection(allCards, buckets) {
+  var root = document.getElementById('performanceSection');
+  if (!root) return;
+  root.innerHTML = '';
+  var jobs = (allCards || []).filter(function (c) { return c.loop === 'follow_up'; }).map(function (c) { return c._raw || {}; });
+  var quoted = jobs.filter(function (j) { return String(j.status || '').toLowerCase() === 'quoted'; });
+  var accepted = jobs.filter(function (j) { return /accepted|deposit|invoice/.test(String(j.status || '').toLowerCase()); });
+  var quotedValue = quoted.reduce(function (acc, j) { return acc + (jobValue(j) || 0); }, 0);
+  var acceptedValue = accepted.reduce(function (acc, j) { return acc + (jobValue(j) || 0); }, 0);
+  var stale = quoted.filter(function (j) { return hoursAgo(j.sent_at || j.quoted_at || j.updated_at) > 24 * 5; });
+  var denom = quoted.length + accepted.length;
+  var rate = denom ? Math.round((accepted.length / denom) * 100) + '%' : '—';
+
+  var metrics = document.createElement('div');
+  metrics.className = 'metric-row';
+  [
+    ['Open quote value', quotedValue ? '$' + fmtMoney(quotedValue) : '—', quoted.length + ' quoted jobs loaded'],
+    ['Accepted value', acceptedValue ? '$' + fmtMoney(acceptedValue) : '—', accepted.length + ' accepted/deposit jobs loaded'],
+    ['Acceptance mix', rate, 'Accepted ÷ quoted+accepted in loaded jobs'],
+    ['Stale quotes', stale.length, 'Quoted over 5 days without stage change'],
+  ].forEach(function (m) {
+    var box = document.createElement('div');
+    box.className = 'metric-box';
+    box.innerHTML = '<div class="metric-box-label"></div><div class="metric-box-value"></div><div class="metric-box-note"></div>';
+    $('.metric-box-label', box).textContent = m[0];
+    $('.metric-box-value', box).textContent = m[1];
+    $('.metric-box-note', box).textContent = m[2];
+    metrics.appendChild(box);
+  });
+  root.appendChild(metrics);
+
+  var byType = {};
+  jobs.forEach(function (j) {
+    var t = String(j.type || 'patio').toLowerCase() === 'fencing' ? 'Fencing' : 'Patios';
+    byType[t] = byType[t] || { quoted: 0, accepted: 0, value: 0 };
+    if (String(j.status || '').toLowerCase() === 'quoted') byType[t].quoted++;
+    if (/accepted|deposit|invoice/.test(String(j.status || '').toLowerCase())) byType[t].accepted++;
+    byType[t].value += jobValue(j) || 0;
+  });
+
+  var panel = document.createElement('section');
+  panel.className = 'section-panel';
+  panel.innerHTML = '<div class="section-panel-title">Type split · loaded jobs only</div><div class="spark-row"></div>';
+  var maxVal = Math.max(1, Object.keys(byType).reduce(function (acc, k) { return Math.max(acc, byType[k].value); }, 0));
+  var spark = $('.spark-row', panel);
+  Object.keys(byType).sort().forEach(function (k) {
+    var d = byType[k];
+    var row = document.createElement('div');
+    row.className = 'spark-line';
+    row.innerHTML = '<div></div><div class="spark-track"><div class="spark-bar"></div></div><div></div>';
+    row.children[0].textContent = k + ' · Q' + d.quoted + ' / A' + d.accepted;
+    $('.spark-bar', row).style.width = Math.max(3, Math.round((d.value / maxVal) * 100)) + '%';
+    row.children[2].textContent = d.value ? '$' + fmtMoney(d.value) : '—';
+    spark.appendChild(row);
+  });
+  root.appendChild(panel);
+
+  var caveat = document.createElement('div');
+  caveat.className = 'section-empty';
+  caveat.textContent = 'Trust label: loaded jobs only. No Xero/payment aggregate or weekly reporting truth in this first cockpit section.';
+  root.appendChild(caveat);
+}
+
+function renderSalesSections(allCards, buckets, booking, followup, proposals, approvedBooking) {
+  _sectionCache = {
+    allCards: allCards || [],
+    booking: booking || [],
+    followup: followup || [],
+    proposals: proposals || null,
+    approvedBooking: approvedBooking || [],
+  };
+  renderCalendarSection(allCards, approvedBooking || []);
+  renderBoardSection(allCards || []);
+  renderPerformanceSection(allCards || [], buckets || { book: [], followup: [], call: [] });
+}
+
+function activateSaleSection(section) {
+  _activeSaleSection = section || 'actions';
+  $$('.section-tab').forEach(function (btn) {
+    btn.dataset.active = (btn.dataset.sectionTab === _activeSaleSection);
+  });
+  $$('.sale-pane').forEach(function (pane) {
+    pane.hidden = pane.dataset.sectionPane !== _activeSaleSection;
+  });
+  var fab = document.getElementById('mFab');
+  if (fab) fab.style.display = _activeSaleSection === 'actions' ? '' : 'none';
+}
+
+$$('.section-tab').forEach(function (btn) {
+  btn.addEventListener('click', function () { activateSaleSection(btn.dataset.sectionTab); });
+});
+
+// ────────────────────────────────────────────────────────────
 // Mobile lane switcher + FAB
 // ────────────────────────────────────────────────────────────
 
@@ -3065,6 +3675,22 @@ async function fetchPendingProposals(cloud) {
   }
 }
 
+async function fetchApprovedBookingArtifacts(cloud) {
+  try {
+    var data = await opsApiGet(cloud, 'list_proposed_actions', { status: 'approved' });
+    var raw = (data && data.actions) || [];
+    return raw.filter(function (a) {
+      return a.action_type === 'propose_scoper_booking_approval'
+          || a.action_type === 'propose_booking_confirmation_to_customer'
+          || a.action_type === 'book_scope'
+          || a.action_type === 'scope_confirmation';
+    }).slice(0, 30);
+  } catch (err) {
+    console.warn('[sale] approved booking artifact fetch failed:', err.message);
+    return [];
+  }
+}
+
 // Resolve which Supabase jobs are linked to which GHL opportunities.
 // One PostgREST GET per page load. Returns Map<opportunity_id, job>.
 async function fetchOpportunityJobLinks(cloud, opportunityIds) {
@@ -3173,10 +3799,12 @@ function loadAndRender(cloud) {
     fetchBookingCards(cloud, pipelines),
     fetchFollowUpCards(cloud, profile),
     fetchPendingProposals(cloud),
+    fetchApprovedBookingArtifacts(cloud),
   ]).then(function (results) {
     var booking = results[0];
     var followup = results[1];
     var proposals = results[2];
+    var approvedBooking = results[3] || [];
 
     // Resolve GHL opportunity → Supabase job linkage in one parallel call,
     // then enrich booking cards with linked job_id (if any).
@@ -3254,6 +3882,7 @@ function loadAndRender(cloud) {
       renderCounts(buckets);
       renderSourceMeta(allCards, proposals);
       renderHero(allCards, buckets);
+      renderSalesSections(allCards, buckets, booking, followup, proposals, approvedBooking);
       refreshFab();
       logLoadDiagnostics(booking, followup, proposals);
     });
