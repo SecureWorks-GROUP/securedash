@@ -3557,6 +3557,7 @@ function renderCalendarSection(allCards, approvedBooking) {
 
 function boardColumnFor(card) {
   var s = String(card && card.pipeline_stage || '').toLowerCase();
+  if (isTerminalSalesStage(s) || isTerminalJobStatus((card && (card.linked_job_status || card.pipeline_stage)) || '')) return 'terminal';
   if (/stale|aged|dormant|review/.test(s)) return 'stale';
   if (/accepted|deposit|invoice/.test(s)) return 'accepted';
   if (/quoted|quote sent/.test(s)) return 'quoted';
@@ -3575,7 +3576,7 @@ function renderBoardSection(allCards) {
     ['qualified', 'Qualified / Book'],
     ['quoted', 'Quoted'],
     ['followup', 'Follow-up'],
-    ['accepted', 'Accepted / Deposit'],
+    ['terminal', 'Terminal / Ops'],
     ['stale', 'Stale / Review'],
   ];
   var grouped = {};
