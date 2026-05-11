@@ -4078,19 +4078,28 @@ async function fetchOpportunityJobLinks(cloud, opportunityIds) {
   if (!opportunityIds.length) return {};
   try {
     var sb = cloud.supabase;
-    var result = await sb.from('jobs')
-      .select('id, status, type, client_name, ghl_opportunity_id, ghl_contact_id')
-      .in('ghl_opportunity_id', opportunityIds)
-      .neq('status', 'archived');
     var byOppId = {};
-    (result.data || []).forEach(function (j) {
-      if (j.ghl_opportunity_id) byOppId[j.ghl_opportunity_id] = j;
-    });
+    for (var i = 0; i < opportunityIds.length; i += 100) {
+      var chunk = opportunityIds.slice(i, i + 100);
+      var result = await sb.from('jobs')
+        .select('id, status, type, client_name, ghl_opportunity_id, ghl_contact_id')
+        .in('ghl_opportunity_id', chunk)
+        .neq('status', 'archived');
+      (result.data || []).forEach(function (j) {
+        if (j.ghl_opportunity_id) byOppId[j.ghl_opportunity_id] = j;
+      });
+    }
     return byOppId;
   } catch (err) {
     console.warn('[sale] opportunity→job link fetch failed:', err);
     return {};
   }
+}
+
+function recentEnoughForActions(card) {
+  var h = hoursAgo(card && card.last_activity);
+  if (h == null || !isFinite(h)) return true;
+  return h <= 24 * 30;
 }
 
 // Fetch job_context facts for the visible jobs. Pure read (PostgREST GET)
@@ -4131,7 +4140,10 @@ async function fetchBookingCards(cloud, pipelines) {
   });
   var cards = [];
   results.forEach(function (r) {
-    r.opps.forEach(function (opp) { cards.push(normaliseOpp(opp, r.pipeline)); });
+    r.opps.forEach(function (opp) {
+      var card = normaliseOpp(opp, r.pipeline);
+      if (recentEnoughForActions(card)) cards.push(card);
+    });
   });
   return cards;
 }
@@ -4146,6 +4158,7 @@ async function fetchFollowUpCards(cloud, profile) {
       return s !== 'complete' && s !== 'completed' && s !== 'lost' && s !== 'cancelled' && s !== 'archived';
     });
     if (view.filter) open = open.filter(view.filter);
+    open = open.filter(function (j) { return recentEnoughForActions(normaliseJob(j)); });
     _loadDiagnostics.followup = { ok: true, count: open.length };
     return open.map(normaliseJob);
   } catch (err) {
