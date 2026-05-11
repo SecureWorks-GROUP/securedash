@@ -102,7 +102,7 @@
           return { blocked: true, reason: 'storage ' + method + ' to ' + path + ' not allowed' };
         }
 
-        // ── /functions/v1/ghl-proxy — narrow GET-only allowlist for read-only actions ──
+        // ── /functions/v1/ghl-proxy — narrow GET-only allowlist for sale-cockpit actions ──
         // Each action below is verified read-only by inspection of
         // secureworks-site/supabase/functions/ghl-proxy/index.ts:
         //   - opportunities (line 386): GHL /opportunities/search GET + cached stage lookup
@@ -115,16 +115,16 @@
         //   - search_jobs (line 1224): Supabase select
         //   - load_job (line 1477): Supabase select
         //   - list_media (line 1497): Supabase select
-        // Every WRITE action in ghl-proxy is gated by `req.method === 'POST'`
-        // (25 such gates exist). This allowlist is METHOD-restricted to GET,
-        // so even if a future ghl-proxy refactor changes an action's intent
-        // we still cannot POST through this path. Mutations stay 451-blocked
-        // by the catch-all below.
+        // sync_ghl is the one intentional exception: Marnin-approved memory
+        // intake only. It creates/updates Supabase job stubs from GHL so the
+        // cockpit has job memory. It does not send SMS/email, move GHL stages,
+        // or write customer calendar events.
         if (path === '/functions/v1/ghl-proxy' && method === 'GET') {
           var GHL_PROXY_GET_ALLOW = {
             opportunities: 1, pipelines: 1, stage_map: 1,
             search: 1, search_contacts: 1, contact: 1,
-            find_job: 1, search_jobs: 1, load_job: 1, list_media: 1
+            find_job: 1, search_jobs: 1, load_job: 1, list_media: 1,
+            sync_ghl: 1
           };
           var act = u.searchParams.get('action');
           if (act && GHL_PROXY_GET_ALLOW[act]) return { blocked: false };
