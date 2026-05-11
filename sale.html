@@ -316,6 +316,7 @@
     window.SUPABASE_URL = 'https://kevgrhcjxspbxgovpmfl.supabase.co';
     window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtldmdyaGNqeHNwYnhnb3ZwbWZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNTQxMDUsImV4cCI6MjA4NzkzMDEwNX0.lPUEvx8u98WL86PcMNv8yfLnd6OQKzTUOCsRewfQiZc';
     window.SW_API_KEY = '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
+    window.GHL_LOCATION_ID = window.GHL_LOCATION_ID || '13yKADzN94BRxX4hByYX';
   </script>
   <script src="shared/brand.js"></script>
   <script src="shared/cloud.js"></script>
@@ -505,11 +506,17 @@
       color: var(--text-sec);
       font-size: 11px;
       line-height: 1.45;
+      cursor: pointer;
     }
     .micro-card[data-tone="book"] { border-left-color: var(--blue); }
     .micro-card[data-tone="followup"] { border-left-color: var(--green); }
     .micro-card[data-tone="call"] { border-left-color: var(--amber); }
     .micro-card[data-tone="attention"] { border-left-color: var(--orange); }
+    .micro-card[data-state="action-ready"] { background: rgba(76,175,142,0.10); }
+    .micro-card[data-state="action-blocked"] { background: rgba(255,181,84,0.09); }
+    .micro-card[data-state="no-action"] { background: rgba(92,143,184,0.06); }
+    .micro-card[data-state="hygiene-conflict"] { background: rgba(241,90,41,0.08); }
+    .micro-card[data-state="terminal"] { opacity: 0.68; }
     .micro-card-name {
       color: var(--text);
       font-size: 13px;
@@ -525,6 +532,24 @@
       margin-bottom: 6px;
     }
     .micro-card-line { margin-top: 4px; }
+    .micro-card-detail {
+      display: none;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--rule);
+      color: var(--text-sec);
+    }
+    .micro-card.open .micro-card-detail { display: block; }
+    .micro-link {
+      display: inline-block;
+      margin-top: 7px;
+      color: var(--blue);
+      text-decoration: none;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+    }
     .metric-row {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1648,7 +1673,7 @@ function laneFor(job) {
   var ageH = hoursAgo(job.created_at);
   var sentH = hoursAgo(job.sent_at || job.quoted_at);
 
-  if (/accepted|deposit|processing|scheduled|in_progress|complete|completed|final|invoice|invoiced|rectification|lost|cancelled|archived/.test(status)) return null;
+  if (isTerminalJobStatus(status)) return null;
   if (status === 'quoted') {
     // Fresh-warm: BOOK a sign-off call.
     if (sentH < 24 * 3) return 'book';
@@ -3156,7 +3181,21 @@ function renderLane(laneKey, items) {
     root.appendChild(empty);
     return;
   }
-  items.forEach(function (job) { root.appendChild(renderCard(job, laneKey)); });
+  items.forEach(function (job) {
+    try {
+      root.appendChild(renderCard(job, laneKey));
+    } catch (err) {
+      console.error('[sale] card render failed', laneKey, job && (job.job_id || job.opportunity_id), err);
+      var fallback = document.createElement('article');
+      fallback.className = 'lcard urgent';
+      fallback.innerHTML =
+        '<div class="lcard-top"><div class="lcard-name"></div><div class="lcard-time">render error</div></div>' +
+        '<div class="lcard-meta">This card failed to render. Open console for details.</div>' +
+        '<div class="lcard-row"><div class="lcard-val">Review data</div><div class="lcard-pill urgent">ERROR</div></div>';
+      $('.lcard-name', fallback).textContent = (job && job.customer_name) || 'Unknown';
+      root.appendChild(fallback);
+    }
+  });
 }
 
 function renderCounts(buckets) {
@@ -3313,20 +3352,81 @@ function cardAddress(card) {
   return raw.site_address || raw.address || raw.site_suburb || raw.suburb || '';
 }
 
+var ACTION_WINDOW_DAYS = 45;
+
+function ghlContactUrl(card) {
+  var contactId = card && card.contact_id;
+  if (!contactId) return null;
+  var loc = window.GHL_LOCATION_ID || '13yKADzN94BRxX4hByYX';
+  return 'https://app.maxlead.com.au/v2/location/' + encodeURIComponent(loc) + '/contacts/detail/' + encodeURIComponent(contactId);
+}
+
+function actionStateForCard(card) {
+  if (!card) return { key: 'no-action', label: 'No action', reason: 'No card data loaded yet.' };
+  if (isTerminalSalesStage(card.pipeline_stage) || isTerminalJobStatus(card.linked_job_status || card.pipeline_stage)) {
+    return { key: 'terminal', label: 'Terminal', reason: 'Accepted/lost/complete or moved out of Sales. Not part of the daily action queue.' };
+  }
+  if (card.pending_proposals && card.pending_proposals.length) {
+    var p = card.pending_proposals[0];
+    return { key: 'action-ready', label: 'Action ready', reason: recommendationTypeFor(p.action_type) || 'JARVIS proposal ready.' };
+  }
+  if (card.no_job_link) {
+    return { key: 'action-blocked', label: 'Memory off', reason: 'This GHL lead has no linked Supabase job memory yet. Create/link memory before JARVIS can reason well.' };
+  }
+  if (card.source === 'ghl' && card.linked_job_status && String(card.linked_job_status) !== String(card.pipeline_stage)) {
+    return { key: 'hygiene-conflict', label: 'Stage review', reason: 'GHL and Supabase do not fully agree. Supabase wins for cockpit truth; GHL change should be proposed.' };
+  }
+  return { key: 'no-action', label: 'No action reason', reason: noActionReasonForCard(card) };
+}
+
+function noActionReasonForCard(card) {
+  if (!card) return 'No card loaded.';
+  if (!recentEnoughForActions(card)) return 'Outside the 45-day launch window.';
+  if (!card.phone) return 'Missing phone number, so SMS/call action is blocked.';
+  if (card.loop === 'follow_up' && String(card.pipeline_stage || '').toLowerCase() === 'quoted') {
+    return 'Quoted job is visible but no current JARVIS proposal is attached. The proposal writer/backfill needs to cover it.';
+  }
+  if (card.loop === 'booking') {
+    return 'Booking lead is visible but no booking proposal is attached yet. Awaiting discovery, availability, or memory link.';
+  }
+  return 'No current proposal. Keep visible on Board for ledger hygiene, not in Actions.';
+}
+
 function renderMicroCard(item) {
   var el = document.createElement('article');
   el.className = 'micro-card';
   el.dataset.tone = item.tone || 'followup';
+  if (item.state) el.dataset.state = item.state;
   el.innerHTML =
     '<div class="micro-card-name"></div>' +
     '<div class="micro-card-meta"></div>' +
     '<div class="micro-card-line"></div>' +
-    '<div class="micro-card-line"></div>';
+    '<div class="micro-card-line"></div>' +
+    '<div class="micro-card-detail"></div>';
   $('.micro-card-name', el).textContent = item.name || 'Unknown';
   $('.micro-card-meta', el).textContent = item.meta || '';
   var lines = $$('.micro-card-line', el);
   if (lines[0]) lines[0].textContent = item.line1 || '';
   if (lines[1]) lines[1].textContent = item.line2 || '';
+  var detail = $('.micro-card-detail', el);
+  if (detail) {
+    (item.detailLines || []).forEach(function (line) {
+      var d = document.createElement('div');
+      d.textContent = line;
+      detail.appendChild(d);
+    });
+    if (item.ghlUrl) {
+      var a = document.createElement('a');
+      a.className = 'micro-link';
+      a.href = item.ghlUrl;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = 'Open LeadConnector';
+      a.addEventListener('click', function (e) { e.stopPropagation(); });
+      detail.appendChild(a);
+    }
+  }
+  el.addEventListener('click', function () { el.classList.toggle('open'); });
   return el;
 }
 
@@ -3498,11 +3598,19 @@ function renderBoardSection(allCards) {
     items.slice(0, 18).forEach(function (card) {
       var raw = card._raw || {};
       var val = card.loop === 'follow_up' ? jobValue(raw) : null;
+      var state = actionStateForCard(card);
       list.appendChild(renderMicroCard({
         name: card.customer_name,
-        meta: (card.source === 'ghl' ? 'GHL' : 'Supabase') + ' · ' + stageLabel(card.pipeline_stage),
+        meta: state.label + ' · ' + (card.source === 'ghl' ? 'GHL' : 'Supabase') + ' · ' + stageLabel(card.pipeline_stage),
         line1: (card.pipeline_lane || raw.type || 'job') + (val ? ' · $' + fmtMoney(val) : ''),
-        line2: (card.pending_proposals && card.pending_proposals.length ? 'JARVIS proposal ready' : (card.next_suggested_action || 'Review')),
+        line2: state.reason,
+        detailLines: [
+          'Next: ' + (card.pending_proposals && card.pending_proposals.length ? previewLabelForProposal(card.pending_proposals[0]) : (card.next_suggested_action || 'Review')),
+          card.job_id ? 'Supabase job: ' + card.job_id : 'Supabase job: not linked',
+          card.contact_id ? 'GHL contact linked' : 'GHL contact missing',
+        ],
+        ghlUrl: ghlContactUrl(card),
+        state: state.key,
         tone: key === 'stale' ? 'attention' : (key === 'qualified' ? 'book' : (key === 'quoted' || key === 'followup' ? 'followup' : 'call')),
       }));
     });
@@ -3709,10 +3817,20 @@ function pipelineForRep(profile) {
 
 // Map a stage name to a lane. Unknown stages default to CALL (Marnin's rule:
 // never silently drop a card; CALL surfaces the gap so it can be retagged).
+function isTerminalSalesStage(stageName) {
+  var s = String(stageName || '').toLowerCase();
+  return /job\s*lost|lost|dead|won|closed|job\s*accepted|accepted\s*-\s*>\s*move\s*to\s*execution|move\s*to\s*execution|final\s*payment|job\s*complete|complete|completed|not\s*relevant|archive|outside\s*service|too\s*small|cancel|cancelled|duplicate|spam|do\s*not\s*service/.test(s);
+}
+
+function isTerminalJobStatus(status) {
+  var s = String(status || '').toLowerCase();
+  return /accepted|deposit|processing|scheduled|in_progress|complete|completed|final|invoice|invoiced|rectification|lost|cancelled|archived/.test(s);
+}
+
 function laneForBookingStage(stageName) {
   var s = String(stageName || '').toLowerCase();
   if (!s) return 'call';
-  if (/job\s*lost|lost|dead|won|closed|job\s*accepted|move\s*to\s*execution|final\s*payment|job\s*complete/.test(s)) return null;  // terminal — exclude
+  if (isTerminalSalesStage(s)) return null;  // terminal — exclude from Actions; Board still shows it.
   if (/following\s*up.*quote|quote\s*sent/.test(s)) return 'followup';
   if (/scope\s*complete|quote\s*to\s*be\s*sent/.test(s)) return 'followup';
   if (/qualified|site\s*visit|discovery|appointment|booked|scheduled|measured/.test(s)) return 'book';
@@ -3738,7 +3856,7 @@ function nextActionForBookingStage(stageName) {
 function nextActionForJobStatus(status) {
   var s = String(status || '').toLowerCase();
   if (s === 'quoted')                               return 'Chase quote';
-  if (s === 'accepted' || s === 'deposit_pending')  return 'Send deposit invoice';
+  if (s === 'accepted' || s === 'deposit_pending')  return 'Progress job';
   if (s === 'draft' || s === 'lead' || s === 'qualified') return 'Book site visit';
   return 'Review status';
 }
@@ -3768,6 +3886,7 @@ function normaliseJob(job) {
     customer_name: job.client_name || 'Unknown',
     phone: job.client_phone || null,
     pipeline_stage: job.status || '—',
+    first_enquiry_at: job.created_at || job.sent_at || job.quoted_at || null,
     last_activity: job.updated_at || job.created_at || null,
     next_suggested_action: nextActionForJobStatus(job.status),
     evidence_refs: [{
@@ -3792,6 +3911,7 @@ function normaliseOpp(opp, pipelineLabel) {
     customer_name: opp.contactName || opp.name || 'Unknown',
     phone: opp.contactPhone || opp.phone || null,
     pipeline_stage: opp.stageName || '—',
+    first_enquiry_at: opp.createdAt || opp.updatedAt || opp.lastStatusChangeAt || null,
     last_activity: opp.updatedAt || opp.createdAt || opp.lastStatusChangeAt || null,
     next_suggested_action: nextActionForBookingStage(opp.stageName),
     evidence_refs: [{
@@ -3807,6 +3927,8 @@ function normaliseOpp(opp, pipelineLabel) {
 // Lane for a unified card.
 function laneForCard(card) {
   var proposals = card.pending_proposals || [];
+  if (card.linked_job_status && isTerminalJobStatus(card.linked_job_status)) return null;
+  if (card.loop === 'follow_up' && isTerminalJobStatus(card.pipeline_stage || (card._raw && card._raw.status))) return null;
   if (proposals.some(function (p) { return p.action_type === 'call_now' || p.action_type === 'propose_scoper_call_task'; })) {
     return 'call';
   }
@@ -3830,6 +3952,24 @@ function laneForCard(card) {
   // follow_up — apply existing job-status logic on _raw job
   var job = card._raw || {};
   return laneFor(job);
+}
+
+function shouldShowInActions(card) {
+  var lane = laneForCard(card);
+  if (!lane) return false;
+  if (isSalesTestCard(card)) return false;
+
+  // A real JARVIS proposal is the normal reason a card belongs in Actions.
+  if (card.pending_proposals && card.pending_proposals.length) return true;
+
+  // The one no-proposal exception: a recent GHL lead/opportunity with no
+  // Supabase job memory yet. The action is to create/link memory so the
+  // proposal writer can reason about it next pass.
+  if (card.loop === 'booking' && card.no_job_link) return true;
+
+  // Linked jobs with no current proposal belong in Board. This keeps Actions
+  // from becoming a passive CRM list where reps must invent the next step.
+  return false;
 }
 
 function proposalAllowedOnCardLane(proposal, card) {
@@ -3858,9 +3998,8 @@ function proposalAllowedOnCardLane(proposal, card) {
 function bucketizeUnified(cards) {
   var b = { book: [], followup: [], call: [] };
   cards.forEach(function (c) {
-    if (isSalesTestCard(c)) return;
+    if (!shouldShowInActions(c)) return;
     var lane = laneForCard(c);
-    if (!lane) return;
     if (b[lane]) b[lane].push(c);
   });
   function age(c) {
@@ -3913,11 +4052,11 @@ async function maybeRunMemorySync(cloud) {
   if (!shouldRun || window.__saleMemorySyncStarted) return;
   window.__saleMemorySyncStarted = true;
   try {
-    showActionToast('Syncing last 30 days of GHL memory into Supabase…', 'info');
+    showActionToast('Syncing last ' + ACTION_WINDOW_DAYS + ' days of GHL memory into Supabase…', 'info');
     var token = await getUserAccessToken(cloud);
     if (!token) throw new Error('Not signed in');
     var base = window.SUPABASE_URL || 'https://kevgrhcjxspbxgovpmfl.supabase.co';
-    var res = await fetch(base + '/functions/v1/ghl-proxy?action=sync_ghl&since_days=30', {
+    var res = await fetch(base + '/functions/v1/ghl-proxy?action=sync_ghl&since_days=' + ACTION_WINDOW_DAYS, {
       method: 'GET',
       headers: { 'Authorization': 'Bearer ' + token },
     });
@@ -4019,7 +4158,7 @@ function recommendationTypeFor(actionType) {
 
 async function fetchPendingProposals(cloud) {
   try {
-    var data = await opsApiGet(cloud, 'list_proposed_actions', { status: 'pending' });
+    var data = await opsApiGet(cloud, 'list_proposed_actions', { status: 'pending', limit: 500 });
     var raw = (data && data.actions) || [];
     // Server-side filter is { status='pending', sent_at IS NULL }.
     // Client-side filter additionally excludes action_types the cockpit
@@ -4097,9 +4236,9 @@ async function fetchOpportunityJobLinks(cloud, opportunityIds) {
 }
 
 function recentEnoughForActions(card) {
-  var h = hoursAgo(card && card.last_activity);
+  var h = hoursAgo(card && (card.first_enquiry_at || card.created_at || card.last_activity));
   if (h == null || !isFinite(h)) return true;
-  return h <= 24 * 30;
+  return h <= 24 * ACTION_WINDOW_DAYS;
 }
 
 // Fetch job_context facts for the visible jobs. Pure read (PostgREST GET)
@@ -4151,7 +4290,7 @@ async function fetchBookingCards(cloud, pipelines) {
 async function fetchFollowUpCards(cloud, profile) {
   var view = repView(profile);
   try {
-    var jobs = await cloud.jobs.listJobs({ limit: 200 });
+    var jobs = await cloud.jobs.listJobs({ limit: 500 });
     jobs = jobs || [];
     var open = jobs.filter(function (j) {
       var s = (j.status || '').toLowerCase();
@@ -4175,8 +4314,10 @@ async function fetchFollowUpCards(cloud, profile) {
 // Cached for the current load — used by re-render after a successful action.
 var _lastCloud = null;
 var _profileCache = null;
+var _loadSeq = 0;
 
 function loadAndRender(cloud) {
+  var seq = ++_loadSeq;
   _lastCloud = cloud;
   maybeRunMemorySync(cloud);
   var laneBookCards = document.getElementById('laneBookCards');
@@ -4196,6 +4337,7 @@ function loadAndRender(cloud) {
     fetchPendingProposals(cloud),
     fetchApprovedBookingArtifacts(cloud),
   ]).then(function (results) {
+    if (seq !== _loadSeq) return Promise.reject({ staleLoad: true });
     var booking = results[0];
     var followup = results[1];
     var proposals = results[2];
@@ -4278,6 +4420,7 @@ function loadAndRender(cloud) {
         return facts;
       }).then(function () { return null; });
     }).then(function () {
+      if (seq !== _loadSeq) return;
       var allCards = booking.concat(followup);
       var buckets = bucketizeUnified(allCards);
       _bucketCache = buckets;
@@ -4292,6 +4435,7 @@ function loadAndRender(cloud) {
       logLoadDiagnostics(booking, followup, proposals);
     });
   }).catch(function (err) {
+    if (err && err.staleLoad) return;
     console.error('[sale] load failed:', err);
     var msg = 'Failed to load. ' + (err && err.message ? err.message : 'Unknown error');
     ['laneBookCards','laneFollowupCards','laneCallCards'].forEach(function (id) {
