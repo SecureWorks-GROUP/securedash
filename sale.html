@@ -4078,6 +4078,7 @@ function pipelineForRep(profile) {
 // never silently drop a card; CALL surfaces the gap so it can be retagged).
 function isTerminalSalesStage(stageName) {
   var s = String(stageName || '').toLowerCase();
+  if (/scope\s*complete|quote\s*to\s*be\s*sent/.test(s)) return false;
   return /job\s*lost|lost|dead|won|closed|job\s*accepted|accepted\s*-\s*>\s*move\s*to\s*execution|move\s*to\s*execution|final\s*payment|job\s*complete|complete|completed|not\s*relevant|archive|outside\s*service|too\s*small|cancel|cancelled|duplicate|spam|do\s*not\s*service/.test(s);
 }
 
