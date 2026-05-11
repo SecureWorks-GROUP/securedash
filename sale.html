@@ -4161,22 +4161,32 @@ function shouldShowInActions(card) {
 }
 
 function proposalAllowedOnCardLane(proposal, card) {
-  var lane = laneForCard(Object.assign({}, card, { pending_proposals: [] }));
   var type = proposal && proposal.action_type;
-  if (!lane || !type) return false;
-  if (lane === 'book') {
-    return type === 'book_scope'
-        || type === 'send_booking_sms'
-        || type === 'scope_confirmation'
-        || type === 'propose_scoper_booking_approval';
+  if (!type) return false;
+
+  // Proposal rows are the action truth for the Actions page. Do not derive the
+  // allowed lane only from the underlying CRM/job stage, because that hides
+  // valid proposals such as "call this quoted client" on a quoted job.
+  if (card.linked_job_status && isTerminalJobStatus(card.linked_job_status)) return false;
+  if (card.loop === 'follow_up' && isTerminalJobStatus(card.pipeline_stage || (card._raw && card._raw.status))) return false;
+
+  if (type === 'call_now' || type === 'propose_scoper_call_task') return true;
+
+  if (type === 'send_quote_followup_sms' || type === 'propose_quote_review_task') {
+    return card.loop === 'follow_up';
   }
-  if (lane === 'followup') {
-    return type === 'send_quote_followup_sms'
-        || type === 'propose_quote_review_task';
+
+  if (type === 'book_scope'
+      || type === 'send_booking_sms'
+      || type === 'scope_confirmation'
+      || type === 'propose_scoper_booking_approval') {
+    var status = String(card.pipeline_stage || (card._raw && card._raw.status) || '').toLowerCase();
+    return card.loop === 'booking'
+        || status === 'draft'
+        || status === 'lead'
+        || status === 'qualified';
   }
-  if (lane === 'call') {
-    return type === 'call_now' || type === 'propose_scoper_call_task';
-  }
+
   return false;
 }
 
