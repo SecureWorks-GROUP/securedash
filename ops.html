@@ -7131,6 +7131,14 @@ function computeSubStage(j, status) {
       if (!j.council_count) return 'Not Started';
       if (j.council_status === 'complete') return 'Approved';
       return 'Council ' + (j.council_step || 'In Progress');
+    case 'order_materials':
+      if (j.po_count === 0) return 'Build Order';
+      return 'Draft PO Review';
+    case 'awaiting_supplier':
+      return 'Waiting Supplier Confirmation';
+    case 'order_confirmed':
+      if (j.assignment_count === 0) return 'Ready to Schedule';
+      return 'Install Date Set';
     case 'processing':
       var hasPOs = j.po_count > 0;
       var hasCrew = j.assignment_count > 0;
@@ -7155,14 +7163,20 @@ var SUB_STAGE_ORDER = {
   quoted: ['Quote Sent', 'Following Up'],
   accepted: ['Create Invoice', 'Awaiting Deposit', 'Deposit Received'],
   approvals: null,
+  order_materials: ['Build Order', 'Draft PO Review'],
+  awaiting_supplier: ['Waiting Supplier Confirmation'],
+  order_confirmed: ['Ready to Schedule', 'Install Date Set'],
   processing: ['Order Materials', 'Materials Ordered', 'Crew Assigned', 'Ready to Start'],
   in_progress: ['On Site'],
   complete: ['Needs Invoice', 'Awaiting Payment', 'Get Sign-off'],
 };
 
-function getNextAction(j) {
+function getNextAction(j, data) {
   var sub = computeSubStage(j, j.status);
   var result = { stage: sub, hint: '', actions: [] };
+  var materialMetrics = data ? getMaterialPOMetrics(data.purchase_orders || []) : null;
+  var materialPOCount = materialMetrics ? materialMetrics.total : (j.po_count || 0);
+  var materialSentCount = materialMetrics ? materialMetrics.sent : 0;
   switch (j.status) {
     case 'quoted':
       result.hint = 'Move to accepted when client confirms the quote';
@@ -7172,30 +7186,56 @@ function getNextAction(j) {
       if (sub === 'Create Invoice') {
         result.hint = 'Create a deposit invoice for this job';
         result.actions.push({ label: 'Create Invoice', onclick: "closeQuickView();openUnifiedInvoiceModal('" + j.id + "')", primary: true });
-        if (j.type !== 'fencing') result.actions.push({ label: 'Skip \u2192 Approvals', onclick: "closeQuickView();changeJobStatus('" + j.id + "','approvals')" });
-        result.actions.push({ label: 'Skip \u2192 Processing', onclick: "closeQuickView();changeJobStatus('" + j.id + "','processing')" });
+        result.actions.push({ label: 'Move to Deposit', onclick: "closeQuickView();changeJobStatus('" + j.id + "','awaiting_deposit')" });
       } else if (sub === 'Awaiting Deposit') {
         result.hint = 'Deposit invoice sent \u2014 waiting on client payment';
-        if (j.type !== 'fencing') result.actions.push({ label: 'Deposit Received \u2192 Approvals', onclick: "closeQuickView();changeJobStatus('" + j.id + "','approvals')", primary: true });
-        result.actions.push({ label: 'Deposit Received \u2192 Processing', onclick: "closeQuickView();changeJobStatus('" + j.id + "','processing')", primary: j.type === 'fencing' });
+        result.actions.push({ label: 'Move to Deposit', onclick: "closeQuickView();changeJobStatus('" + j.id + "','awaiting_deposit')", primary: true });
       } else {
-        result.hint = 'Deposit received \u2014 ready to move forward';
-        if (j.type !== 'fencing') result.actions.push({ label: 'Move to Approvals', onclick: "closeQuickView();changeJobStatus('" + j.id + "','approvals')", primary: true });
-        result.actions.push({ label: 'Move to Processing', onclick: "closeQuickView();changeJobStatus('" + j.id + "','processing')", primary: j.type === 'fencing' });
+        result.hint = 'Ready to manage deposit and pre-build checks';
+        result.actions.push({ label: 'Move to Deposit', onclick: "closeQuickView();changeJobStatus('" + j.id + "','awaiting_deposit')", primary: true });
+      }
+      break;
+    case 'awaiting_deposit':
+      if (j.type === 'patio' || j.type === 'decking') {
+        result.stage = 'Deposit / Approvals';
+        result.hint = 'Once deposit is confirmed, send patio/decking jobs through approvals before materials unless no approvals are needed';
+        result.actions.push({ label: 'Move to Approvals', onclick: "closeQuickView();changeJobStatus('" + j.id + "','approvals')", primary: true });
+        result.actions.push({ label: 'No Approvals - Order Materials', onclick: "closeQuickView();changeJobStatus('" + j.id + "','order_materials')" });
+      } else {
+        result.stage = 'Deposit / Materials';
+        result.hint = 'Once deposit is confirmed, open the material ordering workspace';
+        result.actions.push({ label: 'Order Materials', onclick: "closeQuickView();changeJobStatus('" + j.id + "','order_materials')", primary: true });
       }
       break;
     case 'approvals':
       if (sub === 'Not Started') {
         result.hint = 'Start a council/engineering submission';
         result.actions.push({ label: 'Start Council', onclick: "closeQuickView();openCouncilModal('" + j.id + "')", primary: true });
-        result.actions.push({ label: 'Skip \u2192 Processing', onclick: "closeQuickView();changeJobStatus('" + j.id + "','processing')" });
+        result.actions.push({ label: 'No Approval Needed - Order Materials', onclick: "closeQuickView();changeJobStatus('" + j.id + "','order_materials')" });
       } else if (sub === 'Approved') {
-        result.hint = 'Council approved \u2014 move to processing';
-        result.actions.push({ label: 'Move to Processing', onclick: "closeQuickView();changeJobStatus('" + j.id + "','processing')", primary: true });
+        result.hint = 'Council approved \u2014 order materials from the job workshop';
+        result.actions.push({ label: 'Order Materials', onclick: "closeQuickView();changeJobStatus('" + j.id + "','order_materials')", primary: true });
       } else {
         result.hint = 'Council/engineering in progress \u2014 waiting on vendors';
-        result.actions.push({ label: 'Override \u2192 Processing', onclick: "closeQuickView();changeJobStatus('" + j.id + "','processing')" });
+        result.actions.push({ label: 'Override - Order Materials', onclick: "closeQuickView();changeJobStatus('" + j.id + "','order_materials')" });
       }
+      break;
+    case 'order_materials':
+      result.hint = materialPOCount === 0
+        ? 'Use the workshop to understand the scope, create supplier POs, and prepare the order emails'
+        : 'Review the draft POs, confirm suppliers, then email the supplier orders';
+      result.actions.push({ label: 'Open Materials Workshop', onclick: "closeQuickView();openMaterialsWorkshop('" + j.id + "')", primary: true });
+      if (materialSentCount > 0) result.actions.push({ label: 'Awaiting Supplier', onclick: "closeQuickView();changeJobStatus('" + j.id + "','awaiting_supplier')" });
+      break;
+    case 'awaiting_supplier':
+      result.hint = 'Supplier order has been sent. Track reply, pricing, stock, and delivery or pickup date';
+      result.actions.push({ label: 'Open Materials Workshop', onclick: "closeQuickView();openMaterialsWorkshop('" + j.id + "')", primary: true });
+      result.actions.push({ label: 'Order Confirmed', onclick: "closeQuickView();changeJobStatus('" + j.id + "','order_confirmed')" });
+      break;
+    case 'order_confirmed':
+      result.hint = 'Materials are confirmed. Lock the install schedule around delivery or pickup';
+      result.actions.push({ label: 'Open Build Workspace', onclick: "closeQuickView();openMaterialsWorkshop('" + j.id + "')", primary: true });
+      result.actions.push({ label: 'Move to Scheduled', onclick: "closeQuickView();changeJobStatus('" + j.id + "','scheduled')" });
       break;
     case 'processing':
       var pMissing = [];
@@ -7207,7 +7247,7 @@ function getNextAction(j) {
         result.actions.push({ label: 'Start Job', onclick: "closeQuickView();changeJobStatus('" + j.id + "','in_progress')", primary: true });
       } else {
         result.hint = 'Still need: ' + pMissing.join(', ');
-        if (j.po_count === 0) result.actions.push({ label: 'Create PO', onclick: "closeQuickView();openPOModal('" + j.id + "')", primary: true });
+        if (j.po_count === 0) result.actions.push({ label: 'Open Materials Workshop', onclick: "closeQuickView();openMaterialsWorkshop('" + j.id + "')", primary: true });
         else if (j.assignment_count === 0) result.actions.push({ label: 'Assign Crew', onclick: "closeQuickView();openJobDetail('" + j.id + "')", primary: true });
         else result.actions.push({ label: 'Create Work Order', onclick: "closeQuickView();openCreateWOModal('" + j.id + "')", primary: true });
         result.actions.push({ label: 'Start Job', onclick: "closeQuickView();changeJobStatus('" + j.id + "','in_progress')" });
@@ -7308,7 +7348,10 @@ function renderKanban(container, columns) {
 }
 
 function renderKanbanCard(j, status) {
-  var html = '<div class="kanban-card" draggable="true" data-job-id="' + j.id + '" data-status="' + status + '" onclick="openJobDetail(\'' + j.id + '\')" onmouseenter="hoverJobCard(event,\'' + j.id + '\')" onmouseleave="hideJobHover()" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)">';
+  var clickAction = (['order_materials', 'awaiting_supplier', 'order_confirmed'].indexOf(status) !== -1)
+    ? "openMaterialsWorkshop('" + j.id + "')"
+    : "openJobDetail('" + j.id + "')";
+  var html = '<div class="kanban-card" draggable="true" data-job-id="' + j.id + '" data-status="' + status + '" onclick="' + clickAction + '" onmouseenter="hoverJobCard(event,\'' + j.id + '\')" onmouseleave="hideJobHover()" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)">';
   html += '<div class="kanban-card-header">';
   html += '<span class="kanban-client">' + (j.client_name || 'Unknown') + '</span>';
   if (j.value) html += '<span class="kanban-value">' + fmt$(j.value) + '</span>';
@@ -7435,10 +7478,15 @@ function kanbanDragAllowed(fromStatus, toStatus) {
   var allowed = {
     'draft': ['quoted'],
     'quoted': ['accepted', 'cancelled'],
-    'accepted': ['approvals', 'processing'],
-    'approvals': ['processing', 'accepted'],
-    'processing': ['in_progress', 'approvals'],
-    'in_progress': ['complete', 'processing', 'cancelled'],
+    'accepted': ['awaiting_deposit', 'approvals', 'order_materials', 'cancelled'],
+    'awaiting_deposit': ['approvals', 'order_materials', 'accepted', 'cancelled'],
+    'approvals': ['order_materials', 'awaiting_deposit', 'cancelled'],
+    'order_materials': ['awaiting_supplier', 'awaiting_deposit', 'approvals', 'cancelled'],
+    'awaiting_supplier': ['order_confirmed', 'order_materials', 'cancelled'],
+    'order_confirmed': ['scheduled', 'awaiting_supplier', 'cancelled'],
+    'scheduled': ['in_progress', 'order_confirmed', 'cancelled'],
+    'processing': ['order_materials', 'in_progress', 'approvals', 'cancelled'],
+    'in_progress': ['complete', 'scheduled', 'processing', 'cancelled'],
     'complete': ['in_progress', 'invoiced'],
     'invoiced': ['complete']
   };
@@ -9105,6 +9153,15 @@ async function openJobDetail(jobId) {
   }
 }
 
+async function openMaterialsWorkshop(jobId) {
+  await openJobDetail(jobId);
+  showJobSubView('build');
+  setTimeout(function() {
+    var el = document.getElementById('materialsWorkshopTop');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 80);
+}
+
 // Open job detail by job_number reference (for #job/SWP-25019 deep links)
 async function openJobDetailByRef(ref) {
   // If ref looks like a UUID, open directly
@@ -10549,6 +10606,81 @@ function renderMoneyView(data) {
 
 // ── Build View ──
 
+function buildScopeToolUrl(job, mode) {
+  if (!job || job.type === 'miscellaneous' || job.type === 'general') return '';
+  var base = job.type === 'fencing'
+    ? 'https://marninms98-dotcom.github.io/fence-designer/'
+    : 'https://marninms98-dotcom.github.io/patio/';
+  var qs = '?jobId=' + encodeURIComponent(job.id || '');
+  if (mode) qs += '&mode=' + encodeURIComponent(mode);
+  return base + qs;
+}
+
+function isMaterialPO(po) {
+  var type = String(po && po.po_type || '').toLowerCase();
+  if (type) return type === 'material' || type === 'materials';
+  var notes = String(po && po.notes || '').toLowerCase();
+  if (notes.indexOf('labour') !== -1 || notes.indexOf('commission') !== -1 || notes.indexOf('subcontract') !== -1) return false;
+  return true;
+}
+
+function getMaterialPOMetrics(pos) {
+  var materialPOs = (pos || []).filter(isMaterialPO);
+  var sentStatuses = ['submitted', 'sent', 'quote_requested', 'authorised', 'approved', 'acked', 'confirmed', 'billed'];
+  var confirmedStatuses = ['authorised', 'approved', 'acked', 'confirmed', 'billed'];
+  var m = { total: materialPOs.length, draft: 0, sent: 0, confirmed: 0 };
+  materialPOs.forEach(function(po) {
+    var s = String(po.status || '').toLowerCase();
+    if (s === 'draft') m.draft++;
+    if (sentStatuses.indexOf(s) !== -1) m.sent++;
+    if (confirmedStatuses.indexOf(s) !== -1 || po.confirmed_delivery_date) m.confirmed++;
+  });
+  return m;
+}
+
+function renderMaterialsWorkshopHeader(job, data) {
+  if (!job || job.type === 'miscellaneous' || job.type === 'general') return '';
+  var pos = data.purchase_orders || [];
+  var metrics = getMaterialPOMetrics(pos);
+  var toolUrl = buildScopeToolUrl(job, 'materials');
+  var stageLabel = STATUS_LABELS[job.status] || String(job.status || '').replace(/_/g, ' ');
+  var moveDisabled = metrics.sent === 0 && metrics.confirmed === 0;
+  var stageAction = '';
+
+  if (job.status === 'order_materials') {
+    stageAction = '<button class="btn btn-sm btn-primary" ' +
+      (moveDisabled ? 'disabled style="opacity:0.45;cursor:not-allowed;" title="Send at least one material PO before moving to Awaiting Supplier"' : 'onclick="changeJobStatus(\'' + job.id + '\',\'awaiting_supplier\')"') +
+      '>Move to Awaiting Supplier</button>';
+  } else if (job.status === 'awaiting_supplier') {
+    stageAction = '<button class="btn btn-sm btn-primary" onclick="changeJobStatus(\'' + job.id + '\',\'order_confirmed\')">Mark Order Confirmed</button>';
+  } else if (job.status === 'awaiting_deposit' || job.status === 'approvals' || job.status === 'processing') {
+    stageAction = '<button class="btn btn-sm btn-primary" onclick="changeJobStatus(\'' + job.id + '\',\'order_materials\')">Move to Order Materials</button>';
+  }
+
+  var html = '<div id="materialsWorkshopTop" style="margin-bottom:14px;padding:12px;border:1px solid var(--sw-border);border-left:4px solid var(--sw-orange);border-radius:8px;background:var(--sw-card);">';
+  html += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">';
+  html += '<div style="min-width:220px;flex:1;">';
+  html += '<div style="font-size:10px;font-weight:700;color:var(--sw-orange);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Materials Ordering Workshop</div>';
+  html += '<div style="font-size:15px;font-weight:800;color:var(--sw-dark);">Make sense of the scope, then send the supplier orders</div>';
+  html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:4px;">Linked to ' + escapeHtml(job.job_number || job.id) + ' &middot; current stage: <strong>' + escapeHtml(stageLabel) + '</strong></div>';
+  html += '</div>';
+  html += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">';
+  html += '<span class="status-badge draft" style="font-size:11px;">' + metrics.draft + ' draft</span>';
+  html += '<span class="status-badge submitted" style="font-size:11px;">' + metrics.sent + ' sent</span>';
+  html += '<span class="status-badge authorised" style="font-size:11px;">' + metrics.confirmed + ' confirmed</span>';
+  if (toolUrl) html += '<a class="btn btn-sm btn-secondary" href="' + toolUrl + '" target="_blank" style="text-decoration:none;">Open Material Tool</a>';
+  html += '<button class="btn btn-sm btn-secondary" onclick="closeJobDetail();openPOModal(\'' + job.id + '\')">New PO</button>';
+  html += stageAction;
+  html += '</div></div>';
+  html += '<div style="margin-top:10px;font-size:12px;color:var(--sw-text-sec);display:flex;gap:14px;flex-wrap:wrap;">';
+  html += '<span>1. Review scope and QA output</span>';
+  html += '<span>2. Confirm supplier groups and quantities</span>';
+  html += '<span>3. Email/send material POs</span>';
+  html += '<span>4. Track supplier confirmation and delivery</span>';
+  html += '</div></div>';
+  return html;
+}
+
 function renderBuildView(data) {
   var j = data.job;
   var html = '';
@@ -10575,14 +10707,14 @@ function renderBuildView(data) {
     return;
   }
 
+  html += renderMaterialsWorkshopHeader(j, data);
+
   // Embedded scope tool preview (3D/2D render)
   if (j.type !== 'miscellaneous' && j.type !== 'general') {
-    var scopeToolUrl = j.type === 'fencing'
-      ? 'https://marninms98-dotcom.github.io/fence-designer/'
-      : 'https://marninms98-dotcom.github.io/patio/';
+    var scopeToolUrl = buildScopeToolUrl(j, null).split('?')[0];
     html += '<div style="margin-bottom:12px;">';
     html += '<div style="font-size:11px;font-weight:700;color:var(--sw-mid);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Scope Preview</div>';
-    html += '<div style="width:100%;height:460px;overflow:hidden;border:1px solid var(--sw-border);border-radius:4px;"><iframe src="' + scopeToolUrl + '?jobId=' + j.id + '&mode=embedded&noAuth=true" style="width:100%;height:500px;border:none;" loading="lazy"></iframe></div>';
+    html += '<div style="width:100%;height:460px;overflow:hidden;border:1px solid var(--sw-border);border-radius:4px;"><iframe src="' + scopeToolUrl + '?jobId=' + encodeURIComponent(j.id) + '&mode=embedded&noAuth=true" style="width:100%;height:500px;border:none;" loading="lazy"></iframe></div>';
     html += '</div>';
   }
 
@@ -11876,7 +12008,7 @@ async function openJobQuickView(jobId) {
 
     // Footer — context-aware "What's Next" action bar
     var footerHtml = '';
-    var action = getNextAction(j);
+    var action = getNextAction(j, data);
     if (action && action.stage) {
       footerHtml += '<div class="next-step-bar">';
       footerHtml += '<div class="next-step-label"><span class="next-step-stage">' + action.stage + '</span>';
@@ -11920,9 +12052,13 @@ function getNextStatuses(current, jobType) {
   }
   var transitions = {
     'quoted': ['accepted', 'cancelled'],
-    'accepted': ['approvals', 'processing'],
-    'approvals': ['processing'],
-    'processing': ['in_progress'],
+    'accepted': ['awaiting_deposit'],
+    'awaiting_deposit': ['approvals', 'order_materials'],
+    'approvals': ['order_materials'],
+    'order_materials': ['awaiting_supplier'],
+    'awaiting_supplier': ['order_confirmed'],
+    'order_confirmed': ['scheduled'],
+    'processing': ['order_materials', 'in_progress'],
     'scheduled': ['in_progress', 'cancelled'],
     'in_progress': ['complete', 'cancelled'],
     'complete': ['invoiced'],

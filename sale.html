@@ -183,10 +183,11 @@
             send_quote_followup_sms:       1,
             // Quote-nurture v3 — internal task approval handlers (atomic-claim
             // per memory feedback_atomic_claim_pattern). Approval fires no
-            // external mutation: just marks proposal status=approved + emits
-            // business_event. No SMS, no GHL call.
+            // customer SMS or GHL call. Call-task approval may mirror an
+            // internal CRM note through ops-api; it does not message clients.
             approve_scoper_call_task:      1,
             approve_quote_review_task:     1,
+            approve_booking_proposal:      1,
             // Per-scoper playbook MD upload — Marnin-only edit surface for
             // the per-rep playbooks the cadence_planner reads. Server-side
             // gate enforces marnin@secureworkswa.com.au + filename allowlist
@@ -709,6 +710,48 @@
       letter-spacing: 0.2px;
       line-height: 1.45;
     }
+    .lcard-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .stage-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 3px 7px;
+      border: 1px solid var(--rule-strong);
+      color: var(--text-sec);
+      background: rgba(242,239,235,0.03);
+      border-radius: 3px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      line-height: 1.2;
+      text-transform: uppercase;
+      max-width: 100%;
+    }
+    .stage-badge[data-tone="book"] {
+      color: var(--blue);
+      border-color: rgba(92,143,184,0.45);
+      background: rgba(92,143,184,0.08);
+    }
+    .stage-badge[data-tone="followup"] {
+      color: var(--green);
+      border-color: rgba(76,175,142,0.45);
+      background: rgba(76,175,142,0.08);
+    }
+    .stage-badge[data-tone="call"] {
+      color: var(--amber);
+      border-color: rgba(255,181,84,0.45);
+      background: rgba(255,181,84,0.08);
+    }
+    .stage-badge[data-tone="attention"] {
+      color: var(--orange);
+      border-color: rgba(241,90,41,0.5);
+      background: rgba(241,90,41,0.09);
+    }
     .lcard-row {
       display: flex;
       align-items: center;
@@ -739,13 +782,33 @@
     /* Card expanded actions (toggle via .open) */
     .lcard-actions {
       display: none;
-      gap: 8px;
+      gap: 10px;
       margin-top: 12px;
       padding-top: 10px;
       border-top: 1px solid var(--rule);
-      flex-wrap: wrap;
+      flex-direction: column;
     }
     .lcard.open .lcard-actions { display: flex; }
+    .action-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .action-group-label {
+      color: var(--text-muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+    .action-group-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .action-group[data-group="Call"] .action-group-label { color: var(--amber); }
+    .action-group[data-group="Message"] .action-group-label { color: var(--green); }
+    .action-group[data-group="Booking"] .action-group-label { color: var(--blue); }
     .lcard-actions a,
     .lcard-actions button {
       font-size: 10px;
@@ -773,6 +836,37 @@
       font-weight: 400;
       letter-spacing: 1px;
     }
+    .proposal-detail {
+      margin-top: 10px;
+      background: rgba(76,175,142,0.08);
+      border-left: 2px solid var(--green);
+      font-size: 11px;
+      line-height: 1.55;
+      color: var(--text-sec);
+    }
+    .proposal-detail summary {
+      cursor: pointer;
+      list-style: none;
+      padding: 10px 14px;
+      color: var(--text);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+    .proposal-detail summary::-webkit-details-marker { display: none; }
+    .proposal-detail summary::after {
+      content: '+';
+      float: right;
+      color: var(--green);
+      font-size: 13px;
+      line-height: 1;
+    }
+    .proposal-detail[open] summary {
+      border-bottom: 1px solid rgba(76,175,142,0.18);
+    }
+    .proposal-detail[open] summary::after { content: '-'; }
+    .proposal-detail-body { padding: 12px 14px; }
 
     /* ── Loader / empty / error states ── */
     .state-msg {
@@ -1116,6 +1210,83 @@ function jobTypeLabel(t) {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
+function stageLabel(stage) {
+  return String(stage || 'Unstaged').replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function stageTone(card, lane) {
+  var s = String((card && card.pipeline_stage) || '').toLowerCase();
+  if (/stale|aged|dormant|no\s*contact|untouched/.test(s)) return 'attention';
+  if (lane === 'book' || lane === 'followup' || lane === 'call') return lane;
+  return 'neutral';
+}
+
+function renderStageBadges(card, lane) {
+  var root = document.createElement('div');
+  root.className = 'lcard-badges';
+
+  function add(label, tone, title) {
+    if (!label) return;
+    var badge = document.createElement('span');
+    badge.className = 'stage-badge';
+    badge.dataset.tone = tone || 'neutral';
+    badge.textContent = label;
+    if (title) badge.title = title;
+    root.appendChild(badge);
+  }
+
+  var source = card.source === 'ghl' ? 'GHL' : 'Supabase';
+  add(source, card.source === 'ghl' ? 'book' : 'followup', source + ' source');
+  add('Stage: ' + stageLabel(card.pipeline_stage), stageTone(card, lane), 'Current ' + source + ' stage');
+  if (card.linked_job_status) {
+    add('Job: ' + stageLabel(card.linked_job_status), 'followup', 'Linked Supabase job status');
+  } else if (card.no_job_link) {
+    add('Memory off', 'attention', 'No linked Supabase job yet');
+  }
+
+  return root.childNodes.length ? root : null;
+}
+
+function groupActionButtons(actions, lane) {
+  var controls = Array.from(actions.children).filter(function (el) {
+    return el && (el.tagName === 'A' || el.tagName === 'BUTTON');
+  });
+  if (!controls.length) return;
+
+  var order = ['Call', 'Message', 'Booking', 'Record'];
+  var buckets = { Call: [], Message: [], Booking: [], Record: [] };
+
+  controls.forEach(function (control) {
+    var label = String(control.textContent || '').toLowerCase();
+    var group = 'Record';
+    if (/dial|call|phone/.test(label)) {
+      group = 'Call';
+    } else if (/book|stage|create job|review/.test(label)) {
+      group = 'Booking';
+    } else if (/send|sms|draft|reject|snooze/.test(label)) {
+      group = lane === 'book' ? 'Booking' : 'Message';
+    }
+    buckets[group].push(control);
+  });
+
+  actions.innerHTML = '';
+  order.forEach(function (groupName) {
+    if (!buckets[groupName].length) return;
+    var group = document.createElement('div');
+    group.className = 'action-group';
+    group.dataset.group = groupName;
+    var label = document.createElement('div');
+    label.className = 'action-group-label';
+    label.textContent = groupName;
+    var row = document.createElement('div');
+    row.className = 'action-group-controls';
+    buckets[groupName].forEach(function (control) { row.appendChild(control); });
+    group.appendChild(label);
+    group.appendChild(row);
+    actions.appendChild(group);
+  });
+}
+
 // ────────────────────────────────────────────────────────────
 // Lane assignment (v1: status-based, with age tiebreakers)
 //
@@ -1196,6 +1367,7 @@ function renderCard(card, lane) {
       '<div class="lcard-time"></div>' +
     '</div>' +
     '<div class="lcard-meta"></div>' +
+    '<div class="lcard-badges"></div>' +
     '<div class="lcard-row">' +
       '<div class="lcard-val"></div>' +
       '<div class="lcard-pill"></div>' +
@@ -1205,6 +1377,9 @@ function renderCard(card, lane) {
   $('.lcard-name', el).textContent = card.customer_name;
   $('.lcard-time', el).textContent = relTime(card.last_activity);
   $('.lcard-meta', el).textContent = meta.join(' · ');
+  var badges = renderStageBadges(card, lane);
+  var badgeSlot = $('.lcard-badges', el);
+  if (badges && badgeSlot) badgeSlot.replaceWith(badges);
   $('.lcard-val', el).textContent = val ? '$' + fmtMoney(val) : (card.next_suggested_action || '—');
   var pillEl = $('.lcard-pill', el);
   pillEl.textContent = pill.label;
@@ -1213,13 +1388,15 @@ function renderCard(card, lane) {
   // Action buttons. Wired actions go through ops-api proposal flow (server-gated);
   // stubs stay for paths with no live endpoint yet.
   var actions = $('.lcard-actions', el);
+  var primaryProposal = (card.pending_proposals && card.pending_proposals.length) ? card.pending_proposals[0] : null;
+  var primaryDispatchKind = primaryProposal ? COCKPIT_ALLOWED_ACTION_TYPES[primaryProposal.action_type] : null;
 
   // 1. DIAL — only for call lane, OS-handled tel: link, no automation.
-  if (lane === 'call' && card.phone) {
+  if (lane === 'call' && card.phone && primaryDispatchKind !== 'call' && primaryDispatchKind !== 'call_task') {
     var dial = document.createElement('a');
     dial.className = 'primary';
     dial.href = 'tel:' + String(card.phone).replace(/[^+0-9]/g, '');
-    dial.textContent = 'Dial';
+    dial.textContent = 'Call';
     actions.appendChild(dial);
   }
 
@@ -1233,9 +1410,9 @@ function renderCard(card, lane) {
   //                    "(not live)" label per Marnin's brief — never silently
   //                    fire a 404. (Backend tickets SECURE-SALE-EDIT-AND-SEND
   //                    + SECURE-SALE-SNOOZE-ENDPOINT.)
-  if (card.pending_proposals && card.pending_proposals.length) {
-    var prop = card.pending_proposals[0]; // newest first
-    var dispatchKind = COCKPIT_ALLOWED_ACTION_TYPES[prop.action_type]; // 'sms' | 'call'
+  if (primaryProposal) {
+    var prop = primaryProposal; // newest first
+    var dispatchKind = primaryDispatchKind; // 'sms' | 'call' | 'call_task' | 'review_task'
 
     if (dispatchKind === 'sms') {
       var sendBtn = document.createElement('button');
@@ -1249,14 +1426,25 @@ function renderCard(card, lane) {
       });
       actions.appendChild(sendBtn);
     } else if (dispatchKind === 'call_task') {
-      // propose_scoper_call_task — internal task creator. Approval marks the
-      // proposal as approved and emits a business_event. NO customer SMS or
-      // GHL call is dispatched. (per parent card secure-sale-quote-followup-loop reframe v3)
+      // propose_scoper_call_task — internal task creator. Approval records
+      // the manual call outcome and marks the proposal approved. NO customer
+      // SMS or GHL call is dispatched.
+      if (card.phone) {
+        var callTaskDial = document.createElement('a');
+        callTaskDial.className = 'primary';
+        callTaskDial.href = 'tel:' + String(card.phone).replace(/[^+0-9]/g, '');
+        callTaskDial.textContent = 'Call';
+        callTaskDial.title = 'Call the customer manually. Talk-track is in the expanded panel.';
+        callTaskDial.addEventListener('click', function (e) { e.stopPropagation(); });
+        actions.appendChild(callTaskDial);
+      } else {
+        actions.appendChild(makeStubBtn('Call (no phone)', null, 'No phone number on this quote follow-up task'));
+      }
       var callTaskBtn = document.createElement('button');
       callTaskBtn.className = 'primary';
       callTaskBtn.type = 'button';
-      callTaskBtn.textContent = 'Approve call task';
-      callTaskBtn.title = 'Marks the call task approved. No customer SMS or external mutation. Talk-track stays with the rep.';
+      callTaskBtn.textContent = 'Mark Called / Approve call task';
+      callTaskBtn.title = 'Records the manual call outcome, approves the task, and logs the note. No customer SMS.';
       callTaskBtn.addEventListener('click', function (e) {
         e.stopPropagation();
         approveScoperCallTask(prop, card, callTaskBtn);
@@ -1276,6 +1464,17 @@ function renderCard(card, lane) {
         openQuoteReviewTaskMenu(prop, card, reviewBtn);
       });
       actions.appendChild(reviewBtn);
+    } else if (dispatchKind === 'booking_approval') {
+      var bookingBtn = document.createElement('button');
+      bookingBtn.className = 'primary';
+      bookingBtn.type = 'button';
+      bookingBtn.textContent = 'Review booking';
+      bookingBtn.title = 'Dry-run first, then approve. Uses JARVIS calendar recheck and booking approval path.';
+      bookingBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        approveBookingProposal(prop, card, bookingBtn);
+      });
+      actions.appendChild(bookingBtn);
     } else if (dispatchKind === 'call') {
       // call_now is a CALL recommendation. Render a tel: link if we have a
       // phone, otherwise show why it can't be called.
@@ -1306,26 +1505,38 @@ function renderCard(card, lane) {
       actions.appendChild(editBtn);
     }
 
-    var rejectBtn = document.createElement('button');
-    rejectBtn.type = 'button';
-    rejectBtn.textContent = 'Reject';
-    rejectBtn.title = 'Dismiss this draft (asks for a reason)';
-    rejectBtn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      handleRejectWithReason(prop, card);
-    });
-    actions.appendChild(rejectBtn);
+    function appendSnoozeButton() {
+      // Snooze — wired to ops-api snooze_proposed_action (Slice 1, 2026-05-04).
+      var snoozeBtn = document.createElement('button');
+      snoozeBtn.type = 'button';
+      snoozeBtn.textContent = 'Snooze';
+      snoozeBtn.title = 'Pause this proposal until a chosen time';
+      snoozeBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        openSnoozeMenu(prop, card, snoozeBtn);
+      });
+      actions.appendChild(snoozeBtn);
+    }
 
-    // Snooze — wired to ops-api snooze_proposed_action (Slice 1, 2026-05-04).
-    var snoozeBtn = document.createElement('button');
-    snoozeBtn.type = 'button';
-    snoozeBtn.textContent = 'Snooze';
-    snoozeBtn.title = 'Pause this proposal until a chosen time';
-    snoozeBtn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      openSnoozeMenu(prop, card, snoozeBtn);
-    });
-    actions.appendChild(snoozeBtn);
+    function appendRejectButton() {
+      var rejectBtn = document.createElement('button');
+      rejectBtn.type = 'button';
+      rejectBtn.textContent = 'Reject';
+      rejectBtn.title = 'Dismiss this draft (asks for a reason)';
+      rejectBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        handleRejectWithReason(prop, card);
+      });
+      actions.appendChild(rejectBtn);
+    }
+
+    if (dispatchKind === 'call_task') {
+      appendSnoozeButton();
+      appendRejectButton();
+    } else {
+      appendRejectButton();
+      appendSnoozeButton();
+    }
 
     // Book Scope — wired (Slice 1). Only on booking-loop proposals.
     if (prop.metadata && prop.metadata.loop === 'booking_scope') {
@@ -1341,12 +1552,13 @@ function renderCard(card, lane) {
     }
   }
 
-  // 3. LOG NOTE — wired add_note. Only for cards with a Supabase job_id
-  //    (server requires jobId).
+  // 3. LOG INTERNAL NOTE — wired add_note. Only for cards with a Supabase
+  //    job_id (server requires jobId). Browser sends internal_only only.
   if (card.job_id) {
     var noteBtn = document.createElement('button');
     noteBtn.type = 'button';
-    noteBtn.textContent = 'Log note';
+    noteBtn.textContent = 'Log Internal Note';
+    noteBtn.title = 'Internal note. Mirrors to GHL CRM notes and never messages the customer.';
     noteBtn.addEventListener('click', function (e) {
       e.stopPropagation();
       openNoteDrawer(card);
@@ -1410,9 +1622,11 @@ function renderCard(card, lane) {
   }
 
   el.addEventListener('click', function (e) {
-    if (e.target.closest('a, button, textarea, input, select, label')) return;
+    if (e.target.closest('a, button, textarea, input, select, label, summary, .lcard-actions, .proposal-detail')) return;
     el.classList.toggle('open');
   });
+
+  groupActionButtons(actions, lane);
 
   return el;
 }
@@ -1420,9 +1634,15 @@ function renderCard(card, lane) {
 // Render the full JARVIS rationale + drafted body + brand-lint warnings + evidence
 // panel inline below the action row. Hidden until the card is expanded.
 function renderProposalDetailPanel(p, card) {
-  var wrap = document.createElement('div');
+  var wrap = document.createElement('details');
   wrap.className = 'proposal-detail';
-  wrap.style.cssText = 'margin-top:10px;padding:12px 14px;background:rgba(76,175,142,0.08);border-left:2px solid var(--green);font-size:11px;line-height:1.55;color:var(--text-sec);';
+  var summary = document.createElement('summary');
+  summary.textContent = 'Why JARVIS picked this';
+  wrap.appendChild(summary);
+  var bodyWrap = document.createElement('div');
+  bodyWrap.className = 'proposal-detail-body';
+  wrap.appendChild(bodyWrap);
+  var appendToPanel = function (node) { bodyWrap.appendChild(node); };
 
   // Recommendation type label — Booking Scope vs Sales Follow-up.
   var recType = recommendationTypeFor(p.action_type);
@@ -1430,7 +1650,7 @@ function renderProposalDetailPanel(p, card) {
     var recRow = document.createElement('div');
     recRow.style.cssText = 'margin-bottom:6px;color:var(--text);font-size:10px;letter-spacing:2px;text-transform:uppercase;font-weight:700;';
     recRow.textContent = 'JARVIS · ' + recType;
-    wrap.appendChild(recRow);
+    appendToPanel(recRow);
   }
 
   // Top meta row
@@ -1446,14 +1666,14 @@ function renderProposalDetailPanel(p, card) {
   var metaRow = document.createElement('div');
   metaRow.innerHTML = meta.join(' · ');
   metaRow.style.cssText = 'margin-bottom:8px;';
-  wrap.appendChild(metaRow);
+  appendToPanel(metaRow);
 
   // Why JARVIS recommends it
   if (payload.trigger_rule) {
     var why = document.createElement('div');
     why.style.cssText = 'margin-bottom:8px;';
     why.innerHTML = '<span style="color:var(--text-muted);font-size:10px;letter-spacing:1px;text-transform:uppercase;">Why now</span><br>' + escapeHtml(payload.trigger_rule);
-    wrap.appendChild(why);
+    appendToPanel(why);
   }
 
   // Source tag (smart_nudges, jarvis_loop, etc.)
@@ -1462,7 +1682,7 @@ function renderProposalDetailPanel(p, card) {
     var srcRow = document.createElement('div');
     srcRow.style.cssText = 'margin-bottom:8px;color:var(--text-muted);font-size:10px;letter-spacing:0.5px;';
     srcRow.textContent = 'source: ' + source + (p.metadata.nudge_id ? ' · ' + p.metadata.nudge_id.slice(0, 8) + '…' : '');
-    wrap.appendChild(srcRow);
+    appendToPanel(srcRow);
   }
 
   // ── Quote Follow-Up Loop additive blocks (parent card secure-sale-quote-followup-loop, B6) ──
@@ -1504,13 +1724,13 @@ function renderProposalDetailPanel(p, card) {
         var chipRow = document.createElement('div');
         chipRow.style.cssText = 'margin:6px 0 8px 0;padding:6px 10px;background:rgba(76,175,142,0.05);border-left:2px solid var(--green);font-size:10px;letter-spacing:0.3px;';
         chipRow.innerHTML = chips.join(' · ');
-        wrap.appendChild(chipRow);
+        appendToPanel(chipRow);
       }
       if (payload.risk_reversal_used) {
         var rr = document.createElement('div');
         rr.style.cssText = 'margin:6px 0 8px 0;padding:6px 10px;background:rgba(76,175,142,0.05);border-left:2px solid var(--green);font-size:10px;letter-spacing:0.3px;color:var(--text-sec);';
         rr.innerHTML = '<span style="color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;">Risk reversal</span><br><span style="color:var(--text);">' + escapeHtml(String(payload.risk_reversal_used)) + '</span>';
-        wrap.appendChild(rr);
+        appendToPanel(rr);
       }
       // Playbook traceability row — which file + which version + status produced this draft.
       if (payload.playbook_path) {
@@ -1523,7 +1743,7 @@ function renderProposalDetailPanel(p, card) {
         pbRow.innerHTML = 'playbook: <code style="color:var(--text-sec);">' + escapeHtml(String(payload.playbook_path)) + '</code>' +
                           (payload.playbook_version ? ' @ <code style="color:var(--text-sec);">' + escapeHtml(String(payload.playbook_version).slice(0, 8)) + '</code>' : '') +
                           '<span style="color:' + pbStatusColour + ';">' + pbStatusLabel + '</span>';
-        wrap.appendChild(pbRow);
+        appendToPanel(pbRow);
       }
     }
     // Confidence decay tooltip — append " · decayed" to the existing meta row when applied
@@ -1531,14 +1751,14 @@ function renderProposalDetailPanel(p, card) {
       var decayChip = document.createElement('div');
       decayChip.style.cssText = 'margin-top:-6px;margin-bottom:8px;color:var(--text-muted);font-size:9px;letter-spacing:0.6px;font-style:italic;';
       decayChip.textContent = 'confidence decayed for client-silence weeks · floor 0.20';
-      wrap.appendChild(decayChip);
+      appendToPanel(decayChip);
     }
     // why_not_silent block
     if (payload.why_not_silent) {
       var wns = document.createElement('div');
       wns.style.cssText = 'margin:8px 0;padding:8px 10px;background:rgba(76,175,142,0.08);border-left:2px solid var(--green);font-size:10px;line-height:1.5;color:var(--text-sec);';
       wns.innerHTML = '<span style="color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;">Why not silent</span><br><span style="color:var(--text);">' + escapeHtml(String(payload.why_not_silent)) + '</span>';
-      wrap.appendChild(wns);
+      appendToPanel(wns);
     }
     // evidence_refs[] block — compact list, max 5 visible
     var refs = Array.isArray(payload.evidence_refs) ? payload.evidence_refs : [];
@@ -1559,14 +1779,14 @@ function renderProposalDetailPanel(p, card) {
         line.textContent = '· ' + et + ' · ' + ch + (dir ? ' (' + dir + ')' : '') + ' · ' + when;
         ev.appendChild(line);
       });
-      wrap.appendChild(ev);
+      appendToPanel(ev);
     }
     // evidence_gap_reason — amber warning panel
     if (payload.evidence_gap_reason) {
       var gap = document.createElement('div');
       gap.style.cssText = 'margin:8px 0;padding:8px 10px;background:rgba(255,181,84,0.12);border-left:2px solid var(--amber);color:var(--amber);font-size:10px;letter-spacing:0.3px;line-height:1.5;';
       gap.innerHTML = '<strong>⚠ Evidence gap:</strong> ' + escapeHtml(String(payload.evidence_gap_reason));
-      wrap.appendChild(gap);
+      appendToPanel(gap);
     }
     // prior_touches_30d[] cadence strip
     var touches = Array.isArray(payload.prior_touches_30d) ? payload.prior_touches_30d : [];
@@ -1586,7 +1806,7 @@ function renderProposalDetailPanel(p, card) {
         return ch + dir + ' ' + when;
       }).join('  ·  ');
       cad.appendChild(strip);
-      wrap.appendChild(cad);
+      appendToPanel(cad);
     }
 
     // ── propose_scoper_call_task — talk_track[] + voicemail_script panel ──
@@ -1608,19 +1828,19 @@ function renderProposalDetailPanel(p, card) {
           ol.appendChild(li);
         });
         ttBox.appendChild(ol);
-        wrap.appendChild(ttBox);
+        appendToPanel(ttBox);
       }
       if (payload.voicemail_script) {
         var vm = document.createElement('div');
         vm.style.cssText = 'margin:8px 0;padding:8px 10px;background:rgba(92,143,184,0.05);border-left:2px solid var(--blue);font-size:10px;line-height:1.5;color:var(--text-sec);';
         vm.innerHTML = '<span style="color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;">Voicemail (≤20s)</span><br><span style="color:var(--text);">' + escapeHtml(String(payload.voicemail_script)) + '</span>';
-        wrap.appendChild(vm);
+        appendToPanel(vm);
       }
       if (payload.demoted_from_sms) {
         var dem = document.createElement('div');
         dem.style.cssText = 'margin:6px 0;padding:6px 10px;background:rgba(255,181,84,0.08);border-left:2px solid var(--amber);color:var(--amber);font-size:10px;letter-spacing:0.3px;';
         dem.textContent = 'SAFE MODE: SMS slot demoted to call task (Nithin playbook awaiting approval)';
-        wrap.appendChild(dem);
+        appendToPanel(dem);
       }
     }
 
@@ -1640,7 +1860,7 @@ function renderProposalDetailPanel(p, card) {
           row.innerHTML = '· <strong style="color:var(--text);">' + escapeHtml(String(opt.label || opt.key || '?')) + '</strong>';
           rvBox.appendChild(row);
         });
-        wrap.appendChild(rvBox);
+        appendToPanel(rvBox);
       }
       // ESCALATED badge — set by openProposalDetailPanel caller via a global
       // map populated from list_stale_quote_review_tasks on page load. The
@@ -1651,8 +1871,35 @@ function renderProposalDetailPanel(p, card) {
         var esc = document.createElement('div');
         esc.style.cssText = 'margin:8px 0;padding:8px 10px;background:rgba(231,76,60,0.12);border-left:2px solid #E74C3C;color:#E74C3C;font-size:10px;letter-spacing:0.5px;text-transform:uppercase;font-weight:700;';
         esc.textContent = 'ESCALATED — older than 3 days · auto-routed to Shaun (CC Marnin)';
-        wrap.appendChild(esc);
+        appendToPanel(esc);
       }
+    }
+
+    // ── propose_scoper_booking_approval — calendar/route decision packet ──
+    if (p.action_type === 'propose_scoper_booking_approval') {
+      var bookingBox = document.createElement('div');
+      bookingBox.style.cssText = 'margin:8px 0;padding:8px 10px;background:rgba(92,143,184,0.08);border-left:2px solid var(--blue);font-size:10px;line-height:1.5;color:var(--text-sec);';
+      var bHead = document.createElement('div');
+      bHead.style.cssText = 'color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:4px;';
+      bHead.textContent = 'Booking approval';
+      bookingBox.appendChild(bHead);
+      var picked = payload.picked_slot || payload.recommended_slot || payload.slot || {};
+      var lines = [];
+      if (payload.calendar) lines.push('Calendar: ' + payload.calendar);
+      if (payload.scoper || payload.assigned_scoper) lines.push('Scoper: ' + (payload.scoper || payload.assigned_scoper));
+      if (picked && (picked.human || picked.label || picked.start)) lines.push('Picked slot: ' + (picked.human || picked.label || picked.start));
+      if (payload.route_status) lines.push('Route status: ' + payload.route_status);
+      if (payload.route_summary) lines.push('Route: ' + payload.route_summary);
+      if (payload.address_status) lines.push('Address: ' + payload.address_status);
+      if (payload.slot_gaps) lines.push('Slot gaps: ' + String(payload.slot_gaps));
+      if (!lines.length && payload.booking_summary) lines.push(String(payload.booking_summary));
+      lines.slice(0, 8).forEach(function (line) {
+        var row = document.createElement('div');
+        row.style.cssText = 'margin:3px 0;color:var(--text);';
+        row.textContent = '· ' + line;
+        bookingBox.appendChild(row);
+      });
+      appendToPanel(bookingBox);
     }
   }
 
@@ -1665,15 +1912,17 @@ function renderProposalDetailPanel(p, card) {
     bodyLabel.textContent = 'Call task summary';
   } else if (p.action_type === 'propose_quote_review_task') {
     bodyLabel.textContent = 'D30 review summary';
+  } else if (p.action_type === 'propose_scoper_booking_approval') {
+    bodyLabel.textContent = 'Customer confirmation draft';
   } else {
     bodyLabel.textContent = 'Drafted message';
   }
-  wrap.appendChild(bodyLabel);
+  appendToPanel(bodyLabel);
 
   var body = document.createElement('div');
   body.style.cssText = 'margin-top:4px;color:var(--text);';
   body.textContent = p.drafted_message || '(no body drafted)';
-  wrap.appendChild(body);
+  appendToPanel(body);
 
   // Brand-lint warning if the draft contains em dash or old brand name
   var lint = lintDraft(p.drafted_message || '');
@@ -1681,7 +1930,7 @@ function renderProposalDetailPanel(p, card) {
     var warn = document.createElement('div');
     warn.style.cssText = 'margin-top:8px;padding:8px 10px;background:rgba(255,181,84,0.12);border-left:2px solid var(--amber);color:var(--amber);font-size:10px;letter-spacing:0.3px;';
     warn.innerHTML = '<strong>⚠ Draft lint:</strong> ' + lint.warnings.map(escapeHtml).join(' · ') + '<br><span style="color:var(--text-muted);">Edit before sending, or open SECURE-SALE-DRAFT-LINT to Terminal A.</span>';
-    wrap.appendChild(warn);
+    appendToPanel(warn);
   }
 
   return wrap;
@@ -1847,27 +2096,20 @@ function handleRejectWithReason(proposal, card) {
 
 function openNoteDrawer(card) {
   if (!card.job_id) { showActionToast('Need a Supabase job to log a note', 'error'); return; }
-  // Marnin 2026-05-04: Add Note now defaults to two-way sync to GHL
-  // ('client_visible'). Operator can toggle to 'internal_only' for
-  // staff-only notes that don't appear in the GHL contact view.
-  var text = window.prompt('Log a note on ' + card.customer_name + '\n\nDefault: client-visible (syncs to GHL).\nPrefix with "INTERNAL: " for staff-only.');
+  // Sales cockpit notes are staff-only. They are mirrored as GHL CRM notes
+  // so LeadConnector and Supabase stay aligned; no customer message is sent.
+  var text = window.prompt('Log an internal note on ' + card.customer_name + '\n\nStaff-only. Saved to Supabase evidence and mirrored as a GHL internal note. Clients will not see this.');
   if (!text || !text.trim()) return;
-  var trimmed = text.trim();
-  var visibility = 'client_visible';
-  if (/^internal\s*:\s*/i.test(trimmed)) {
-    visibility = 'internal_only';
-    trimmed = trimmed.replace(/^internal\s*:\s*/i, '');
-  }
+  var trimmed = text.trim().replace(/^internal\s*:\s*/i, '');
   var userId = (_profileCache && _profileCache.id) || null;
   opsApiPost(_lastCloud, 'add_note', {
     jobId: card.job_id,
     userId: userId,
     text: trimmed,
-    visibility: visibility,
-    sync_to_ghl: visibility === 'client_visible',
+    visibility: 'internal_only',
+    sync_to_ghl: true,
   }).then(function (res) {
-    var label = visibility === 'internal_only' ? 'Internal note logged ✓' :
-                (res && res.ghl_synced ? 'Note logged + synced to GHL ✓' : 'Note logged (GHL push pending)');
+    var label = res && res.ghl_synced ? 'Internal note logged + mirrored to GHL ✓' : 'Internal note logged ✓';
     showActionToast(label, 'sent');
   }).catch(function (err) {
     showActionToast('Note failed: ' + err.message, 'error');
@@ -1913,8 +2155,8 @@ function openProposalEditDrawer(proposal, card) {
 
 // ════════════════════════════════════════════════════════════
 // Quote-nurture v3 cadence task handlers
-//   - approveScoperCallTask: marks propose_scoper_call_task approved.
-//                            NO customer SMS. NO GHL call. Pure task.
+//   - approveScoperCallTask: marks propose_scoper_call_task called/approved.
+//                            NO customer SMS. NO GHL call automation.
 //   - openQuoteReviewTaskMenu: D30 review — refresh / archive / reactivate.
 //                              NO customer SMS. Optional state flip on archive.
 // Both routes hit ops-api atomic-claim handlers (parent card secure-sale-
@@ -1924,16 +2166,60 @@ function approveScoperCallTask(proposal, card, anchorBtn) {
   var pid = proposalId(proposal);
   if (!pid) { showActionToast('Proposal id missing', 'error'); return; }
   var contactDisplay = (card.customer_name || 'this customer') + (card.phone ? ' · ' + card.phone : '');
-  if (!confirm('Approve call task for ' + contactDisplay + '?\n\nThis marks the task approved for the rep to action manually.\nNO customer SMS will be sent.\nNO GHL mutation will fire.')) return;
-  if (anchorBtn) { anchorBtn.disabled = true; anchorBtn.textContent = 'Approving…'; }
+  if (!confirm('Mark this quote follow-up call as called for ' + contactDisplay + '?\n\nThis approves the call task and records the manual outcome.\nNO customer SMS will be sent.')) return;
+  if (anchorBtn) { anchorBtn.disabled = true; anchorBtn.textContent = 'Recording...'; }
   var userId = (_profileCache && _profileCache.id) || null;
-  opsApiPost(_lastCloud, 'approve_scoper_call_task', { action_id: pid, user_id: userId }).then(function () {
-    showActionToast('Call task approved ✓ — over to the rep', 'sent');
+  opsApiPost(_lastCloud, 'approve_scoper_call_task', { action_id: pid, user_id: userId, outcome: 'called' }).then(function () {
+    showActionToast('Call marked called ✓', 'sent');
     setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 700);
   }).catch(function (err) {
     showActionToast('Approve failed: ' + err.message, 'error');
-    if (anchorBtn) { anchorBtn.disabled = false; anchorBtn.textContent = 'Approve call task'; }
+    if (anchorBtn) { anchorBtn.disabled = false; anchorBtn.textContent = 'Mark Called / Approve call task'; }
     console.error('[sale] approve_scoper_call_task failed:', err);
+  });
+}
+
+function approveBookingProposal(proposal, card, anchorBtn) {
+  var pid = proposalId(proposal);
+  if (!pid) { showActionToast('Proposal id missing', 'error'); return; }
+  var customer = card.customer_name || 'this customer';
+  var payload = proposal.action_payload || {};
+  var picked = payload.picked_slot || payload.recommended_slot || payload.slot || {};
+  var pickedHuman = picked.human || picked.label || payload.picked_slot_human || payload.recommended_time || 'the proposed slot';
+  var userId = (_profileCache && _profileCache.id) || null;
+
+  showActionToast('Dry-running booking approval for ' + customer + '…', 'info');
+  if (anchorBtn) { anchorBtn.disabled = true; anchorBtn.textContent = 'Checking…'; }
+
+  opsApiPost(_lastCloud, 'approve_booking_proposal', {
+    proposal_id: pid,
+    approver_user_id: userId,
+    m2_drafted_message: proposal.drafted_message || '',
+    commit: false,
+  }).then(function (dry) {
+    var summary = 'Booking dry-run passed for ' + customer + '.\n\nProposed time: ' + pickedHuman +
+      '\n\nApproving for real will recheck calendar availability, write the scoper calendar event, advance booking state, and hand off the customer confirmation through the existing JARVIS booking path.';
+    var result = dry && dry.result;
+    if (result && result.reason) summary += '\n\nDry-run note: ' + result.reason;
+    if (!window.confirm(summary + '\n\nApprove this booking now?')) {
+      showActionToast('Booking approval cancelled after dry-run', 'info');
+      if (anchorBtn) { anchorBtn.disabled = false; anchorBtn.textContent = 'Review booking'; }
+      return null;
+    }
+    if (anchorBtn) anchorBtn.textContent = 'Approving…';
+    return opsApiPost(_lastCloud, 'approve_booking_proposal', {
+      proposal_id: pid,
+      approver_user_id: userId,
+      m2_drafted_message: proposal.drafted_message || '',
+      commit: true,
+    }).then(function () {
+      showActionToast('Booking approved ✓ calendar/customer handoff complete', 'sent');
+      setTimeout(function () { if (_lastCloud) loadAndRender(_lastCloud); }, 900);
+    });
+  }).catch(function (err) {
+    showActionToast('Booking approval failed: ' + err.message, 'error');
+    if (anchorBtn) { anchorBtn.disabled = false; anchorBtn.textContent = 'Review booking'; }
+    console.error('[sale] approve_booking_proposal failed:', err);
   });
 }
 
@@ -2611,6 +2897,12 @@ function normaliseOpp(opp, pipelineLabel) {
 
 // Lane for a unified card.
 function laneForCard(card) {
+  var props = card.pending_proposals || [];
+  for (var i = 0; i < props.length; i++) {
+    if (props[i] && props[i].action_type === 'propose_scoper_call_task') {
+      return 'call';
+    }
+  }
   if (card.loop === 'booking') {
     return laneForBookingStage(card.pipeline_stage);  // may return null (terminal)
   }
@@ -2728,7 +3020,8 @@ var COCKPIT_ALLOWED_ACTION_TYPES = {
   // Approval routes to ops-api approve_scoper_call_task / approve_quote_review_task.
   // Per parent card secure-sale-quote-followup-loop reframe v3.
   propose_scoper_call_task:  'call_task',
-  propose_quote_review_task: 'review_task'
+  propose_quote_review_task: 'review_task',
+  propose_scoper_booking_approval: 'booking_approval'
 };
 
 // Two recommendation buckets for the human label + grouping.
@@ -2747,6 +3040,9 @@ function recommendationTypeFor(actionType) {
   }
   if (actionType === 'propose_quote_review_task') {
     return 'Quote Follow-up · D30 review';
+  }
+  if (actionType === 'propose_scoper_booking_approval') {
+    return 'Booking Scope · Approval';
   }
   return null;
 }
