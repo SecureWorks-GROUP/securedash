@@ -6546,7 +6546,28 @@ function extractMaterialsFromScope(scope_json: any, pricing_json: any): any[] {
     }
   }
 
-  // If scope had nothing recognisable but pricing has items, fall back to pricing
+  // v3 scoping tool: items nested under pricing_json.runs[].items[]
+  if (items.length === 0 && pricing_json) {
+    const pricing = typeof pricing_json === 'string' ? JSON.parse(pricing_json) : pricing_json
+    if (Array.isArray(pricing.runs)) {
+      for (const run of pricing.runs) {
+        if (Array.isArray(run.items)) {
+          for (const li of run.items) {
+            if (li.description) {
+              items.push({
+                description: li.description,
+                quantity: li.quantity || 1,
+                unit: li.unit || 'ea',
+                unit_price: li.unit_price_ex || li.line_total_ex || 0,
+              })
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Legacy flat pricing_json.items[] fallback
   if (items.length === 0 && pricing_json) {
     const pricing = typeof pricing_json === 'string' ? JSON.parse(pricing_json) : pricing_json
     if (Array.isArray(pricing.items)) {
