@@ -4054,14 +4054,17 @@ function renderWeatherBanner() {
   }
 }
 
-function opsFetch(action, params) {
+function opsFetch(action, params, options) {
+  options = options || {};
   var url = _opsApiBase + '?action=' + action;
   if (params) {
     Object.keys(params).forEach(function(k) {
       if (params[k] != null) url += '&' + k + '=' + encodeURIComponent(params[k]);
     });
   }
-  return fetch(url, { cache: 'no-store', headers: { 'x-api-key': window.SW_API_KEY, 'Authorization': 'Bearer ' + window.SUPABASE_ANON_KEY } }).then(function(resp) {
+  var fetchOpts = { cache: 'no-store', headers: { 'x-api-key': window.SW_API_KEY, 'Authorization': 'Bearer ' + window.SUPABASE_ANON_KEY } };
+  if (options.signal) fetchOpts.signal = options.signal;
+  return fetch(url, fetchOpts).then(function(resp) {
     if (!resp.ok) {
       return resp.json().catch(function() { return {}; }).then(function(err) {
         throw new Error(err.error || 'API error: ' + resp.status);
@@ -9060,10 +9063,20 @@ function renderScopeSummary(scope_json, jobType, jobId) {
 
 var _currentJobData = null;
 var _currentJobId = null;
+var _jobDetailRequestSeq = 0;
+var _jobDetailAbort = null;
 
 // Open full-page job detail by UUID
 async function openJobDetail(jobId) {
+  // Race-condition guards
+  var requestSeq = ++_jobDetailRequestSeq;
+  if (_jobDetailAbort) _jobDetailAbort.abort();
+  _jobDetailAbort = new AbortController();
+  var signal = _jobDetailAbort.signal;
+
   _currentJobId = jobId;
+  _currentJobData = null;
+
   // Save scroll position for kanban return
   var jobsBody = document.getElementById('jobsBody');
   if (jobsBody) sessionStorage.setItem('sw_kanban_scroll', jobsBody.scrollTop || window.scrollY);
@@ -9080,7 +9093,16 @@ async function openJobDetail(jobId) {
   _clrIds.forEach(function(id) { var el = document.getElementById(id); if (el) el.innerHTML = ''; });
 
   try {
-    var data = await opsFetch('job_detail', { jobId: jobId });
+    var data = await opsFetch('job_detail', { jobId: jobId }, { signal: signal });
+
+    // Stale-response guards
+    if (requestSeq !== _jobDetailRequestSeq) return;
+    if (_currentJobId !== jobId) return;
+    if (data && data.job && data.job.id && String(data.job.id) !== String(jobId)) {
+      console.warn('[openJobDetail] API returned wrong job', { requested: jobId, received: data.job.id });
+      return;
+    }
+
     _currentJobData = data;
 
     // Update URL hash
@@ -9101,6 +9123,8 @@ async function openJobDetail(jobId) {
     // Render the active sub-view (default to overview)
     showJobSubView('overview');
   } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    if (requestSeq !== _jobDetailRequestSeq) return;
     document.getElementById('jdHealthTop').innerHTML = '<div style="color:var(--sw-red);padding:12px;">Error: ' + e.message + '</div>';
   }
 }
@@ -9126,6 +9150,7 @@ async function openJobDetailByRef(ref) {
 }
 
 function closeJobDetail(skipHistory) {
+  if (_jobDetailAbort) { _jobDetailAbort.abort(); _jobDetailAbort = null; }
   document.getElementById('jobDetailView').classList.remove('active');
   document.querySelector('.header').style.display = '';
   document.querySelector('.mobile-nav').style.display = '';
