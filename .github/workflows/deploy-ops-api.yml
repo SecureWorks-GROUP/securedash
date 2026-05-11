@@ -1,22 +1,13 @@
-name: Deploy ops-api Edge Function
+name: ops-api deploy disabled
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'supabase/functions/ops-api/**'
+  workflow_dispatch:
 
 jobs:
-  deploy:
+  disabled:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      - name: Deploy ops-api
-        run: supabase functions deploy ops-api --no-verify-jwt --project-ref kevgrhcjxspbxgovpmfl
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      - name: Canonical source guard
+        run: |
+          echo "Production ops-api deploys only from secureworks-site/supabase/functions/ops-api."
+          echo "This securedash workflow is intentionally disabled to prevent stale overwrites."
