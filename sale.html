@@ -524,9 +524,9 @@
       background: var(--orange);
     }
     .micro-card::after {
-      right: 8px;
-      top: 8px;
-      width: 18px;
+      right: 10px;
+      top: 9px;
+      width: 14px;
       height: 2px;
       background: var(--rule-strong);
     }
@@ -3405,13 +3405,14 @@ function actionStateForCard(card) {
 
 function boardToneForCard(card, columnKey) {
   var state = actionStateForCard(card);
-  if (state.key === 'action-blocked' || state.key === 'hygiene-conflict') return 'attention';
   if (state.key === 'no-action' || state.key === 'terminal') return 'none';
   var proposal = card && card.pending_proposals && card.pending_proposals[0];
   var actionType = proposal && proposal.action_type || '';
   if (/book|booking|scope_confirmation|scoper/.test(actionType)) return 'book';
   if (/call/.test(actionType)) return 'call';
   if (/quote|followup|review/.test(actionType)) return 'followup';
+  var stage = String(card && card.pipeline_stage || '').toLowerCase();
+  if (/call|contact|qualify/.test(stage)) return 'call';
   if (columnKey === 'stale') return 'attention';
   if (columnKey === 'qualified') return 'book';
   if (columnKey === 'quoted' || columnKey === 'followup') return 'followup';
