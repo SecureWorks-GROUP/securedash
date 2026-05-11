@@ -2626,6 +2626,7 @@ function renderMemoryFactsPanel(card) {
 function lintDraft(text) {
   var t = String(text || '');
   var warnings = [];
+  if (/^\s*(hi|hey)\s+\+?\d/i.test(t)) warnings.push('phone-number greeting detected (use "Hi there" or edit the client name)');
   if (/—/.test(t)) warnings.push('em dash detected (AI tell)');
   if (/secureworks\s*wa/i.test(t)) warnings.push('"SecureWorks WA" is the OLD brand name (use "SecureWorks Group")');
   return { warnings: warnings };
@@ -2729,6 +2730,11 @@ function proposalId(p) {
 
 function openProposalConfirm(proposal, card) {
   var msg = String(proposal.drafted_message || '(no body drafted)');
+  var lint = lintDraft(msg);
+  if (lint.warnings.some(function (w) { return /phone-number greeting/i.test(w); })) {
+    showActionToast('Blocked: edit this draft first. It greets a phone number instead of a person.', 'error');
+    return;
+  }
   var contactDisplay = card.customer_name + (card.phone ? ' · ' + card.phone : '');
   if (!confirm('Send this AI-drafted SMS?\n\nTo: ' + contactDisplay + '\n\n' + msg + '\n\nThis fires through the ops-api send_proposed_sms flow.')) return;
   var pid = proposalId(proposal);
@@ -2891,6 +2897,11 @@ function openProposalEditDrawer(proposal, card) {
   if (edited === null) return; // cancelled
   var trimmed = String(edited).trim();
   if (!trimmed) { showActionToast('Edited message is empty', 'error'); return; }
+  var lint = lintDraft(trimmed);
+  if (lint.warnings.some(function (w) { return /phone-number greeting/i.test(w); })) {
+    showActionToast('Blocked: edit the greeting first. Do not greet the customer by phone number.', 'error');
+    return;
+  }
   if (trimmed === current.trim()) {
     // No diff — route through plain Approve & Send
     return openProposalConfirm(proposal, card);
