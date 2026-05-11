@@ -1648,9 +1648,7 @@ function laneFor(job) {
   var ageH = hoursAgo(job.created_at);
   var sentH = hoursAgo(job.sent_at || job.quoted_at);
 
-  if (status === 'accepted' || status === 'deposit_pending' || status === 'invoice_pending') {
-    return 'followup';
-  }
+  if (/accepted|deposit|processing|scheduled|in_progress|complete|completed|final|invoice|invoiced|rectification|lost|cancelled|archived/.test(status)) return null;
   if (status === 'quoted') {
     // Fresh-warm: BOOK a sign-off call.
     if (sentH < 24 * 3) return 'book';
@@ -2885,7 +2883,7 @@ function openBookScopeDrawer(proposal, card) {
 // an unlinked GHL booking proposal. Scoping tool will discover the stub
 // and update it (no duplicate). Type inferred from pipeline_lane.
 function handleCreateJobForOpp(card, btn) {
-  if (!card.ghl_opportunity_id) {
+  if (!card.opportunity_id) {
     showActionToast('No GHL opportunity id on this card', 'error');
     return;
   }
@@ -2907,9 +2905,15 @@ function handleCreateJobForOpp(card, btn) {
   var firstProp = (card.pending_proposals && card.pending_proposals[0]) || {};
   opsApiPost(_lastCloud, 'create_job_for_opportunity', {
     action_id: firstProp.proposal_id || firstProp.id || null,
-    ghl_opportunity_id: card.ghl_opportunity_id,
+    ghl_opportunity_id: card.opportunity_id,
     ghl_contact_id: card.contact_id || null,
     pipeline_lane: lane,
+    contact_name: card.customer_name || null,
+    contact_phone: card.phone || null,
+    contact_email: card._raw && card._raw.contactEmail || null,
+    site_address: card._raw && card._raw.contactAddress || null,
+    site_suburb: card._raw && card._raw.contactCity || null,
+    monetary_value: card._raw && card._raw.monetaryValue || null,
     user_id: userId,
   }).then(function (res) {
     var msg = res && res.created ? 'Job created ✓ JARVIS memory now active' : 'Existing job linked ✓';
@@ -3708,7 +3712,9 @@ function pipelineForRep(profile) {
 function laneForBookingStage(stageName) {
   var s = String(stageName || '').toLowerCase();
   if (!s) return 'call';
-  if (/lost|dead|won|closed|complete/.test(s)) return null;  // terminal — exclude
+  if (/job\s*lost|lost|dead|won|closed|job\s*accepted|move\s*to\s*execution|final\s*payment|job\s*complete/.test(s)) return null;  // terminal — exclude
+  if (/following\s*up.*quote|quote\s*sent/.test(s)) return 'followup';
+  if (/scope\s*complete|quote\s*to\s*be\s*sent/.test(s)) return 'followup';
   if (/qualified|site\s*visit|discovery|appointment|booked|scheduled|measured/.test(s)) return 'book';
   // GHL "Stale Lead" stage = lead has gone cold but is salvageable. These
   // belong in FOLLOW UP (chase via SMS/email/call) — NOT CALL (cold call).
@@ -3720,6 +3726,8 @@ function laneForBookingStage(stageName) {
 
 function nextActionForBookingStage(stageName) {
   var s = String(stageName || '').toLowerCase();
+  if (/following\s*up.*quote|quote\s*sent/.test(s)) return 'Chase quote';
+  if (/scope\s*complete|quote\s*to\s*be\s*sent/.test(s)) return 'Review quote/send';
   if (/qualified/.test(s))   return 'Book site visit';
   if (/site\s*visit|discovery|appointment|booked/.test(s)) return 'Confirm appointment';
   if (/stale|aged|dormant/.test(s)) return 'Chase stale lead';
