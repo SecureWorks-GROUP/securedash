@@ -512,11 +512,24 @@
     .micro-card[data-tone="followup"] { border-left-color: var(--green); }
     .micro-card[data-tone="call"] { border-left-color: var(--amber); }
     .micro-card[data-tone="attention"] { border-left-color: var(--orange); }
-    .micro-card[data-state="action-ready"] { background: rgba(76,175,142,0.10); }
-    .micro-card[data-state="action-blocked"] { background: rgba(255,181,84,0.09); }
-    .micro-card[data-state="no-action"] { background: rgba(92,143,184,0.06); }
-    .micro-card[data-state="hygiene-conflict"] { background: rgba(241,90,41,0.08); }
-    .micro-card[data-state="terminal"] { opacity: 0.68; }
+    /* Board colour contract: background = whether work is required; rail = action type. */
+    .micro-card[data-state="action-ready"] {
+      background: rgba(241,90,41,0.15);
+      box-shadow: inset 0 0 0 1px rgba(241,90,41,0.24);
+    }
+    .micro-card[data-state="action-blocked"],
+    .micro-card[data-state="hygiene-conflict"] {
+      background: rgba(255,181,84,0.10);
+      box-shadow: inset 0 0 0 1px rgba(255,181,84,0.20);
+    }
+    .micro-card[data-state="no-action"] {
+      background: rgba(242,239,235,0.025);
+      opacity: 0.82;
+    }
+    .micro-card[data-state="terminal"] {
+      background: rgba(242,239,235,0.018);
+      opacity: 0.56;
+    }
     .micro-card-name {
       color: var(--text);
       font-size: 13px;
@@ -3379,6 +3392,18 @@ function actionStateForCard(card) {
   return { key: 'no-action', label: 'No action reason', reason: noActionReasonForCard(card) };
 }
 
+function boardToneForCard(card, columnKey) {
+  var proposal = card && card.pending_proposals && card.pending_proposals[0];
+  var actionType = proposal && proposal.action_type || '';
+  if (/book|booking|scope_confirmation|scoper/.test(actionType)) return 'book';
+  if (/call/.test(actionType)) return 'call';
+  if (/quote|followup|review/.test(actionType)) return 'followup';
+  if (columnKey === 'stale') return 'attention';
+  if (columnKey === 'qualified') return 'book';
+  if (columnKey === 'quoted' || columnKey === 'followup') return 'followup';
+  return 'call';
+}
+
 function noActionReasonForCard(card) {
   if (!card) return 'No card loaded.';
   if (!recentEnoughForActions(card)) return 'Outside the 45-day launch window.';
@@ -3612,7 +3637,7 @@ function renderBoardSection(allCards) {
         ],
         ghlUrl: ghlContactUrl(card),
         state: state.key,
-        tone: key === 'stale' ? 'attention' : (key === 'qualified' ? 'book' : (key === 'quoted' || key === 'followup' ? 'followup' : 'call')),
+        tone: boardToneForCard(card, key),
       }));
     });
     if (items.length > 18) {
