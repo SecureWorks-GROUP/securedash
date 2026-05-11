@@ -2104,13 +2104,13 @@ function proposalPreviewText(p) {
   if (!p) return '';
   var payload = p.action_payload || {};
   if (p.action_type === 'propose_scoper_call_task' || p.action_type === 'call_now') {
-    var parts = [];
-    if (payload.why_not_silent) parts.push(String(payload.why_not_silent));
+    var parts = ['Manual call recommended.'];
     if (Array.isArray(payload.talk_track) && payload.talk_track.length) {
-      parts.push(payload.talk_track.slice(0, 2).map(String).join(' · '));
+      parts = parts.concat(payload.talk_track.slice(0, 2).map(function (line) {
+        return String(line).replace(/^[-•]\s*/, '');
+      }));
     }
-    if (payload.voicemail_script) parts.push('Voicemail: ' + String(payload.voicemail_script));
-    if (parts.length) return parts.join(' ');
+    return parts.slice(0, 3).join(' ');
   }
   if (p.action_type === 'propose_scoper_booking_approval') {
     return payload.m2_drafted_message || (p.metadata && p.metadata.m2_drafted_message) || p.drafted_message || '';
