@@ -2731,8 +2731,8 @@ function proposalId(p) {
 function openProposalConfirm(proposal, card) {
   var msg = String(proposal.drafted_message || '(no body drafted)');
   var lint = lintDraft(msg);
-  if (lint.warnings.some(function (w) { return /phone-number greeting/i.test(w); })) {
-    showActionToast('Blocked: edit this draft first. It greets a phone number instead of a person.', 'error');
+  if (lint.warnings.length) {
+    showActionToast('Blocked: edit this draft first. ' + lint.warnings[0], 'error');
     return;
   }
   var contactDisplay = card.customer_name + (card.phone ? ' · ' + card.phone : '');
@@ -2898,8 +2898,8 @@ function openProposalEditDrawer(proposal, card) {
   var trimmed = String(edited).trim();
   if (!trimmed) { showActionToast('Edited message is empty', 'error'); return; }
   var lint = lintDraft(trimmed);
-  if (lint.warnings.some(function (w) { return /phone-number greeting/i.test(w); })) {
-    showActionToast('Blocked: edit the greeting first. Do not greet the customer by phone number.', 'error');
+  if (lint.warnings.length) {
+    showActionToast('Blocked: fix the draft lint first. ' + lint.warnings[0], 'error');
     return;
   }
   if (trimmed === current.trim()) {
