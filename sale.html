@@ -3175,7 +3175,7 @@ function renderCounts(buckets) {
 // SECURE-SALE-LIST-PROPOSED-LIMIT-BUMP. Detect when we received the cap
 // and surface that visibly so reps know they may have a hidden tail of
 // JARVIS proposals queued.
-var OPS_API_LIST_PROPOSED_LIMIT = 50;
+var OPS_API_LIST_PROPOSED_LIMIT = 200;
 
 function renderSourceMeta(allCards, proposals) {
   var el = document.getElementById('laneBarMeta');
@@ -3743,6 +3743,19 @@ function nextActionForJobStatus(status) {
   return 'Review status';
 }
 
+function isSalesTestCard(card) {
+  var text = [
+    card && card.customer_name,
+    card && card.pipeline_stage,
+    card && card.opportunity_id,
+    card && card.job_id,
+    card && card._raw && card._raw.job_number,
+    card && card._raw && card._raw.client_name,
+    card && card._raw && card._raw.name,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return /\bcap0\b|\bcanary\b|\bmarnin\s+test\b|\btest22\b|internal\s+test/.test(text);
+}
+
 // Normalise a Supabase job into the unified card shape.
 function normaliseJob(job) {
   return {
@@ -3793,6 +3806,24 @@ function normaliseOpp(opp, pipelineLabel) {
 
 // Lane for a unified card.
 function laneForCard(card) {
+  var proposals = card.pending_proposals || [];
+  if (proposals.some(function (p) { return p.action_type === 'call_now' || p.action_type === 'propose_scoper_call_task'; })) {
+    return 'call';
+  }
+  if (proposals.some(function (p) {
+    return p.action_type === 'book_scope'
+        || p.action_type === 'send_booking_sms'
+        || p.action_type === 'scope_confirmation'
+        || p.action_type === 'propose_scoper_booking_approval';
+  })) {
+    return 'book';
+  }
+  if (proposals.some(function (p) {
+    return p.action_type === 'send_quote_followup_sms'
+        || p.action_type === 'propose_quote_review_task';
+  })) {
+    return 'followup';
+  }
   if (card.loop === 'booking') {
     return laneForBookingStage(card.pipeline_stage);  // may return null (terminal)
   }
@@ -3801,12 +3832,33 @@ function laneForCard(card) {
   return laneFor(job);
 }
 
+function proposalAllowedOnCardLane(proposal, card) {
+  var lane = laneForCard(Object.assign({}, card, { pending_proposals: [] }));
+  var type = proposal && proposal.action_type;
+  if (!lane || !type) return false;
+  if (lane === 'book') {
+    return type === 'book_scope'
+        || type === 'send_booking_sms'
+        || type === 'scope_confirmation'
+        || type === 'propose_scoper_booking_approval';
+  }
+  if (lane === 'followup') {
+    return type === 'send_quote_followup_sms'
+        || type === 'propose_quote_review_task';
+  }
+  if (lane === 'call') {
+    return type === 'call_now' || type === 'propose_scoper_call_task';
+  }
+  return false;
+}
+
 // Bucketise unified cards into the three lanes. Drops cards whose lane=null
 // (terminal stages — won/lost/closed). Sort: oldest activity first within
 // each lane (most overdue at top); BOOK sorts freshest first (newest leads).
 function bucketizeUnified(cards) {
   var b = { book: [], followup: [], call: [] };
   cards.forEach(function (c) {
+    if (isSalesTestCard(c)) return;
     var lane = laneForCard(c);
     if (!lane) return;
     if (b[lane]) b[lane].push(c);
@@ -3850,6 +3902,33 @@ async function fetchGhlOpportunitiesWithUserJwt(cloud, pipeline) {
   try { data = await res.json(); } catch (_) {}
   if (!res.ok) throw new Error(data.error || ('GHL opportunities ' + pipeline + ' failed with HTTP ' + res.status));
   return data.opportunities || [];
+}
+
+async function maybeRunMemorySync(cloud) {
+  var shouldRun = false;
+  try {
+    var params = new URLSearchParams(window.location.search || '');
+    shouldRun = params.get('syncMemory') === '1';
+  } catch (_) {}
+  if (!shouldRun || window.__saleMemorySyncStarted) return;
+  window.__saleMemorySyncStarted = true;
+  try {
+    showActionToast('Syncing last 30 days of GHL memory into Supabase…', 'info');
+    var token = await getUserAccessToken(cloud);
+    if (!token) throw new Error('Not signed in');
+    var base = window.SUPABASE_URL || 'https://kevgrhcjxspbxgovpmfl.supabase.co';
+    var res = await fetch(base + '/functions/v1/ghl-proxy?action=sync_ghl&since_days=30', {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer ' + token },
+    });
+    var data = {};
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) throw new Error(data.error || ('sync_ghl HTTP ' + res.status));
+    showActionToast('Memory sync done · created ' + (data.created || 0) + ' · updated ' + (data.updated || 0), 'sent');
+    setTimeout(function () { loadAndRender(cloud); }, 800);
+  } catch (e) {
+    showActionToast('Memory sync failed: ' + (e && e.message ? e.message : String(e)), 'error');
+  }
 }
 
 // ────────────────────────────────────────────────────────────
@@ -3899,8 +3978,6 @@ var COCKPIT_ALLOWED_ACTION_TYPES = {
   book_scope:                'sms',
   send_booking_sms:          'sms',
   scope_confirmation:        'sms',
-  send_followup_sms:         'sms',
-  deposit_followup:          'sms',
   // Quote Follow-Up Loop SMS — Approve & Send goes through ops-api
   // send_quote_followup_sms (atomic-claim per parent card B4).
   send_quote_followup_sms:   'sms',
@@ -3925,11 +4002,11 @@ function recommendationTypeFor(actionType) {
   if (actionType === 'propose_scoper_booking_approval') {
     return 'Booking Scope · Scoper approval';
   }
-  if (actionType === 'send_followup_sms' || actionType === 'deposit_followup' || actionType === 'call_now') {
-    return 'Sales Follow-up';
-  }
   if (actionType === 'send_quote_followup_sms') {
     return 'Quote Follow-up';
+  }
+  if (actionType === 'call_now') {
+    return 'Sales Call';
   }
   if (actionType === 'propose_scoper_call_task') {
     return 'Quote Follow-up · Call task';
@@ -4088,6 +4165,7 @@ var _profileCache = null;
 
 function loadAndRender(cloud) {
   _lastCloud = cloud;
+  maybeRunMemorySync(cloud);
   var laneBookCards = document.getElementById('laneBookCards');
   if (laneBookCards) laneBookCards.innerHTML = '<div class="state-msg">Loading your queue…</div>';
 
@@ -4124,6 +4202,13 @@ function loadAndRender(cloud) {
         }
       });
 
+      // Supabase is the cockpit source of truth. If a GHL opportunity is
+      // already linked to a loaded Supabase job, hide the GHL mirror card so
+      // reps do not see two cards for the same real job.
+      var loadedJobIds = {};
+      followup.forEach(function (c) { if (c.job_id) loadedJobIds[c.job_id] = 1; });
+      booking = booking.filter(function (c) { return !c.job_id || !loadedJobIds[c.job_id]; });
+
       // Attach pending proposals to cards. Two passes to avoid duplicate
       // attachment when a contact has both a patio + fencing opp / job:
       //   1. Strict: by job_id.
@@ -4139,7 +4224,9 @@ function loadAndRender(cloud) {
       // Pass 1 — job_id (always wins).
       allCards.forEach(function (c) {
         if (c.job_id && proposals.byJobId[c.job_id]) {
-          c.pending_proposals = proposals.byJobId[c.job_id];
+          c.pending_proposals = proposals.byJobId[c.job_id].filter(function (p) {
+            return proposalAllowedOnCardLane(p, c);
+          });
           c.pending_proposals.forEach(function (p) { attachedProposalIds[p.proposal_id] = 1; });
         }
       });
@@ -4152,6 +4239,7 @@ function loadAndRender(cloud) {
         var matched = byContactId[c.contact_id].filter(function (p) {
           if (attachedProposalIds[p.proposal_id]) return false;
           var laneProp = (p.action_payload && p.action_payload.pipeline_lane) || null;
+          if (!proposalAllowedOnCardLane(p, c)) return false;
           // If proposal has no lane, accept it (legacy rows). If both have a
           // lane, they must match. If only the card has a lane, no match.
           if (!laneProp) return true;
