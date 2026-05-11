@@ -2300,32 +2300,118 @@ function renderProposalDetailPanel(p, card) {
     bookingHead.textContent = 'Booking approval';
     bookingBox.appendChild(bookingHead);
 
-    var picked = payload.jarvis_picked_slot || {};
-    var lines = [];
-    if (payload.calendar_target) lines.push('calendar: ' + String(payload.calendar_target));
-    if (picked.start_iso) lines.push('picked slot: ' + String(picked.start_iso));
-    if (payload.jarvis_presentation) lines.push('presentation: ' + String(payload.jarvis_presentation));
-    if (payload.route_reasoning && payload.route_reasoning.evidence_gap) {
-      lines.push('route status: ' + String(payload.route_reasoning.evidence_gap));
-    }
-    if (Array.isArray(picked.evidence_gaps) && picked.evidence_gaps.length) {
-      lines.push('slot gaps: ' + picked.evidence_gaps.map(String).join(', '));
-    }
-    if (lines.length) {
+    // Canon-first reads with legacy fallbacks. Canon write path stores:
+    //   action_payload.jarvis_picked_slot, .calendar_target, .scoper_first_name,
+    //   .jarvis_presentation, .route_reasoning, .ranked_slots, .m2_drafted_message,
+    //   .evidence_refs, .{day}_window_skipped (e.g. monday_window_skipped).
+    // Older shapes (.picked_slot, .calendar, .scoper, .route_status, .route_summary)
+    // are accepted as fallbacks.
+    var picked = payload.jarvis_picked_slot || payload.picked_slot || payload.recommended_slot || payload.slot || {};
+    var calendarTarget = payload.calendar_target || payload.calendar || null;
+    var scoperName = payload.scoper_first_name
+      || (p.metadata && p.metadata.scoper_first_name)
+      || payload.scoper
+      || payload.assigned_scoper
+      || null;
+    var pickedHuman = formatBookingSlotForDisplay(picked, payload.scoper_timezone || (p.metadata && p.metadata.scoper_timezone) || 'Australia/Perth');
+    var lane = payload.lane || (p.metadata && p.metadata.lane) || null;
+
+    var meta = [];
+    if (scoperName) meta.push('scoper: ' + String(scoperName));
+    if (calendarTarget) meta.push('calendar: ' + String(calendarTarget));
+    if (lane) meta.push('lane: ' + String(lane));
+    if (pickedHuman) meta.push('picked slot: ' + pickedHuman);
+    if (payload.jarvis_presentation) meta.push('presentation: ' + String(payload.jarvis_presentation));
+    if (meta.length) {
       var bookingMeta = document.createElement('div');
       bookingMeta.style.cssText = 'color:var(--text);';
-      bookingMeta.textContent = lines.join(' · ');
+      bookingMeta.textContent = meta.join(' · ');
       bookingBox.appendChild(bookingMeta);
     }
 
+    // Route reasoning block — surfaces address-level cluster math + evidence_gap.
+    var rr = payload.route_reasoning;
+    if (rr && typeof rr === 'object') {
+      var rrLines = [];
+      if (rr.customer_address) rrLines.push('customer: ' + String(rr.customer_address));
+      if (rr.scoper_home_suburb) rrLines.push('scoper home: ' + String(rr.scoper_home_suburb));
+      if (typeof rr.address_level_routes_available !== 'undefined') {
+        rrLines.push('address routes: ' + (rr.address_level_routes_available ? 'wired' : 'unavailable'));
+      }
+      if (rr.cluster_bonus_applied) rrLines.push('cluster bonus: ' + String(rr.cluster_bonus_applied));
+      if (rr.evidence_gap) rrLines.push('evidence gap: ' + String(rr.evidence_gap));
+      if (rrLines.length) {
+        var rrLabel = document.createElement('div');
+        rrLabel.style.cssText = 'margin-top:7px;color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;';
+        rrLabel.textContent = 'Route reasoning';
+        bookingBox.appendChild(rrLabel);
+        rrLines.forEach(function (line) {
+          var row = document.createElement('div');
+          row.style.cssText = 'color:var(--text);';
+          row.textContent = '· ' + line;
+          bookingBox.appendChild(row);
+        });
+      }
+    }
+
+    // Ranked slots — multi-option enumeration when JARVIS returned > 1 candidate.
+    var ranked = Array.isArray(payload.ranked_slots) ? payload.ranked_slots : [];
+    if (ranked.length > 1) {
+      var rankedLabel = document.createElement('div');
+      rankedLabel.style.cssText = 'margin-top:7px;color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;';
+      rankedLabel.textContent = 'Ranked slots (' + ranked.length + ')';
+      bookingBox.appendChild(rankedLabel);
+      ranked.slice(0, 3).forEach(function (slot, idx) {
+        var slotHuman = formatBookingSlotForDisplay(slot, payload.scoper_timezone || 'Australia/Perth');
+        var scoreStr = (typeof slot.score === 'number') ? slot.score.toFixed(2) : '?';
+        var row = document.createElement('div');
+        row.style.cssText = 'color:var(--text);';
+        row.textContent = (idx + 1) + '. ' + (slotHuman || (slot.start_iso || 'unknown slot')) + ' · score ' + scoreStr;
+        bookingBox.appendChild(row);
+      });
+    }
+
+    // Windows-skipped explanations — JARVIS's reasoning on customer windows
+    // that were considered but produced zero candidates.
+    var skippedKeys = Object.keys(payload || {}).filter(function (k) {
+      return /_window_skipped$/.test(k) && payload[k] && typeof payload[k] === 'object';
+    });
+    if (skippedKeys.length) {
+      var skipLabel = document.createElement('div');
+      skipLabel.style.cssText = 'margin-top:7px;color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;';
+      skipLabel.textContent = 'Windows skipped';
+      bookingBox.appendChild(skipLabel);
+      skippedKeys.forEach(function (key) {
+        var info = payload[key];
+        var dayName = key.replace(/_window_skipped$/, '');
+        var detail = info && (info.detail || info.reason || info.message)
+          ? String(info.detail || info.reason || info.message)
+          : 'no detail';
+        var row = document.createElement('div');
+        row.style.cssText = 'color:var(--text);';
+        row.textContent = '· ' + dayName + ': ' + detail;
+        bookingBox.appendChild(row);
+      });
+    }
+
+    // Slot-level evidence_gaps from the picked slot — e.g. routes_layer.
+    if (Array.isArray(picked.evidence_gaps) && picked.evidence_gaps.length) {
+      var gapsRow = document.createElement('div');
+      gapsRow.style.cssText = 'margin-top:7px;color:var(--amber);';
+      gapsRow.textContent = 'slot gaps: ' + picked.evidence_gaps.map(String).join(' · ');
+      bookingBox.appendChild(gapsRow);
+    }
+
+    // M2 SMS preview — what gets texted to the customer on commit=true.
     var m2 = payload.m2_drafted_message || (p.metadata && p.metadata.m2_drafted_message);
     if (m2) {
       var m2Box = document.createElement('div');
       m2Box.style.cssText = 'margin-top:7px;color:var(--text);';
-      m2Box.innerHTML = '<span style="color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;">Customer confirmation draft</span><br>' + escapeHtml(String(m2));
+      m2Box.innerHTML = '<span style="color:var(--text-muted);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;">Customer confirmation draft (M2 SMS)</span><br>' + escapeHtml(String(m2));
       bookingBox.appendChild(m2Box);
     }
 
+    // Evidence refs — what data JARVIS consulted.
     var bookingRefs = Array.isArray(payload.evidence_refs) ? payload.evidence_refs : [];
     if (bookingRefs.length) {
       var refLine = document.createElement('div');
@@ -2478,6 +2564,39 @@ function escapeHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Render a booking slot ({start_iso, end_iso?, human?, day?, date_iso?})
+// into "Tue 12 May at 08:00 Perth"-style text for the cockpit. Honours
+// the slot's own `.human` field when present (canon may pre-render);
+// falls back to building from start_iso + tz. Returns null when no
+// usable date material is present.
+function formatBookingSlotForDisplay(slot, tz) {
+  if (!slot || typeof slot !== 'object') return null;
+  if (slot.human && typeof slot.human === 'string') return slot.human;
+  var iso = slot.start_iso || slot.start || slot.date_iso || null;
+  if (!iso) return slot.label || null;
+  var d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  var timezone = tz || 'Australia/Perth';
+  try {
+    var dateLabel = d.toLocaleString('en-AU', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      timeZone: timezone,
+    });
+    var timeLabel = d.toLocaleString('en-AU', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: timezone,
+    });
+    var tzShort = timezone === 'Australia/Perth' ? 'Perth' : timezone;
+    return dateLabel + ' at ' + timeLabel + ' ' + tzShort;
+  } catch (e) {
+    return String(iso);
+  }
 }
 
 function makeStubBtn(label, handler, tooltipReason) {
@@ -2753,7 +2872,17 @@ function approveBookingProposal(proposal, card, anchorBtn) {
   var customer = card.customer_name || 'this customer';
   var payload = proposal.action_payload || {};
   var picked = payload.jarvis_picked_slot || payload.picked_slot || payload.recommended_slot || payload.slot || {};
-  var pickedHuman = picked.human || picked.label || picked.start_iso || picked.start || payload.picked_slot_human || payload.recommended_time || 'the proposed slot';
+  var scoperName = payload.scoper_first_name
+    || (proposal.metadata && proposal.metadata.scoper_first_name)
+    || payload.scoper
+    || payload.assigned_scoper
+    || 'the scoper';
+  var calendarTarget = payload.calendar_target || payload.calendar || '';
+  var pickedHuman = formatBookingSlotForDisplay(picked, payload.scoper_timezone || (proposal.metadata && proposal.metadata.scoper_timezone) || 'Australia/Perth')
+    || picked.human || picked.label || picked.start_iso || picked.start
+    || payload.picked_slot_human || payload.recommended_time
+    || 'the proposed slot';
+  var m2Preview = payload.m2_drafted_message || (proposal.metadata && proposal.metadata.m2_drafted_message) || proposal.drafted_message || '';
   var userId = (_profileCache && _profileCache.id) || null;
 
   showActionToast('Dry-running booking approval for ' + customer + '…', 'info');
@@ -2762,11 +2891,29 @@ function approveBookingProposal(proposal, card, anchorBtn) {
   opsApiPost(_lastCloud, 'approve_booking_proposal', {
     proposal_id: pid,
     approver_user_id: userId,
-    m2_drafted_message: payload.m2_drafted_message || proposal.drafted_message || '',
+    m2_drafted_message: m2Preview,
     commit: false,
   }).then(function (dry) {
-    var summary = 'Booking dry-run passed for ' + customer + '.\n\nProposed time: ' + pickedHuman +
-      '\n\nApproving for real will recheck calendar availability, write the scoper calendar event, advance booking state, and hand off the customer confirmation through the existing JARVIS booking path.';
+    var lines = ['Booking dry-run passed for ' + customer + '.'];
+    lines.push('');
+    lines.push('Scoper: ' + scoperName + (calendarTarget ? ' (' + calendarTarget + ')' : ''));
+    lines.push('Proposed time: ' + pickedHuman);
+    var rr = payload.route_reasoning;
+    if (rr && typeof rr === 'object') {
+      if (rr.cluster_bonus_applied) lines.push('Cluster bonus: ' + String(rr.cluster_bonus_applied));
+      if (rr.evidence_gap) lines.push('Route evidence gap: ' + String(rr.evidence_gap));
+    }
+    if (Array.isArray(picked.evidence_gaps) && picked.evidence_gaps.length) {
+      lines.push('Slot evidence gaps: ' + picked.evidence_gaps.map(String).join(', '));
+    }
+    if (m2Preview) {
+      lines.push('');
+      lines.push('Customer SMS (M2) preview:');
+      lines.push(m2Preview);
+    }
+    lines.push('');
+    lines.push('Approving for real will recheck calendar availability, write the scoper calendar event, advance booking state, and queue the customer confirmation SMS for a separate human approval.');
+    var summary = lines.join('\n');
     var result = dry && dry.result;
     if (result && result.reason) summary += '\n\nDry-run note: ' + result.reason;
     if (!window.confirm(summary + '\n\nApprove this booking now?')) {
