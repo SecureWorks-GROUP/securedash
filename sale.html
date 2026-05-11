@@ -1115,6 +1115,14 @@
       font-size: 11px;
       line-height: 1.45;
     }
+    .proposal-preview[data-tone="warn"] {
+      background: rgba(255,181,84,0.11);
+      border-left-color: var(--amber);
+    }
+    .proposal-preview[data-tone="call"] {
+      background: rgba(92,143,184,0.08);
+      border-left-color: var(--blue);
+    }
     .proposal-preview-label {
       color: var(--text-muted);
       font-size: 9px;
@@ -1716,12 +1724,39 @@ function laneFor(job) {
 function urgencyPill(job, lane) {
   var ageH = hoursAgo(job.created_at);
   var sentH = hoursAgo(job.sent_at || job.quoted_at);
-  if (lane === 'call' && ageH > 24 * 7) return { label: 'STALE', urgent: true };
-  if (lane === 'followup' && sentH > 24 * 10) return { label: 'STALE', urgent: true };
+  if (lane === 'call' && ageH > 24 * 7) return { label: 'CALL DUE', urgent: true };
+  if (lane === 'followup' && sentH > 24 * 10) return { label: 'OVERDUE', urgent: true };
   if (lane === 'followup' && sentH > 24 * 5) return { label: 'CHASE TODAY', urgent: true };
   if (lane === 'call' && ageH > 24 * 3) return { label: 'TODAY', urgent: true };
   if (lane === 'book' && ageH < 24) return { label: 'FRESH', urgent: false };
   return { label: relTime(job.updated_at || job.created_at), urgent: false };
+}
+
+function isPhoneLikeName(name) {
+  var s = String(name || '').trim();
+  var digits = s.replace(/\D/g, '');
+  return digits.length >= 7 && digits.length >= Math.max(7, Math.floor(s.length * 0.6));
+}
+
+function displayNameForCard(card) {
+  var rawName = String((card && card.customer_name) || '').trim();
+  if (rawName && !isPhoneLikeName(rawName)) return rawName;
+  var lane = String((card && card.pipeline_lane) || (card && card._raw && card._raw.type) || '').toLowerCase();
+  var trade = lane === 'patio' || lane === 'decking' ? 'patio' : lane === 'fencing' ? 'fencing' : 'sales';
+  return 'New ' + trade + ' lead';
+}
+
+function unsafeSmsGreeting(proposal, card) {
+  var text = String((proposal && proposal.drafted_message) || '').trim();
+  if (!text) return false;
+  var name = String((card && card.customer_name) || '').trim();
+  if (isPhoneLikeName(name)) return true;
+  return /^hi\s+[0-9]{3,}/i.test(text) || /^hey\s+[0-9]{3,}/i.test(text);
+}
+
+function contactHygieneIssue(card) {
+  if (isPhoneLikeName(card && card.customer_name)) return 'Contact name is missing. Edit the draft before sending so the customer does not receive a phone-number greeting.';
+  return null;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -1765,8 +1800,9 @@ function renderCard(card, lane) {
     '</div>' +
     '<div class="lcard-actions"></div>';
 
-  $('.lcard-name', el).textContent = card.customer_name;
+  $('.lcard-name', el).textContent = displayNameForCard(card);
   $('.lcard-time', el).textContent = relTime(card.last_activity);
+  if (isPhoneLikeName(card.customer_name) && card.phone) meta.unshift(card.phone);
   $('.lcard-meta', el).textContent = meta.join(' · ');
   var badges = renderStageBadges(card, lane);
   var badgeSlot = $('.lcard-badges', el);
@@ -1782,7 +1818,7 @@ function renderCard(card, lane) {
   var primaryProposal = (card.pending_proposals && card.pending_proposals.length) ? card.pending_proposals[0] : null;
   var primaryDispatchKind = primaryProposal ? COCKPIT_ALLOWED_ACTION_TYPES[primaryProposal.action_type] : null;
   if (primaryProposal) {
-    var preview = renderProposalPreview(primaryProposal);
+    var preview = renderProposalPreview(primaryProposal, card);
     if (preview) el.insertBefore(preview, actions);
   }
 
@@ -1813,10 +1849,16 @@ function renderCard(card, lane) {
       var sendBtn = document.createElement('button');
       sendBtn.className = 'primary';
       sendBtn.type = 'button';
-      sendBtn.textContent = 'Approve & Send';
+      var unsafeGreeting = unsafeSmsGreeting(prop, card);
+      sendBtn.textContent = unsafeGreeting ? 'Edit name first' : 'Approve & Send';
       sendBtn.title = 'AI-drafted ' + prop.action_type + ' — preview before send';
+      if (unsafeGreeting) {
+        sendBtn.disabled = true;
+        sendBtn.title = 'Blocked: the draft appears to greet a phone number. Use Edit & Send after fixing the customer greeting.';
+      }
       sendBtn.addEventListener('click', function (e) {
         e.stopPropagation();
+        if (unsafeGreeting) return;
         openProposalConfirm(prop, card);
       });
       actions.appendChild(sendBtn);
@@ -2033,10 +2075,14 @@ function previewLabelForProposal(p) {
 }
 
 function renderProposalPreview(p) {
-  var text = (p && p.drafted_message) || (p && p.action_payload && p.action_payload.m2_drafted_message) || '';
+  var payload = (p && p.action_payload) || {};
+  var card = arguments.length > 1 ? arguments[1] : null;
+  var text = proposalPreviewText(p);
   if (!text) return null;
   var box = document.createElement('div');
   box.className = 'proposal-preview';
+  if (p && (p.action_type === 'propose_scoper_call_task' || p.action_type === 'call_now')) box.dataset.tone = 'call';
+  if (unsafeSmsGreeting(p, card)) box.dataset.tone = 'warn';
   var label = document.createElement('div');
   label.className = 'proposal-preview-label';
   label.textContent = previewLabelForProposal(p);
@@ -2044,7 +2090,32 @@ function renderProposalPreview(p) {
   body.textContent = String(text).replace(/\s+/g, ' ').trim();
   box.appendChild(label);
   box.appendChild(body);
+  var hygiene = contactHygieneIssue(card);
+  if (hygiene && p && COCKPIT_ALLOWED_ACTION_TYPES[p.action_type] === 'sms') {
+    var warn = document.createElement('div');
+    warn.style.cssText = 'margin-top:6px;color:var(--amber);font-size:10px;line-height:1.4;';
+    warn.textContent = hygiene;
+    box.appendChild(warn);
+  }
   return box;
+}
+
+function proposalPreviewText(p) {
+  if (!p) return '';
+  var payload = p.action_payload || {};
+  if (p.action_type === 'propose_scoper_call_task' || p.action_type === 'call_now') {
+    var parts = [];
+    if (payload.why_not_silent) parts.push(String(payload.why_not_silent));
+    if (Array.isArray(payload.talk_track) && payload.talk_track.length) {
+      parts.push(payload.talk_track.slice(0, 2).map(String).join(' · '));
+    }
+    if (payload.voicemail_script) parts.push('Voicemail: ' + String(payload.voicemail_script));
+    if (parts.length) return parts.join(' ');
+  }
+  if (p.action_type === 'propose_scoper_booking_approval') {
+    return payload.m2_drafted_message || (p.metadata && p.metadata.m2_drafted_message) || p.drafted_message || '';
+  }
+  return p.drafted_message || payload.m2_drafted_message || '';
 }
 
 // Render the full JARVIS rationale + drafted body + brand-lint warnings + evidence
