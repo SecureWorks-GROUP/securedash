@@ -1115,13 +1115,21 @@
       font-size: 11px;
       line-height: 1.45;
     }
-    .proposal-preview[data-tone="warn"] {
-      background: rgba(255,181,84,0.11);
-      border-left-color: var(--amber);
-    }
-    .proposal-preview[data-tone="call"] {
+    .proposal-preview[data-tone="book"] {
       background: rgba(92,143,184,0.08);
       border-left-color: var(--blue);
+    }
+    .proposal-preview[data-tone="followup"] {
+      background: rgba(76,175,142,0.07);
+      border-left-color: var(--green);
+    }
+    .proposal-preview[data-tone="call"] {
+      background: rgba(255,181,84,0.08);
+      border-left-color: var(--amber);
+    }
+    .proposal-preview[data-tone="review"] {
+      background: rgba(255,181,84,0.08);
+      border-left-color: var(--amber);
     }
     .proposal-preview-label {
       color: var(--text-muted);
@@ -2074,6 +2082,22 @@ function previewLabelForProposal(p) {
   return 'Proposed text';
 }
 
+function proposalToneForAction(actionType) {
+  if (actionType === 'book_scope'
+      || actionType === 'send_booking_sms'
+      || actionType === 'scope_confirmation'
+      || actionType === 'propose_scoper_booking_approval') return 'book';
+  if (actionType === 'call_now' || actionType === 'propose_scoper_call_task') return 'call';
+  if (actionType === 'propose_quote_review_task') return 'review';
+  return 'followup';
+}
+
+function proposalPanelStyle(tone) {
+  if (tone === 'book') return 'background:rgba(92,143,184,0.08);border-left:2px solid var(--blue);';
+  if (tone === 'call' || tone === 'review') return 'background:rgba(255,181,84,0.08);border-left:2px solid var(--amber);';
+  return 'background:rgba(76,175,142,0.08);border-left:2px solid var(--green);';
+}
+
 function renderProposalPreview(p) {
   var payload = (p && p.action_payload) || {};
   var card = arguments.length > 1 ? arguments[1] : null;
@@ -2081,8 +2105,7 @@ function renderProposalPreview(p) {
   if (!text) return null;
   var box = document.createElement('div');
   box.className = 'proposal-preview';
-  if (p && (p.action_type === 'propose_scoper_call_task' || p.action_type === 'call_now')) box.dataset.tone = 'call';
-  if (unsafeSmsGreeting(p, card)) box.dataset.tone = 'warn';
+  box.dataset.tone = proposalToneForAction(p && p.action_type);
   var label = document.createElement('div');
   label.className = 'proposal-preview-label';
   label.textContent = previewLabelForProposal(p);
@@ -2123,7 +2146,7 @@ function proposalPreviewText(p) {
 function renderProposalDetailPanel(p, card) {
   var wrap = document.createElement('div');
   wrap.className = 'proposal-detail';
-  wrap.style.cssText = 'margin-top:10px;padding:12px 14px;background:rgba(76,175,142,0.08);border-left:2px solid var(--green);font-size:11px;line-height:1.55;color:var(--text-sec);';
+  wrap.style.cssText = 'margin-top:10px;padding:12px 14px;' + proposalPanelStyle(proposalToneForAction(p && p.action_type)) + 'font-size:11px;line-height:1.55;color:var(--text-sec);';
   var detailHead = document.createElement('div');
   detailHead.style.cssText = 'margin-bottom:8px;color:var(--text);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;';
   detailHead.textContent = 'Why JARVIS picked this';
