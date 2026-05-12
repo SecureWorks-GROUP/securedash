@@ -20,17 +20,17 @@
         content="connect-src 'self' https://kevgrhcjxspbxgovpmfl.supabase.co wss://kevgrhcjxspbxgovpmfl.supabase.co https://cdn.jsdelivr.net">
 
   <!-- ════════════════════════════════════════════════════════════
-       Stub-only safety lock — verbatim copy of sale-preview.html v9.
+       Live cockpit safety lock — derived from sale-preview.html v9.
        Codex stop-time tested through 9 iterations. Blocks every mutating
        verb (POST/PUT/PATCH/DELETE) on PostgREST, all /functions/v1/*,
        all storage writes, all realtime, and freezes window.fetch +
        XMLHttpRequest.prototype + navigator.sendBeacon so subsequent
-       scripts cannot replace them. Means clicking DIAL/BOOK/SEND on this
-       page CANNOT fire a real GHL/SMS/email/calendar/status mutation
-       even if a future bug tried.
+       scripts cannot replace them. Live sale.html permits only the explicit
+       cockpit approval paths below; broad direct GHL/SMS/calendar writes stay
+       blocked.
        ════════════════════════════════════════════════════════════ -->
   <script>
-    window.SW_PREVIEW_NO_WRITES = true;
+    window.SW_SALE_COCKPIT_GUARD = true;
     (function () {
       'use strict';
       try {
@@ -45,7 +45,7 @@
           };
           ls.setItem = function (key, value) {
             if (key === 'sw_offline_queue') {
-              console.warn('[sale] BLOCKED localStorage.setItem("sw_offline_queue") — stub-only page must not enqueue writes.');
+              console.warn('[sale] BLOCKED localStorage.setItem("sw_offline_queue") — sale cockpit must not enqueue offline writes.');
               return;
             }
             return origSet(key, value);
@@ -130,6 +130,17 @@
           if (act && GHL_PROXY_GET_ALLOW[act]) return { blocked: false };
           return { blocked: true, reason: 'ghl-proxy GET action "' + act + '" not in read-only allowlist' };
         }
+        if (path === '/functions/v1/ghl-proxy' && method === 'POST') {
+          var ghlPostAct = u.searchParams.get('action');
+          var GHL_PROXY_POST_ALLOW = {
+            // Auth/profile bootstrap only. Required by shared/cloud.js so the
+            // live cockpit knows whether the signed-in user is Marnin, Khairo,
+            // or Nithin. No customer comms, no stage moves, no calendar writes.
+            get_profile: 1
+          };
+          if (ghlPostAct && GHL_PROXY_POST_ALLOW[ghlPostAct]) return { blocked: false };
+          return { blocked: true, reason: 'ghl-proxy POST action "' + ghlPostAct + '" not in live sale allowlist' };
+        }
         // ── /functions/v1/ops-api — proposal-flow + note POST allowlist ──
         // Each POST action below is verified safe-by-construction by inspecting
         // secureworks-site/supabase/functions/ops-api/index.ts:
@@ -211,7 +222,7 @@
           return { blocked: true, reason: 'ops-api GET action "' + opsActGet + '" not in read-only allowlist' };
         }
         if (path.indexOf('/functions/v1/') === 0) {
-          return { blocked: true, reason: 'edge function ' + method + ' to ' + path + ' blocked (stub-only page)' };
+          return { blocked: true, reason: 'edge function ' + method + ' to ' + path + ' blocked by live sale allowlist' };
         }
 
         if (path.indexOf('/realtime/v1/') === 0) {
