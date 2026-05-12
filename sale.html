@@ -3639,7 +3639,7 @@ function ghlContactUrl(card) {
 
 function actionStateForCard(card) {
   if (!card) return { key: 'no-action', label: 'No action', reason: 'No card data loaded yet.' };
-  if (isTerminalSalesStage(card.pipeline_stage) || isTerminalJobStatus(card.linked_job_status || card.pipeline_stage)) {
+  if ((isTerminalSalesStage(card.pipeline_stage) || isTerminalJobStatus(card.linked_job_status || card.pipeline_stage)) && !cardHasDepositChase(card)) {
     return { key: 'terminal', label: 'Terminal', reason: 'Accepted/lost/complete or moved out of Sales. Not part of the daily action queue.' };
   }
   if (card.pending_proposals && card.pending_proposals.length) {
@@ -4121,6 +4121,18 @@ function isTerminalJobStatus(status) {
   return /accepted|deposit|processing|scheduled|in_progress|complete|completed|final|invoice|invoiced|rectification|lost|cancelled|archived/.test(s);
 }
 
+// Option B carve-out for B6: a job that is otherwise terminal (accepted /
+// deposit_pending) still belongs to Sales as long as JARVIS has authored a
+// deposit-chase proposal against it. Cap 1 governance puts the deposit chase
+// with the rep, not Ops. If/when the proposal goes away (deposit landed or
+// dismissed), the card naturally falls back to Terminal/Ops on the next pass.
+function cardHasDepositChase(card) {
+  if (!card || !card.pending_proposals) return false;
+  return card.pending_proposals.some(function (p) {
+    return p && p.action_type === 'deposit_followup';
+  });
+}
+
 function laneForBookingStage(stageName) {
   var s = String(stageName || '').toLowerCase();
   if (!s) return 'call';
@@ -4221,8 +4233,9 @@ function normaliseOpp(opp, pipelineLabel) {
 // Lane for a unified card.
 function laneForCard(card) {
   var proposals = card.pending_proposals || [];
-  if (card.linked_job_status && isTerminalJobStatus(card.linked_job_status)) return null;
-  if (card.loop === 'follow_up' && isTerminalJobStatus(card.pipeline_stage || (card._raw && card._raw.status))) return null;
+  var depositCarveOut = cardHasDepositChase(card);
+  if (card.linked_job_status && isTerminalJobStatus(card.linked_job_status) && !depositCarveOut) return null;
+  if (card.loop === 'follow_up' && isTerminalJobStatus(card.pipeline_stage || (card._raw && card._raw.status)) && !depositCarveOut) return null;
   if (proposals.some(function (p) { return p.action_type === 'call_now' || p.action_type === 'propose_scoper_call_task'; })) {
     return 'call';
   }
@@ -4236,7 +4249,8 @@ function laneForCard(card) {
   }
   if (proposals.some(function (p) {
     return p.action_type === 'send_quote_followup_sms'
-        || p.action_type === 'propose_quote_review_task';
+        || p.action_type === 'propose_quote_review_task'
+        || p.action_type === 'deposit_followup';
   })) {
     return 'followup';
   }
@@ -4273,12 +4287,13 @@ function proposalAllowedOnCardLane(proposal, card) {
   // Proposal rows are the action truth for the Actions page. Do not derive the
   // allowed lane only from the underlying CRM/job stage, because that hides
   // valid proposals such as "call this quoted client" on a quoted job.
-  if (card.linked_job_status && isTerminalJobStatus(card.linked_job_status)) return false;
-  if (card.loop === 'follow_up' && isTerminalJobStatus(card.pipeline_stage || (card._raw && card._raw.status))) return false;
+  var depositCarveOut = cardHasDepositChase(card);
+  if (card.linked_job_status && isTerminalJobStatus(card.linked_job_status) && !depositCarveOut) return false;
+  if (card.loop === 'follow_up' && isTerminalJobStatus(card.pipeline_stage || (card._raw && card._raw.status)) && !depositCarveOut) return false;
 
   if (type === 'call_now' || type === 'propose_scoper_call_task') return true;
 
-  if (type === 'send_quote_followup_sms' || type === 'propose_quote_review_task') {
+  if (type === 'send_quote_followup_sms' || type === 'propose_quote_review_task' || type === 'deposit_followup') {
     return card.loop === 'follow_up';
   }
 
