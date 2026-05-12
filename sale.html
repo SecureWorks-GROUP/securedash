@@ -3511,12 +3511,10 @@ function renderCounts(buckets) {
   document.getElementById('laneBarMeta').textContent = (b + f + c + h) + ' LEADS';
 }
 
-// ops-api/list_proposed_actions has a hard-coded .limit(50) at the source,
-// so the cockpit cannot see proposals 51+ until Terminal A ships ticket
-// SECURE-SALE-LIST-PROPOSED-LIMIT-BUMP. Detect when we received the cap
-// and surface that visibly so reps know they may have a hidden tail of
-// JARVIS proposals queued.
-var OPS_API_LIST_PROPOSED_LIMIT = 200;
+// ops-api/list_proposed_actions now supports a 1000-row cap. Detect when we
+// receive the cap and surface that visibly so reps know there may be a hidden
+// tail of JARVIS proposals queued.
+var OPS_API_LIST_PROPOSED_LIMIT = 1000;
 
 function renderSourceMeta(allCards, proposals) {
   var el = document.getElementById('laneBarMeta');
@@ -3551,7 +3549,7 @@ function renderSourceMeta(allCards, proposals) {
     // proposals queued beyond what the API returned this load.
     var warn = document.createElement('span');
     warn.style.cssText = 'margin-left:10px;color:var(--amber);font-size:9px;letter-spacing:1px;text-transform:uppercase;font-weight:700;';
-    warn.textContent = '⚠ at API limit · server returns max ' + OPS_API_LIST_PROPOSED_LIMIT + ' (SECURE-SALE-LIST-PROPOSED-LIMIT-BUMP)';
+    warn.textContent = 'at API limit · server returns max ' + OPS_API_LIST_PROPOSED_LIMIT;
     el.appendChild(warn);
   }
 }
@@ -4535,7 +4533,7 @@ function recommendationTypeFor(actionType) {
 
 async function fetchPendingProposals(cloud) {
   try {
-    var data = await opsApiGet(cloud, 'list_proposed_actions', { status: 'pending', limit: 500 });
+    var data = await opsApiGet(cloud, 'list_proposed_actions', { status: 'pending', limit: OPS_API_LIST_PROPOSED_LIMIT });
     var raw = (data && data.actions) || [];
     // Server-side filter is { status='pending', sent_at IS NULL }.
     // Client-side filter additionally excludes action_types the cockpit
