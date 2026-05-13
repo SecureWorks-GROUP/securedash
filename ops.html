@@ -6955,9 +6955,10 @@ function __renderedStagesFor(typeKey) {
       if (idx === -1) canonical.push(p); else canonical.splice(idx, 0, p);
     }
   });
-  // Drop draft (rendered in its own panel) and terminals (cancelled/archived) from the kanban.
+  // Drop draft (rendered in its own panel) and terminals (cancelled/lost) from the kanban.
+  // Archived is kept as the last column so ops can move jobs there.
   return canonical.filter(function (s) {
-    return s !== 'draft' && s !== 'cancelled' && s !== 'archived' && s !== 'lost';
+    return s !== 'draft' && s !== 'cancelled' && s !== 'lost';
   });
 }
 var FENCING_STAGES = __renderedStagesFor('fencing');
