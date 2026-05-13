@@ -2374,7 +2374,14 @@
         <button class="filter-chip" data-filter="today" onclick="setJobFilter('today')">Today</button>
         <button class="filter-chip" data-filter="thisWeek" onclick="setJobFilter('thisWeek')">This Week</button>
         <button class="filter-chip" data-filter="active" onclick="setJobFilter('active')">Active</button>
-        <button class="filter-chip" data-filter="complete" onclick="setJobFilter('complete')">Completed</button>
+        <button class="filter-chip" data-filter="history" onclick="setJobFilter('history')">History</button>
+      </div>
+      <!-- Date range controls for History filter -->
+      <div id="historyDateRange" style="display:none;margin-top:8px;gap:8px;align-items:center;flex-wrap:wrap;">
+        <label style="font-size:12px;color:var(--sw-text-sec);">From</label>
+        <input type="date" id="historyFrom" onchange="filterMyJobs()" style="padding:6px 8px;border:1px solid var(--sw-border);border-radius:6px;font-family:var(--sw-font);font-size:13px;" />
+        <label style="font-size:12px;color:var(--sw-text-sec);">To</label>
+        <input type="date" id="historyTo" onchange="filterMyJobs()" style="padding:6px 8px;border:1px solid var(--sw-border);border-radius:6px;font-family:var(--sw-font);font-size:13px;" />
       </div>
     </div>
     <div id="myJobsList">
@@ -2464,6 +2471,7 @@
         <div class="loading-screen"><div class="spinner"></div>Loading schedule...</div>
       </div>
     </div>
+
   </div>
 </div>
 
@@ -3644,6 +3652,22 @@
     document.querySelectorAll('.filter-chip').forEach(function(c) {
       c.classList.toggle('active', c.getAttribute('data-filter') === f);
     });
+    // Show/hide date range controls for history filter
+    var dateRange = document.getElementById('historyDateRange');
+    if (dateRange) {
+      dateRange.style.display = f === 'history' ? 'flex' : 'none';
+      if (f === 'history') {
+        var fromEl = document.getElementById('historyFrom');
+        var toEl = document.getElementById('historyTo');
+        if (fromEl && !fromEl.value) {
+          var d = new Date(); d.setDate(d.getDate() - 14);
+          fromEl.value = d.toISOString().slice(0, 10);
+        }
+        if (toEl && !toEl.value) {
+          toEl.value = new Date().toISOString().slice(0, 10);
+        }
+      }
+    }
     if (_lastJobData) renderMyJobs(_lastJobData);
   };
 
@@ -3669,7 +3693,19 @@
   function matchesFilter(a, filter) {
     if (filter === 'all') return true;
     if (filter === 'active') return a.status !== 'complete';
-    if (filter === 'complete') return a.status === 'complete';
+    if (filter === 'history') {
+      var today = new Date().toISOString().slice(0, 10);
+      var isPast = a.status === 'complete' || (a.scheduled_date && a.scheduled_date < today);
+      if (!isPast) return false;
+      // Apply date range
+      var fromVal = (document.getElementById('historyFrom') || {}).value || '';
+      var toVal = (document.getElementById('historyTo') || {}).value || '';
+      var d = a.scheduled_date || (a.completed_at || '').slice(0, 10);
+      if (!d) return true;
+      if (fromVal && d < fromVal) return false;
+      if (toVal && d > toVal) return false;
+      return true;
+    }
     // today/thisWeek are handled by section filtering in render
     return true;
   }
@@ -3722,8 +3758,48 @@
       { key: 'today', label: 'Today' },
       { key: 'thisWeek', label: 'This Week' },
       { key: 'upcoming', label: 'Upcoming' },
-      { key: 'recent', label: 'Recent' },
     ];
+
+    // History filter: pull from full cache instead of sections
+    if (_jobFilter === 'history') {
+      var histItems = (_cachedMyJobs || []).filter(function(a) {
+        return matchesSearch(a, query) && matchesFilter(a, _jobFilter);
+      });
+      // Sort by date descending
+      histItems.sort(function(a, b) {
+        return (b.scheduled_date || '').localeCompare(a.scheduled_date || '');
+      });
+      if (histItems.length > 0) {
+        html += '<div class="section-label">History (' + histItems.length + ')</div>';
+        histItems.forEach(function(a) {
+          var job = a.jobs || {};
+          var statusClass = 'status-' + (a.status || 'scheduled');
+          if (!job.id) return;
+          var type = job.type || 'patio';
+          html += '<div class="job-card" data-type="' + type + '" onclick="openJob(\'' + job.id + '\', \'' + a.id + '\')">';
+          html += '  <div class="job-card-top">';
+          html += '    <div>';
+          html += '      <div class="job-card-client">' + esc(job.client_name || 'Unknown') + '</div>';
+          html += '      <div class="job-card-address">' + esc(job.site_suburb || job.site_address || '');
+          if (job.job_number) html += ' <span style="color:var(--sw-mid);font-size:12px">' + esc(job.job_number) + '</span>';
+          html += '</div>';
+          html += '    </div>';
+          html += '    <span class="job-card-badge badge-' + type + '">' + type + '</span>';
+          html += '  </div>';
+          var scopeSummary = job.scope_summary || buildScopeSummary(job.scope_json, type);
+          html += '  <div style="font-size:12px;color:var(--sw-mid);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(scopeSummary) + '</div>';
+          html += '  <div class="job-card-meta">';
+          html += '    <span>' + formatDate(a.scheduled_date) + '</span>';
+          html += '    <span class="status-pill ' + statusClass + '">' + (a.status || 'scheduled').replace(/_/g, ' ') + '</span>';
+          html += '  </div>';
+          html += '</div>';
+        });
+      } else {
+        html += '<div style="text-align:center;padding:32px;color:var(--sw-text-sec);font-size:14px;">No past jobs found</div>';
+      }
+      container.innerHTML = html;
+      return;
+    }
 
     var hasAny = false;
     sections.forEach(function(sec) {
