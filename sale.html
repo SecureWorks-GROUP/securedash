@@ -4498,6 +4498,14 @@ var COCKPIT_ALLOWED_ACTION_TYPES = {
   // Quote Follow-Up Loop SMS — Approve & Send goes through ops-api
   // send_quote_followup_sms (atomic-claim per parent card B4).
   send_quote_followup_sms:   'sms',
+  // Compat alias for legacy sales-followup-loop emit. The validator's
+  // server-side allowlist (validate-proposal.ts:COCKPIT_ACTION_TYPES)
+  // accepts send_followup_sms; the cockpit was missing it, so existing
+  // legacy rows on quoted-status jobs were silently dropped (S1 cohort
+  // had 69 of these). Render them as Quote Follow-up SMS until the
+  // legacy emitter is retired in RC-H and the cleanup sweep runs behind
+  // `approve quote proposal cleanup`.
+  send_followup_sms:         'sms',
   // Call recommendation only — renders a tel: link. NEVER sends an SMS.
   call_now:                  'call',
   // Quote-nurture v3 — internal task creators (no customer-facing send).
@@ -4529,7 +4537,9 @@ function recommendationTypeFor(actionType) {
   if (actionType === 'propose_scoper_booking_approval') {
     return 'Booking Scope · Scoper approval';
   }
-  if (actionType === 'send_quote_followup_sms') {
+  if (actionType === 'send_quote_followup_sms' || actionType === 'send_followup_sms') {
+    // send_followup_sms is the legacy sales-followup-loop emit; rendered as
+    // Quote Follow-up until the legacy emitter is retired (RC-H).
     return 'Quote Follow-up';
   }
   if (actionType === 'call_now') {
