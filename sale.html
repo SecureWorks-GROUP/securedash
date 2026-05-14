@@ -1392,6 +1392,33 @@
     @media (max-width: 720px) {
       .m-perf-rail { display: flex; justify-content: space-around; }
     }
+    /* Sparse-name overlay on a card's lane pill. Stripe pattern keeps the
+       pill readable while flagging the data-quality gap. */
+    .lcard-pill.needs-name {
+      color: var(--text-sec, var(--muted));
+      border-color: var(--text-sec, var(--muted));
+      background-image: repeating-linear-gradient(
+        45deg, transparent 0, transparent 4px,
+        rgba(76,106,124,0.06) 4px, rgba(76,106,124,0.06) 6px
+      );
+    }
+    /* Duplicate-notice + sibling-expansion + backend-rot warning. */
+    .lcard-dup-notice {
+      color: var(--muted); font-size: 10px; margin-top: 4px;
+      background: none; border: none; padding: 0; text-align: left;
+      cursor: pointer; text-decoration: underline;
+    }
+    .lcard-dup-siblings { margin-top: 4px; font-size: 11px; color: var(--text-sec, var(--muted)); }
+    .lcard-dup-siblings-title { color: var(--muted); margin-bottom: 2px; }
+    .lcard-dup-siblings-list { list-style: none; padding: 0; margin: 0; }
+    .lcard-dup-siblings-list li {
+      padding: 2px 0; border-bottom: 1px solid var(--border, rgba(0,0,0,0.08));
+      font-variant-numeric: tabular-nums;
+    }
+    .lcard-dup-warning {
+      color: var(--accent, #F15A29);
+      font-size: 10px; margin-top: 2px; font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -1814,6 +1841,30 @@ function actionTypeRank(actionType) {
   return 10;
 }
 
+// Sparse-card detection — true when the card has no displayable client identity.
+// Phone-shaped strings count as missing because reps cannot recognise a
+// customer from "+61 4xx xxx xxx" alone. Used by tagSparseCards below; the
+// renderCard overlay surfaces the NEEDS-NAME signal in the work lane rather
+// than silently hiding the card.
+function cardIsSparseForActions(card) {
+  if (!card) return true;
+  var name = String((card && card.customer_name) || (card && card.client_name) || '').trim();
+  if (!name) return true;
+  if (name === '—' || name === '-') return true;
+  if (isPhoneLikeName(name)) return true;
+  if (/^(unknown|n\/?a|no name|new lead)$/i.test(name)) return true;
+  return false;
+}
+
+// Pre-pass during dedupe build. Tags sparse cards with sparse_reason; does
+// NOT move them out of their work lane.
+function tagSparseCards(items) {
+  (items || []).forEach(function (card) {
+    if (cardIsSparseForActions(card)) card.sparse_reason = 'NEEDS NAME';
+  });
+  return items;
+}
+
 function sortPendingProposals(card) {
   if (!card || !card.pending_proposals || card.pending_proposals.length < 2) return;
   card.pending_proposals.sort(function (a, b) {
@@ -1885,16 +1936,48 @@ function renderCard(card, lane) {
   var badgeSlot = $('.lcard-badges', el);
   if (badges && badgeSlot) badgeSlot.replaceWith(badges);
   if (card.duplicate_action_count) {
-    var dupNotice = document.createElement('div');
-    dupNotice.className = 'lcard-meta';
-    dupNotice.style.cssText = 'color:var(--muted);font-size:10px;margin-top:4px;';
-    dupNotice.textContent = card.duplicate_action_count + ' similar action' + (card.duplicate_action_count === 1 ? '' : 's') + ' hidden from Actions. Open Board/Hygiene for full ledger.';
+    var dupNotice = document.createElement('button');
+    dupNotice.type = 'button';
+    dupNotice.className = 'lcard-meta lcard-dup-notice';
+    dupNotice.textContent = card.duplicate_action_count + ' similar action' + (card.duplicate_action_count === 1 ? '' : 's') + ' hidden — tap to view';
+    var siblingsList = document.createElement('div');
+    siblingsList.className = 'lcard-dup-siblings';
+    siblingsList.style.display = 'none';
+    var sibJobNumbers = (card.duplicate_action_job_numbers || []).filter(Boolean);
+    if (sibJobNumbers.length) {
+      siblingsList.innerHTML = '<div class="lcard-dup-siblings-title">Collapsed siblings on this client / suburb:</div>' +
+        '<ul class="lcard-dup-siblings-list">' +
+        sibJobNumbers.map(function (jn) { return '<li>' + String(jn).replace(/[<>&]/g, function (c) { return c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'; }) + '</li>'; }).join('') +
+        '</ul>';
+    } else {
+      siblingsList.innerHTML = '<div class="lcard-dup-siblings-title">Collapsed siblings present but no job_numbers captured.</div>';
+    }
+    dupNotice.addEventListener('click', function (e) {
+      e.stopPropagation();
+      siblingsList.style.display = siblingsList.style.display === 'none' ? 'block' : 'none';
+    });
     el.insertBefore(dupNotice, $('.lcard-row', el));
+    el.insertBefore(siblingsList, $('.lcard-row', el));
+    // Backend-rot warning when count exceeds a normal cluster size. PR #36's
+    // per (job_id, action_type) dedup caps legitimate clusters at 1-2 dupes.
+    // Anything above is likely accumulation from a loop time-window slip.
+    if (card.duplicate_action_count > 2) {
+      var dupWarning = document.createElement('div');
+      dupWarning.className = 'lcard-dup-warning';
+      dupWarning.textContent = '⚠ Likely backend duplicate accumulation — do not approve until cleanup runs.';
+      el.insertBefore(dupWarning, $('.lcard-row', el));
+    }
   }
   $('.lcard-val', el).textContent = val ? '$' + fmtMoney(val) : (card.next_suggested_action || '—');
   var pillEl = $('.lcard-pill', el);
   pillEl.textContent = pill.label;
   if (pill.urgent) pillEl.classList.add('urgent');
+  // Sparse-name overlay — card STAYS in its work lane; the appended marker
+  // makes the data-quality gap visible inline rather than hiding the card.
+  if (card.sparse_reason) {
+    pillEl.textContent = pillEl.textContent + ' · ' + card.sparse_reason;
+    pillEl.classList.add('needs-name');
+  }
 
   // Action buttons. Wired actions go through ops-api proposal flow (server-gated);
   // stubs stay for paths with no live endpoint yet.
@@ -4460,7 +4543,7 @@ function bucketizeUnified(cards) {
     if (b[lane]) b[lane].push(c);
   });
   Object.keys(b).forEach(function (lane) {
-    b[lane] = collapseDuplicateActionCards(b[lane], lane);
+    b[lane] = collapseDuplicateActionCards(tagSparseCards(b[lane]), lane);
   });
   function age(c) {
     var t = c.last_activity || (c._raw && (c._raw.updated_at || c._raw.created_at));
