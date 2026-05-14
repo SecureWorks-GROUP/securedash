@@ -5027,6 +5027,41 @@ function hydrateJobFactsInBackground(cloud, seq, booking, followup, proposals, a
   });
 }
 
+function attachPendingProposalsToCards(booking, followup, proposals) {
+  var byContactId = (proposals && proposals.byContactId) || {};
+  var attachedProposalIds = {};
+  var allCards = [].concat(booking || [], followup || []);
+
+  // Pass 1 — job_id (always wins).
+  allCards.forEach(function (c) {
+    if (c.job_id && proposals && proposals.byJobId && proposals.byJobId[c.job_id]) {
+      c.pending_proposals = proposals.byJobId[c.job_id].filter(function (p) {
+        return proposalAllowedOnCardLane(p, c);
+      });
+      c.pending_proposals.forEach(function (p) { attachedProposalIds[p.proposal_id] = 1; });
+    }
+  });
+
+  // Pass 2 — contact_id + lane match, only for proposals not yet attached.
+  allCards.forEach(function (c) {
+    if (c.pending_proposals && c.pending_proposals.length) return;
+    if (!c.contact_id || !byContactId[c.contact_id]) return;
+    var laneCard = c.pipeline_lane || null;
+    var matched = byContactId[c.contact_id].filter(function (p) {
+      if (attachedProposalIds[p.proposal_id]) return false;
+      var laneProp = (p.action_payload && p.action_payload.pipeline_lane) || null;
+      if (!proposalAllowedOnCardLane(p, c)) return false;
+      if (!laneProp) return true;
+      if (!laneCard) return false;
+      return laneProp === laneCard;
+    });
+    if (matched.length) {
+      c.pending_proposals = matched;
+      matched.forEach(function (p) { attachedProposalIds[p.proposal_id] = 1; });
+    }
+  });
+}
+
 function loadAndRender(cloud) {
   var seq = ++_loadSeq;
   _lastCloud = cloud;
@@ -5042,24 +5077,36 @@ function loadAndRender(cloud) {
   // can render on the next paint. Soft-fails if the endpoint isn't deployed.
   loadStaleQuoteReviewTasks(cloud);
 
+  var bookingPromise = fetchBookingCards(cloud, pipelines);
+
   Promise.all([
-    fetchBookingCards(cloud, pipelines),
     fetchFollowUpCards(cloud, profile),
     fetchPendingProposals(cloud),
     fetchApprovedBookingArtifacts(cloud),
   ]).then(function (results) {
     if (seq !== _loadSeq) return Promise.reject({ staleLoad: true });
-    var booking = results[0];
-    var followup = results[1];
-    var proposals = results[2];
-    var approvedBooking = results[3] || [];
+    var booking = [];
+    var followup = results[0];
+    var proposals = results[1];
+    var approvedBooking = results[2] || [];
 
-    // Resolve GHL opportunity → Supabase job linkage in one parallel call,
-    // then enrich booking cards with linked job_id (if any).
-    var oppIds = booking.map(function (c) { return c.opportunity_id; }).filter(Boolean);
-    return fetchOpportunityJobLinks(cloud, oppIds).then(function (links) {
+    attachPendingProposalsToCards(booking, followup, proposals);
+    renderLoadedSales(seq, booking, followup, proposals, approvedBooking);
+    setTimeout(function () {
+      hydrateJobFactsInBackground(cloud, seq, booking, followup, proposals, approvedBooking);
+    }, 200);
+
+    // GHL opportunity reads can be heavy (1000+ rows in fencing). Hydrate
+    // booking mirror cards after the Supabase-backed action queue is usable.
+    return bookingPromise.then(function (bookingCards) {
+      if (seq !== _loadSeq) return;
+      booking = bookingCards || [];
+      var oppIds = booking.map(function (c) { return c.opportunity_id; }).filter(Boolean);
+      return fetchOpportunityJobLinks(cloud, oppIds);
+    }).then(function (links) {
+      if (seq !== _loadSeq) return;
       booking.forEach(function (c) {
-        var linked = links[c.opportunity_id];
+        var linked = links && links[c.opportunity_id];
         if (linked) {
           c.job_id = linked.id;        // attach Supabase job id
           c.linked_job_status = linked.status;
@@ -5075,51 +5122,7 @@ function loadAndRender(cloud) {
       followup.forEach(function (c) { if (c.job_id) loadedJobIds[c.job_id] = 1; });
       booking = booking.filter(function (c) { return !c.job_id || !loadedJobIds[c.job_id]; });
 
-      // Attach pending proposals to cards. Two passes to avoid duplicate
-      // attachment when a contact has both a patio + fencing opp / job:
-      //   1. Strict: by job_id.
-      //   2. Fallback: by contact_id, but ONLY when the proposal's
-      //      action_payload.pipeline_lane matches the card's lane, AND the
-      //      proposal hasn't already been attached elsewhere. This is needed
-      //      because ~55 of 122 proposals on 2026-05-04 have no job_id and
-      //      would otherwise never render.
-      var byContactId = proposals.byContactId || {};
-      var attachedProposalIds = {};
-      var allCards = [].concat(booking, followup);
-
-      // Pass 1 — job_id (always wins).
-      allCards.forEach(function (c) {
-        if (c.job_id && proposals.byJobId[c.job_id]) {
-          c.pending_proposals = proposals.byJobId[c.job_id].filter(function (p) {
-            return proposalAllowedOnCardLane(p, c);
-          });
-          c.pending_proposals.forEach(function (p) { attachedProposalIds[p.proposal_id] = 1; });
-        }
-      });
-
-      // Pass 2 — contact_id + lane match, only for proposals not yet attached.
-      allCards.forEach(function (c) {
-        if (c.pending_proposals && c.pending_proposals.length) return;
-        if (!c.contact_id || !byContactId[c.contact_id]) return;
-        var laneCard = c.pipeline_lane || null;
-        var matched = byContactId[c.contact_id].filter(function (p) {
-          if (attachedProposalIds[p.proposal_id]) return false;
-          var laneProp = (p.action_payload && p.action_payload.pipeline_lane) || null;
-          if (!proposalAllowedOnCardLane(p, c)) return false;
-          // If proposal has no lane, accept it (legacy rows). If both have a
-          // lane, they must match. If only the card has a lane, no match.
-          if (!laneProp) return true;
-          if (!laneCard) return false;
-          return laneProp === laneCard;
-        });
-        if (matched.length) {
-          c.pending_proposals = matched;
-          matched.forEach(function (p) { attachedProposalIds[p.proposal_id] = 1; });
-        }
-      });
-
-      return null;
-    }).then(function () {
+      attachPendingProposalsToCards(booking, followup, proposals);
       renderLoadedSales(seq, booking, followup, proposals, approvedBooking);
       setTimeout(function () {
         hydrateJobFactsInBackground(cloud, seq, booking, followup, proposals, approvedBooking);
