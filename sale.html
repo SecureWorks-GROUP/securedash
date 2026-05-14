@@ -3522,10 +3522,12 @@ function renderCounts(buckets) {
   document.getElementById('laneBarMeta').textContent = (b + f + c + h) + ' LEADS';
 }
 
-// ops-api/list_proposed_actions now supports a 1000-row cap. Detect when we
-// receive the cap and surface that visibly so reps know there may be a hidden
-// tail of JARVIS proposals queued.
-var OPS_API_LIST_PROPOSED_LIMIT = 1000;
+// ops-api/list_proposed_actions has a hard-coded .limit(50) at the source,
+// so the cockpit cannot see proposals 51+ until Terminal A ships ticket
+// SECURE-SALE-LIST-PROPOSED-LIMIT-BUMP. Detect when we received the cap
+// and surface that visibly so reps know they may have a hidden tail of
+// JARVIS proposals queued.
+var OPS_API_LIST_PROPOSED_LIMIT = 200;
 
 function renderSourceMeta(allCards, proposals) {
   var el = document.getElementById('laneBarMeta');
@@ -3560,7 +3562,7 @@ function renderSourceMeta(allCards, proposals) {
     // proposals queued beyond what the API returned this load.
     var warn = document.createElement('span');
     warn.style.cssText = 'margin-left:10px;color:var(--amber);font-size:9px;letter-spacing:1px;text-transform:uppercase;font-weight:700;';
-    warn.textContent = 'at API limit · server returns max ' + OPS_API_LIST_PROPOSED_LIMIT;
+    warn.textContent = '⚠ at API limit · server returns max ' + OPS_API_LIST_PROPOSED_LIMIT + ' (SECURE-SALE-LIST-PROPOSED-LIMIT-BUMP)';
     el.appendChild(warn);
   }
 }
@@ -4151,9 +4153,41 @@ function isTerminalSalesStage(stageName) {
   return /job\s*lost|lost|dead|won|closed|job\s*accepted|accepted\s*-\s*>\s*move\s*to\s*execution|move\s*to\s*execution|final\s*payment|job\s*complete|complete|completed|not\s*relevant|archive|outside\s*service|too\s*small|cancel|cancelled|duplicate|spam|do\s*not\s*service/.test(s);
 }
 
+// G2 + G3 + G4 from bucket-contract-audit.md (2026-05-14):
+//   - The previous fuzzy regex matched too widely: `accepted` also matched
+//     `partially_accepted`, and `deposit` matched `awaiting_deposit`, both
+//     of which the orchestrator wants kept in Sales so pending proposals
+//     can surface (G4 / Option D).
+//   - It also missed `awaiting_supplier`, `get_review`, `order_materials`,
+//     and `approvals`, all of which are Ops territory (G2 + G3).
+// Switch to an explicit per-status set. Carve-out helper (cardHasDepositChase)
+// continues to pull deposit-stage cards back into Sales when an actual
+// deposit_followup proposal is attached (Cap 1 governance).
+var TERMINAL_JOB_STATUSES = new Set([
+  'accepted',
+  'processing',
+  'scheduled',
+  'in_progress',
+  'complete',
+  'completed',
+  'final_payment',
+  'invoice',
+  'invoiced',
+  'rectification',
+  'lost',
+  'cancelled',
+  'archived',
+  // G2: awaiting_supplier — supplier already engaged, Ops phase.
+  'awaiting_supplier',
+  // G3: ops/admin phases that the regex was missing.
+  'get_review',
+  'order_materials',
+  'approvals',
+]);
+
 function isTerminalJobStatus(status) {
-  var s = String(status || '').toLowerCase();
-  return /accepted|deposit|processing|scheduled|in_progress|complete|completed|final|invoice|invoiced|rectification|lost|cancelled|archived/.test(s);
+  var s = String(status || '').toLowerCase().trim();
+  return TERMINAL_JOB_STATUSES.has(s);
 }
 
 // Option B carve-out for B6: a job that is otherwise terminal (accepted /
@@ -4285,7 +4319,10 @@ function laneForCard(card) {
   if (proposals.some(function (p) {
     return p.action_type === 'send_quote_followup_sms'
         || p.action_type === 'propose_quote_review_task'
-        || p.action_type === 'deposit_followup';
+        || p.action_type === 'deposit_followup'
+        // G1 from bucket-contract-audit.md: legacy sales-followup-loop emit.
+        // Routes to the Follow Up lane until the legacy emitter is retired.
+        || p.action_type === 'send_followup_sms';
   })) {
     return 'followup';
   }
@@ -4496,6 +4533,14 @@ var COCKPIT_ALLOWED_ACTION_TYPES = {
   // Quote Follow-Up Loop SMS — Approve & Send goes through ops-api
   // send_quote_followup_sms (atomic-claim per parent card B4).
   send_quote_followup_sms:   'sms',
+  // Compat alias for legacy sales-followup-loop emit. The validator's
+  // server-side allowlist (validate-proposal.ts:COCKPIT_ACTION_TYPES)
+  // accepts send_followup_sms; the cockpit was missing it, so existing
+  // legacy rows on quoted-status jobs were silently dropped (S1 cohort
+  // had 69 of these). Render them as Quote Follow-up SMS until the
+  // legacy emitter is retired in RC-H and the cleanup sweep runs behind
+  // `approve quote proposal cleanup`.
+  send_followup_sms:         'sms',
   // Call recommendation only — renders a tel: link. NEVER sends an SMS.
   call_now:                  'call',
   // Quote-nurture v3 — internal task creators (no customer-facing send).
@@ -4527,7 +4572,9 @@ function recommendationTypeFor(actionType) {
   if (actionType === 'propose_scoper_booking_approval') {
     return 'Booking Scope · Scoper approval';
   }
-  if (actionType === 'send_quote_followup_sms') {
+  if (actionType === 'send_quote_followup_sms' || actionType === 'send_followup_sms') {
+    // send_followup_sms is the legacy sales-followup-loop emit; rendered as
+    // Quote Follow-up until the legacy emitter is retired (RC-H).
     return 'Quote Follow-up';
   }
   if (actionType === 'call_now') {
@@ -4542,14 +4589,51 @@ function recommendationTypeFor(actionType) {
   return null;
 }
 
+// Test/canary/internal client_name fixtures the quote-nurture planner already
+// excludes server-side (see quote-followup-loop.ts:597). The cockpit and the
+// other proposal-emitting loops were not applying the same filter, which is
+// why smoke-test jobs and their proposals were rendering as real rep work.
+// Matches CAP0 TEST, CANARY, and internal-named jobs (case-insensitive).
+var COCKPIT_TEST_CLIENT_NAME_RE = /(cap0\s*test|canary|internal)/i;
+
+function isTestClientName(name) {
+  if (!name) return false;
+  return COCKPIT_TEST_CLIENT_NAME_RE.test(String(name));
+}
+
+function isProposalLive(a) {
+  // Pending proposals whose expires_at has passed should not appear in the
+  // cockpit. The quote-followup planner's own loop_pending_36h dedup already
+  // ignores them, but the database still carries them as status='pending'
+  // because no sweep flips them to 'expired'. Filter client-side; backend
+  // sweep is deferred behind the `approve quote proposal cleanup` gate.
+  if (!a || !a.expires_at) return true; // no TTL = treat as live (pre-TTL rows)
+  var t = new Date(a.expires_at).getTime();
+  if (!Number.isFinite(t)) return true; // unparseable = don't drop
+  return t > Date.now();
+}
+
 async function fetchPendingProposals(cloud) {
   try {
-    var data = await opsApiGet(cloud, 'list_proposed_actions', { status: 'pending', limit: OPS_API_LIST_PROPOSED_LIMIT });
+    var data = await opsApiGet(cloud, 'list_proposed_actions', { status: 'pending', limit: 500 });
     var raw = (data && data.actions) || [];
     // Server-side filter is { status='pending', sent_at IS NULL }.
-    // Client-side filter additionally excludes action_types the cockpit
-    // cannot dispatch (everything not in COCKPIT_ALLOWED_ACTION_TYPES).
-    var actions = raw.filter(function (a) { return COCKPIT_ALLOWED_ACTION_TYPES[a.action_type]; });
+    // Client-side filter additionally:
+    //   - excludes action_types the cockpit cannot dispatch (not in
+    //     COCKPIT_ALLOWED_ACTION_TYPES),
+    //   - excludes rows whose expires_at has passed (RC-E.1),
+    //   - excludes rows on test/canary/internal jobs by contact_name
+    //     when known on the proposal row (RC-A.1; jobs without
+    //     contact_name fall through and are filtered later in
+    //     fetchFollowUpCards via client_name).
+    var droppedExpired = 0;
+    var droppedTestName = 0;
+    var actions = raw.filter(function (a) {
+      if (!COCKPIT_ALLOWED_ACTION_TYPES[a.action_type]) return false;
+      if (!isProposalLive(a)) { droppedExpired += 1; return false; }
+      if (a && isTestClientName(a.contact_name)) { droppedTestName += 1; return false; }
+      return true;
+    });
     var droppedByType = {};
     raw.forEach(function (a) {
       if (!COCKPIT_ALLOWED_ACTION_TYPES[a.action_type]) {
@@ -4574,6 +4658,8 @@ async function fetchPendingProposals(cloud) {
       total: actions.length,
       raw_total: raw.length,
       dropped_by_type: droppedByType,
+      dropped_expired: droppedExpired,
+      dropped_test_name: droppedTestName,
     };
   } catch (err) {
     console.warn('[sale] proposals fetch failed:', err.message);
@@ -4678,13 +4764,21 @@ async function fetchFollowUpCards(cloud, profile) {
   try {
     var jobs = await cloud.jobs.listJobs({ limit: 500 });
     jobs = jobs || [];
+    // RC-A.1: drop test/canary/internal-named jobs. The quote-nurture
+    // planner excludes them in its cohort SELECT; the cockpit was not, so
+    // CAP0 TEST jobs were rendering as if they needed rep action.
+    var droppedTestName = 0;
+    jobs = jobs.filter(function (j) {
+      if (isTestClientName(j && j.client_name)) { droppedTestName += 1; return false; }
+      return true;
+    });
     var open = jobs.filter(function (j) {
       var s = (j.status || '').toLowerCase();
       return s !== 'complete' && s !== 'completed' && s !== 'lost' && s !== 'cancelled' && s !== 'archived';
     });
     if (view.filter) open = open.filter(view.filter);
     open = open.filter(function (j) { return recentEnoughForActions(normaliseJob(j)); });
-    _loadDiagnostics.followup = { ok: true, count: open.length };
+    _loadDiagnostics.followup = { ok: true, count: open.length, dropped_test_name: droppedTestName };
     return open.map(normaliseJob);
   } catch (err) {
     console.error('[sale] follow-up fetch failed:', err);
