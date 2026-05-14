@@ -1786,6 +1786,43 @@ function displayNameForCard(card) {
   return 'New ' + trade + ' lead';
 }
 
+function normaliseCardNameForGrouping(card) {
+  var name = String((card && card.customer_name) || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!name || name === 'unknown' || isPhoneLikeName(name)) return '';
+  return name;
+}
+
+function cardSuburbForGrouping(card) {
+  var raw = (card && card._raw) || {};
+  return String(raw.site_suburb || raw.contactCity || raw.suburb || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function actionTypeRank(actionType) {
+  if (actionType === 'propose_scoper_call_task') return 100;
+  if (actionType === 'call_now') return 95;
+  if (actionType === 'propose_scoper_booking_approval') return 90;
+  if (actionType === 'book_scope') return 85;
+  if (actionType === 'send_booking_sms') return 82;
+  if (actionType === 'scope_confirmation') return 80;
+  if (actionType === 'send_quote_followup_sms' || actionType === 'send_followup_sms') return 70;
+  if (actionType === 'propose_quote_review_task') return 62;
+  if (actionType === 'deposit_followup') return 60;
+  if (actionType === 'propose_status_move'
+      || actionType === 'propose_hygiene_review'
+      || actionType === 'propose_backfill_link'
+      || actionType === 'propose_dedupe_review') return 50;
+  return 10;
+}
+
+function sortPendingProposals(card) {
+  if (!card || !card.pending_proposals || card.pending_proposals.length < 2) return;
+  card.pending_proposals.sort(function (a, b) {
+    var rankDelta = actionTypeRank(b && b.action_type) - actionTypeRank(a && a.action_type);
+    if (rankDelta) return rankDelta;
+    return new Date(b && b.created_at || 0).getTime() - new Date(a && a.created_at || 0).getTime();
+  });
+}
+
 function unsafeSmsGreeting(proposal, card) {
   var text = String((proposal && proposal.drafted_message) || '').trim();
   if (!text) return false;
@@ -1847,6 +1884,13 @@ function renderCard(card, lane) {
   var badges = renderStageBadges(card, lane);
   var badgeSlot = $('.lcard-badges', el);
   if (badges && badgeSlot) badgeSlot.replaceWith(badges);
+  if (card.duplicate_action_count) {
+    var dupNotice = document.createElement('div');
+    dupNotice.className = 'lcard-meta';
+    dupNotice.style.cssText = 'color:var(--muted);font-size:10px;margin-top:4px;';
+    dupNotice.textContent = card.duplicate_action_count + ' similar action' + (card.duplicate_action_count === 1 ? '' : 's') + ' hidden from Actions. Open Board/Hygiene for full ledger.';
+    el.insertBefore(dupNotice, $('.lcard-row', el));
+  }
   $('.lcard-val', el).textContent = val ? '$' + fmtMoney(val) : (card.next_suggested_action || '—');
   var pillEl = $('.lcard-pill', el);
   pillEl.textContent = pill.label;
@@ -4377,7 +4421,7 @@ function proposalAllowedOnCardLane(proposal, card) {
 
   if (type === 'call_now' || type === 'propose_scoper_call_task') return true;
 
-  if (type === 'send_quote_followup_sms' || type === 'propose_quote_review_task' || type === 'deposit_followup') {
+  if (type === 'send_quote_followup_sms' || type === 'send_followup_sms' || type === 'propose_quote_review_task' || type === 'deposit_followup') {
     return card.loop === 'follow_up';
   }
 
@@ -4410,9 +4454,13 @@ function proposalAllowedOnCardLane(proposal, card) {
 function bucketizeUnified(cards) {
   var b = { book: [], followup: [], call: [], hygiene: [] };
   cards.forEach(function (c) {
+    sortPendingProposals(c);
     if (!shouldShowInActions(c)) return;
     var lane = laneForCard(c);
     if (b[lane]) b[lane].push(c);
+  });
+  Object.keys(b).forEach(function (lane) {
+    b[lane] = collapseDuplicateActionCards(b[lane], lane);
   });
   function age(c) {
     var t = c.last_activity || (c._raw && (c._raw.updated_at || c._raw.created_at));
@@ -4423,6 +4471,61 @@ function bucketizeUnified(cards) {
   b.book.sort(function (a, x) { return age(a) - age(x); });        // freshest first
   b.hygiene.sort(function (a, x) { return age(x) - age(a); });     // oldest first
   return b;
+}
+
+function duplicateActionKey(card, lane) {
+  var name = normaliseCardNameForGrouping(card);
+  if (!name) return '';
+  var trade = String((card && card.pipeline_lane) || (card && card._raw && card._raw.type) || '').toLowerCase().trim();
+  var suburb = cardSuburbForGrouping(card);
+  var stage = String((card && card.pipeline_stage) || '').toLowerCase().trim();
+  if (!trade || !stage) return '';
+  // Same customer + trade + suburb + stage in the same action lane is normally
+  // a duplicated sales artifact, not separate daily work. Different trades or
+  // different suburbs are kept separate so real multi-job clients remain visible.
+  return [lane, trade, suburb || 'no-suburb', stage, name].join('|');
+}
+
+function cardActionScore(card) {
+  var props = (card && card.pending_proposals) || [];
+  var topRank = props.reduce(function (max, p) {
+    return Math.max(max, actionTypeRank(p && p.action_type));
+  }, 0);
+  var value = 0;
+  try { value = jobValue((card && card._raw) || {}) || 0; } catch (_) {}
+  var hasJob = card && card.job_id ? 1000000 : 0;
+  var activity = new Date((card && card.last_activity) || 0).getTime();
+  return hasJob + topRank * 10000 + Math.min(value || 0, 999999) + (Number.isFinite(activity) ? activity / 1000000000000 : 0);
+}
+
+function collapseDuplicateActionCards(items, lane) {
+  var grouped = {};
+  var result = [];
+  (items || []).forEach(function (card) {
+    var key = duplicateActionKey(card, lane);
+    if (!key) {
+      result.push(card);
+      return;
+    }
+    var current = grouped[key];
+    if (!current) {
+      grouped[key] = card;
+      result.push(card);
+      return;
+    }
+    var winner = cardActionScore(card) > cardActionScore(current) ? card : current;
+    var loser = winner === card ? current : card;
+    winner.duplicate_action_count = (winner.duplicate_action_count || 0) + 1 + (loser.duplicate_action_count || 0);
+    winner.duplicate_action_job_numbers = (winner.duplicate_action_job_numbers || []).concat(
+      loser && loser._raw && loser._raw.job_number ? [loser._raw.job_number] : []
+    );
+    if (winner === card) {
+      grouped[key] = card;
+      var idx = result.indexOf(current);
+      if (idx >= 0) result[idx] = card;
+    }
+  });
+  return result;
 }
 
 // ────────────────────────────────────────────────────────────
