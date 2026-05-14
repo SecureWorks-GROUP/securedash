@@ -173,10 +173,33 @@
 
   // Action types that MUST go through human approval before send,
   // regardless of cadence / quiet hours / sender / etc.
+  //
+  // S2 G-3 sync (2026-05-14): the BOOKING write path emits the
+  // action_types below; ALL of them require a human tap today
+  // (cockpit Approve & Send, or Khairo's Review-slot tap for
+  // propose_scoper_booking_approval). Everything customer-facing
+  // from the booking handshake lives here so the preview verdict
+  // matches production behaviour. The three legacy 'propose_booking_window'
+  // family names were never wired to JARVIS — kept for back-compat
+  // with sale-preview fixtures only, marked DEPRECATED.
   var ALWAYS_APPROVAL = {
-    'propose_booking_window':   true, // client commits to a specific time
+    // ── Live booking action_types (JARVIS-emitted, 2026-05-14) ──
+    // Booking-loop legacy proposals (booking-loop.ts:229):
+    'book_scope':                                    true, // initial scope offer
+    'send_booking_sms':                              true, // stage-driven booking nudge
+    'scope_confirmation':                            true, // post-scope confirmation
+    // Handshake-loop scoper-approval flow (booking-handshake-loop.ts:737):
+    'propose_scoper_booking_approval':               true, // Khairo's atomic approve
+    // Handshake-loop customer-facing proposals (handshake-loop.ts:368, :553):
+    'request_customer_availability':                 true, // M1 ask
+    'propose_booking_confirmation_to_customer':      true, // M2 confirm
+    'request_customer_availability_clarification':   true, // 6a clarification
+    // ── DEPRECATED — preview-only legacy names. Kept for sale-preview-fixtures
+    //    back-compat; not emitted by any live agent code as of 2026-05-14. ──
+    'propose_booking_window':   true,
     'confirm_booking':          true,
     're_propose_window':        true,
+    // ── Non-booking proposals (always-approval) ──
     'objection_response':       true,
     'value_frame_message':      true,
     'urgency_message':          true,
