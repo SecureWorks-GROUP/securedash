@@ -4153,9 +4153,41 @@ function isTerminalSalesStage(stageName) {
   return /job\s*lost|lost|dead|won|closed|job\s*accepted|accepted\s*-\s*>\s*move\s*to\s*execution|move\s*to\s*execution|final\s*payment|job\s*complete|complete|completed|not\s*relevant|archive|outside\s*service|too\s*small|cancel|cancelled|duplicate|spam|do\s*not\s*service/.test(s);
 }
 
+// G2 + G3 + G4 from bucket-contract-audit.md (2026-05-14):
+//   - The previous fuzzy regex matched too widely: `accepted` also matched
+//     `partially_accepted`, and `deposit` matched `awaiting_deposit`, both
+//     of which the orchestrator wants kept in Sales so pending proposals
+//     can surface (G4 / Option D).
+//   - It also missed `awaiting_supplier`, `get_review`, `order_materials`,
+//     and `approvals`, all of which are Ops territory (G2 + G3).
+// Switch to an explicit per-status set. Carve-out helper (cardHasDepositChase)
+// continues to pull deposit-stage cards back into Sales when an actual
+// deposit_followup proposal is attached (Cap 1 governance).
+var TERMINAL_JOB_STATUSES = new Set([
+  'accepted',
+  'processing',
+  'scheduled',
+  'in_progress',
+  'complete',
+  'completed',
+  'final_payment',
+  'invoice',
+  'invoiced',
+  'rectification',
+  'lost',
+  'cancelled',
+  'archived',
+  // G2: awaiting_supplier — supplier already engaged, Ops phase.
+  'awaiting_supplier',
+  // G3: ops/admin phases that the regex was missing.
+  'get_review',
+  'order_materials',
+  'approvals',
+]);
+
 function isTerminalJobStatus(status) {
-  var s = String(status || '').toLowerCase();
-  return /accepted|deposit|processing|scheduled|in_progress|complete|completed|final|invoice|invoiced|rectification|lost|cancelled|archived/.test(s);
+  var s = String(status || '').toLowerCase().trim();
+  return TERMINAL_JOB_STATUSES.has(s);
 }
 
 // Option B carve-out for B6: a job that is otherwise terminal (accepted /
@@ -4287,7 +4319,10 @@ function laneForCard(card) {
   if (proposals.some(function (p) {
     return p.action_type === 'send_quote_followup_sms'
         || p.action_type === 'propose_quote_review_task'
-        || p.action_type === 'deposit_followup';
+        || p.action_type === 'deposit_followup'
+        // G1 from bucket-contract-audit.md: legacy sales-followup-loop emit.
+        // Routes to the Follow Up lane until the legacy emitter is retired.
+        || p.action_type === 'send_followup_sms';
   })) {
     return 'followup';
   }
