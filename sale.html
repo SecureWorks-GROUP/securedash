@@ -4153,7 +4153,33 @@ function isTerminalSalesStage(stageName) {
 
 function isTerminalJobStatus(status) {
   var s = String(status || '').toLowerCase();
-  return /accepted|deposit|processing|scheduled|in_progress|complete|completed|final|invoice|invoiced|rectification|lost|cancelled|archived/.test(s);
+  // Explicit list (not a partial-match regex) per S3 bucket-contract-audit
+  // 2026-05-14, gaps G2/G3/G4 Option D:
+  //   - G4 Option D: 'awaiting_deposit' and 'partially_accepted' are NOT terminal
+  //     anymore. Proposals decide the bucket — sales chase stays in lane.
+  //   - G2/G3: 'awaiting_supplier', 'get_review', 'order_materials', 'approvals'
+  //     ARE terminal (Ops phase, not Sales).
+  //   - 'accepted' / 'deposit_pending' still terminal; B6 carve-out via
+  //     cardHasDepositChase keeps an active deposit chase in Sales.
+  return s === 'accepted'
+      || s === 'deposit_pending'
+      || s === 'invoice_pending'
+      || s === 'processing'
+      || s === 'scheduled'
+      || s === 'in_progress'
+      || s === 'complete'
+      || s === 'completed'
+      || s === 'final_payment'
+      || s === 'invoiced'
+      || s === 'rectification'
+      || s === 'lost'
+      || s === 'cancelled'
+      || s === 'archived'
+      // G2 + G3 additions (Ops-phase statuses):
+      || s === 'awaiting_supplier'
+      || s === 'get_review'
+      || s === 'order_materials'
+      || s === 'approvals';
 }
 
 // Option B carve-out for B6: a job that is otherwise terminal (accepted /
@@ -4285,7 +4311,10 @@ function laneForCard(card) {
   if (proposals.some(function (p) {
     return p.action_type === 'send_quote_followup_sms'
         || p.action_type === 'propose_quote_review_task'
-        || p.action_type === 'deposit_followup';
+        || p.action_type === 'deposit_followup'
+        // G1: send_followup_sms used to fall through to laneFor(job). Make it
+        // a first-class follow-up action_type so it never silently drops.
+        || p.action_type === 'send_followup_sms';
   })) {
     return 'followup';
   }
@@ -4340,7 +4369,7 @@ function proposalAllowedOnCardLane(proposal, card) {
 
   if (type === 'call_now' || type === 'propose_scoper_call_task') return true;
 
-  if (type === 'send_quote_followup_sms' || type === 'propose_quote_review_task' || type === 'deposit_followup') {
+  if (type === 'send_quote_followup_sms' || type === 'propose_quote_review_task' || type === 'deposit_followup' || type === 'send_followup_sms') {
     return card.loop === 'follow_up';
   }
 
@@ -4516,7 +4545,11 @@ var COCKPIT_ALLOWED_ACTION_TYPES = {
   propose_dedupe_review:  'hygiene',
   // Also surface deposit_followup explicitly so the cockpit allowlist drop
   // does not strip the deposit chase (per B6 Option B carve-out in PR #30).
-  deposit_followup:       'sms'
+  deposit_followup:       'sms',
+  // G1 fix (S3 bucket-contract-audit 2026-05-14): send_followup_sms used to
+  // be allowlist-dropped silently. Surfacing as 'sms' so it renders with the
+  // same Approve & Send affordance as send_quote_followup_sms.
+  send_followup_sms:      'sms'
 };
 
 // Two recommendation buckets for the human label + grouping.
