@@ -4109,8 +4109,11 @@
     var myAssignment = getMyAssignment(data);
     if (!myAssignment) return 'pre_confirm';
 
-    // Check if job is complete
-    if (job.status === 'complete' || myAssignment.status === 'complete') return 'complete';
+    // Job-level complete (via completion wizard)
+    if (job.status === 'complete') return 'complete';
+
+    // Assignment complete but job still ongoing = shift done (multi-day)
+    if (myAssignment.status === 'complete') return 'shift_done';
 
     // Check clock state (new simplified model)
     loadTimerState();
@@ -4125,13 +4128,37 @@
     return 'pre_confirm';
   }
 
+  function isJobDone(phase) {
+    return phase === 'complete' || phase === 'shift_done';
+  }
+
   function getMyAssignment(data) {
     var crew = data.crew || [];
     if (!_user) return null;
-    // Primary match: user_id
+
+    // Collect all assignments for this user
+    var mine = [];
     for (var i = 0; i < crew.length; i++) {
-      if (crew[i].user_id === _user.id) return crew[i];
+      if (crew[i].user_id === _user.id) mine.push(crew[i]);
     }
+
+    // If multiple assignments (multi-day), pick best one:
+    // 1. in_progress (actively working)
+    // 2. scheduled/confirmed (ready to clock on)
+    // 3. Most recent complete (last shift)
+    if (mine.length > 1) {
+      var active = mine.find(function(a) { return a.status === 'in_progress'; });
+      if (active) return active;
+      var ready = mine.find(function(a) { return a.status === 'scheduled' || a.status === 'confirmed'; });
+      if (ready) return ready;
+      // All complete — return the most recent one
+      mine.sort(function(a, b) {
+        return (b.clocked_off_at || b.scheduled_date || '').localeCompare(a.clocked_off_at || a.scheduled_date || '');
+      });
+      return mine[0];
+    }
+    if (mine.length === 1) return mine[0];
+
     // Fallback: match by assignment ID passed from job card tap
     if (_currentAssignment) {
       for (var i = 0; i < crew.length; i++) {
@@ -4253,6 +4280,7 @@
     h += '<span class="job-hero-badge">' + esc(type) + '</span>';
     if (job.job_number) h += '<span class="job-hero-number">' + esc(job.job_number) + '</span>';
     if (phase === 'complete') h += '<span style="background:#27AE60;color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;margin-left:6px">COMPLETED</span>';
+    if (phase === 'shift_done') h += '<span style="background:var(--sw-orange);color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;margin-left:6px">SHIFT DONE</span>';
     h += '</div>';
 
     // Client name
@@ -4301,7 +4329,7 @@
   }
 
   function renderWeatherStrip(data, phase) {
-    if (phase === 'complete' || phase === 'end_of_day' || phase === 'travelling' || phase === 'on_site') return '';
+    if (isJobDone(phase) || phase === 'end_of_day' || phase === 'travelling' || phase === 'on_site') return '';
     var myAssignment = getMyAssignment(data);
     var schedDate = myAssignment ? myAssignment.scheduled_date : null;
     if (!schedDate) return '';
@@ -4329,7 +4357,9 @@
     // Determine current step
     var currentIdx = 0;
     var allDone = false;
+    var noActive = false; // shift_done: steps 1-3 done, step 4 grey, no active highlight
     if (_clockState === 'off' && phase === 'complete') { currentIdx = 4; allDone = true; }
+    else if (_clockState === 'off' && phase === 'shift_done') { currentIdx = 3; noActive = true; }
     else if (_clockState === 'off') currentIdx = 0;
     else if (_clockState === 'on' && !_arrivedAt && _travelStartTime) currentIdx = 0; // travelling
     else if (_clockState === 'on') currentIdx = 1; // working
@@ -4343,7 +4373,7 @@
     for (var i = 0; i < steps.length; i++) {
       var cls = 'sf-step';
       if (i < currentIdx) cls += ' done';
-      else if (i === currentIdx) cls += ' active';
+      else if (i === currentIdx && !noActive) cls += ' active';
       else cls += ' future';
       h += '<div class="' + cls + '">';
       h += '<span class="sf-step-icon">' + (i < currentIdx ? '✓' : steps[i].icon) + '</span>';
@@ -4355,7 +4385,7 @@
     // Expanded action area
     h += '<div class="sf-expanded">';
 
-    if (_clockState === 'off' && phase !== 'complete' && myAssignment.status === 'scheduled') {
+    if (_clockState === 'off' && !isJobDone(phase) && myAssignment.status === 'scheduled') {
       // ── NEEDS ACCEPTANCE: Accept or Decline ──
       h += '<div style="font-size:13px;color:var(--sw-text-sec);text-align:center;margin-bottom:10px;">You\'ve been scheduled for this job</div>';
       h += '<div style="display:flex;gap:8px;margin-bottom:8px;">';
@@ -4365,7 +4395,32 @@
       h += '✓ Accept</button>';
       h += '</div>';
 
-    } else if (_clockState === 'off' && phase !== 'complete') {
+    } else if (_clockState === 'off' && phase === 'shift_done') {
+      // ── SHIFT DONE: Clock On Again or Complete Job ──
+      var hoursVal = myAssignment.hours_worked ? (Math.round(myAssignment.hours_worked * 100) / 100) : null;
+      var clockOnTime = myAssignment.clocked_on_at ? new Date(myAssignment.clocked_on_at).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', timeZone: 'Australia/Perth' }) : null;
+      var clockOffTime = myAssignment.clocked_off_at ? new Date(myAssignment.clocked_off_at).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', timeZone: 'Australia/Perth' }) : null;
+
+      h += '<div style="text-align:center">';
+      h += '<div style="font-size:14px;font-weight:700;color:var(--sw-orange);margin-bottom:8px">Shift Complete</div>';
+      if (hoursVal !== null) {
+        h += '<div style="font-size:28px;font-weight:800;color:var(--sw-dark);font-variant-numeric:tabular-nums">' + hoursVal + 'h</div>';
+        h += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:2px;margin-bottom:8px">Hours logged this shift</div>';
+      }
+      if (clockOnTime && clockOffTime) {
+        h += '<div style="display:flex;justify-content:center;gap:16px;margin-bottom:12px;font-size:13px;color:var(--sw-text-sec)">';
+        h += '<span>On: <strong style="color:var(--sw-dark)">' + clockOnTime + '</strong></span>';
+        h += '<span>Off: <strong style="color:var(--sw-dark)">' + clockOffTime + '</strong></span>';
+        if (myAssignment.break_minutes > 0) h += '<span>Break: <strong style="color:var(--sw-dark)">' + myAssignment.break_minutes + 'm</strong></span>';
+        h += '</div>';
+      }
+      h += '</div>';
+      h += '<div style="display:flex;gap:8px;margin-top:8px;">';
+      h += '<button class="sf-action-btn" style="flex:1;background:var(--sw-green);font-size:15px;padding:14px" onclick="resumeJobNextDay()">&#9654; Clock On Again</button>';
+      h += '<button class="sf-action-btn" style="flex:1;background:var(--sw-dark);font-size:15px;padding:14px" onclick="confirmThenComplete()">&#9989; Complete Job</button>';
+      h += '</div>';
+
+    } else if (_clockState === 'off' && !isJobDone(phase)) {
       // ── CLOCKED OFF: Two equal buttons — Travel or Clock On ──
       var jobLabel = job.job_number ? esc(job.job_number) : 'this job';
       h += '<div style="display:flex;gap:8px;margin-bottom:8px;">';
@@ -4460,7 +4515,7 @@
 
     // Pending materials issue banner
     var matBannerState = deriveMaterialsState(data);
-    if (matBannerState.state === 'issue' && phase !== 'complete') {
+    if (matBannerState.state === 'issue' && !isJobDone(phase)) {
       h += '<div class="persistent-banner amber">⚠️ Materials issue reported — waiting on response</div>';
     }
 
@@ -4499,7 +4554,7 @@
   // Materials check functions moved to showMaterialsCheckPrompt / matCheckAllGood / matCheckIssue
 
   function renderSafetyBanner(data, phase) {
-    if (phase === 'complete' || phase === 'travelling' || phase === 'end_of_day') return '';
+    if (isJobDone(phase) || phase === 'travelling' || phase === 'end_of_day') return '';
     var job = data.job;
     var searchText = '';
     if (job.scope_json) searchText += JSON.stringify(job.scope_json).toLowerCase();
@@ -4794,7 +4849,7 @@
     });
     var totalPhotos = scopePhotos.length + docPhotos.length;
     if (totalPhotos === 0) return '';
-    if (phase === 'complete') return ''; // completion photos take priority
+    if (isJobDone(phase)) return ''; // completion photos take priority
 
     var h = '<div class="detail-section">';
     h += '<h3>Scope Photos</h3>';
@@ -5080,7 +5135,7 @@
   }
 
   function renderEnhancedScope(data, phase) {
-    if (phase === 'travelling' || phase === 'end_of_day' || phase === 'complete') return '';
+    if (phase === 'travelling' || phase === 'end_of_day' || isJobDone(phase)) return '';
     var job = data.job;
     if (!job.scope_json) return '';
     var config = job.scope_json.config || job.scope_json;
@@ -5367,7 +5422,7 @@
     }
 
     // ── Labour Budget Card (complete only) ──
-    if (phase === 'complete') (function loadLabourBudget() {
+    if (isJobDone(phase)) (function loadLabourBudget() {
       var lbId = 'labourBudgetCard';
       h += '<div class="detail-section" id="' + lbId + '">';
       h += '  <h3>Labour Budget</h3>';
@@ -5425,7 +5480,7 @@
     })();
 
     // ── Work Order (pre_confirm, confirmed, complete — only if has content) ──
-    if (wo && (phase === 'pre_confirm' || phase === 'confirmed' || phase === 'complete') && (wo.special_instructions || (wo.scope_items && wo.scope_items.length > 0))) {
+    if (wo && (phase === 'pre_confirm' || phase === 'confirmed' || isJobDone(phase)) && (wo.special_instructions || (wo.scope_items && wo.scope_items.length > 0))) {
       h += '<div class="detail-section">';
       h += '  <h3>Work Order — ' + esc(wo.wo_number || '') + '</h3>';
       if (wo.scope_items && wo.scope_items.length > 0) {
@@ -5458,7 +5513,7 @@
 
     // ── Work Order PDF (pre_confirm, confirmed, complete) ──
     var workOrderDoc = docs.find(function(d) { return d.type === 'work_order'; });
-    if (workOrderDoc && (phase === 'pre_confirm' || phase === 'confirmed' || phase === 'complete')) {
+    if (workOrderDoc && (phase === 'pre_confirm' || phase === 'confirmed' || isJobDone(phase))) {
       h += '<div class="detail-section">';
       h += '  <h3>Work Order PDF</h3>';
       h += '  <a href="' + esc(workOrderDoc.pdf_url) + '" target="_blank" class="btn btn-secondary">View Work Order (v' + workOrderDoc.version + ')</a>';
@@ -5466,7 +5521,7 @@
     }
 
     // ── Before/After Photos (complete only) ──
-    if (phase === 'complete' && scopePhotos.length > 0 && completionPhotos.length > 0) {
+    if (isJobDone(phase) && scopePhotos.length > 0 && completionPhotos.length > 0) {
       h += '<div class="detail-section">';
       h += '  <h3>Before / After</h3>';
       var maxPairs = Math.min(scopePhotos.length, completionPhotos.length, 6);
@@ -5486,8 +5541,8 @@
       h += '</div>';
     }
 
-    // ── Photo Targets (complete phase) ──
-    if (phase === 'complete') {
+    // ── Photo Targets (complete/shift_done phase) ──
+    if (isJobDone(phase)) {
     var progressPhotos = media.filter(function(m) { return m.phase === 'in_progress'; });
     var photoTargets = { before: 3, during: 2, completion: 5 };
     var beforeCount = scopePhotos.length;
@@ -5538,7 +5593,7 @@
     }
 
     // ── Notes / Activity Feed (on_site + complete) ──
-    if (phase === 'on_site' || phase === 'complete') {
+    if (phase === 'on_site' || isJobDone(phase)) {
     h += '<div class="detail-section">';
     h += '  <h3>' + (phase === 'on_site' ? 'Activity Feed' : 'Notes') + '</h3>';
     h += '  <div id="notesList">';
@@ -5559,7 +5614,7 @@
       h += '<div style="font-size:13px;color:var(--sw-text-sec)">No notes yet</div>';
     }
     h += '  </div>';
-    if (phase !== 'complete' && phase !== 'on_site') {
+    if (!isJobDone(phase) && phase !== 'on_site') {
     h += '  <div class="note-input-row">';
     h += '    <textarea id="noteInput" placeholder="Add a note..." rows="1" maxlength="2000" oninput="this.style.height=\'auto\';this.style.height=Math.min(this.scrollHeight,120)+\'px\'" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey){event.preventDefault();addNote()}"></textarea>';
     if (window.SpeechRecognition || window.webkitSpeechRecognition) {
@@ -5572,7 +5627,7 @@
     }
 
     // ── Conversation Thread (Tier 3, complete only) ──
-    if (phase === 'complete' && canSeeConversation() && job.ghl_contact_id) {
+    if (isJobDone(phase) && canSeeConversation() && job.ghl_contact_id) {
       h += '<div class="detail-section">';
       h += '  <h3>Conversation</h3>';
       h += '  <div id="convThread"><div style="font-size:13px;color:var(--sw-text-sec)">Loading messages...</div></div>';
@@ -5584,7 +5639,7 @@
     }
 
     // ── Financial Summary (Tier 3, complete only) ──
-    if (phase === 'complete' && canSeeFullPricing()) {
+    if (isJobDone(phase) && canSeeFullPricing()) {
       var hasFinancials = job.quoted_amount != null || job.invoiced_amount != null;
       if (hasFinancials) {
         h += '<div class="detail-section">';
@@ -5617,7 +5672,7 @@
       }
     }
 
-    // ── Service Report (complete only) ──
+    // ── Service Report (complete only — not shift_done) ──
     if (phase === 'complete') {
     h += '<div style="padding:8px 0 12px">';
     h += '  <button class="btn btn-primary" onclick="showView(\'report\')">';
@@ -6355,7 +6410,7 @@
     h += renderSpecialInstructions(data, phase);
 
     // Labour budget (complete phase, Tier 2+)
-    if (phase === 'complete' && canSeePricing()) {
+    if (isJobDone(phase) && canSeePricing()) {
       h += '<div class="detail-section" id="tabLabourBudget">';
       h += '  <h3>Labour Budget</h3>';
       h += '  <div style="font-size:13px;color:var(--sw-text-sec)"><div class="spinner" style="width:16px;height:16px;display:inline-block;vertical-align:middle;margin-right:6px"></div>Loading...</div>';
@@ -6393,8 +6448,8 @@
       }, 0);
     }
 
-    // Financials (complete, Tier 3)
-    if (phase === 'complete' && canSeeFullPricing()) {
+    // Financials (complete/shift_done, Tier 3)
+    if (isJobDone(phase) && canSeeFullPricing()) {
       var hasFinancials = job.quoted_amount != null || job.invoiced_amount != null;
       if (hasFinancials) {
         h += '<div class="detail-section">';
@@ -11793,6 +11848,32 @@
     }
   };
 
+  // ── Resume job next day (multi-day) — re-clocks onto existing assignment ──
+  window.resumeJobNextDay = function() {
+    if (!_currentJob || !_user) { toast('No job loaded', true); return; }
+    var job = _currentJob.job;
+    var myAssignment = getMyAssignment(_currentJob);
+    if (!myAssignment) { toast('No assignment found', true); return; }
+    var jobName = job.job_number || 'this job';
+    showConfirm('Clock On Again?', 'Resume working on ' + jobName + ' and start your timer.', 'Yes, Clock On').then(function(ok) {
+      if (!ok) return;
+      _currentAssignment = myAssignment.id;
+      clockEvent('clock_on', myAssignment.id).then(function() {
+        captureGPS('clock_on');
+        toast('Clocked On ✓');
+        // Update cached assignment status so UI re-renders correctly
+        myAssignment.status = 'in_progress';
+        myAssignment.clocked_on_at = new Date().toISOString();
+        startTimerTick();
+        if (_currentJob) renderJobDetail(_currentJob);
+      }).catch(function(err) {
+        console.error('[trade] resumeJobNextDay failed:', err);
+        toast('Failed to clock on: ' + (err.message || 'Unknown error'), true);
+        if (_currentJob) renderJobDetail(_currentJob);
+      });
+    });
+  };
+
   // ── Confirmation wrappers ──
   window.confirmClockOn = function(assignmentId) {
     var jobName = _currentJob ? (_currentJob.job.job_number || 'this job') : 'this job';
@@ -12397,6 +12478,7 @@
 
   var _wizChecklist = { cleaned: false, tools: false, noDamage: false, maintenance: false };
   var _wizClientNotOnSite = false;
+  var _wizClientSmsSent = false;
 
   window.openWizard = function() {
     _wizStep = 1;
@@ -12407,6 +12489,7 @@
     _wizAudioBlob = null;
     _wizSigName = '';
     _wizSigCanvas = null;
+    _wizClientSmsSent = false;
     _wizSigCtx = null;
     _wizChecklist = { cleaned: false, tools: false, noDamage: false, maintenance: false };
     _wizClientNotOnSite = false;
@@ -12447,7 +12530,7 @@
     }
   });
 
-  function renderWizStep() {
+  window.renderWizStep = function renderWizStep() {
     var body = document.getElementById('wizBody');
     var footer = document.getElementById('wizFooter');
     var label = document.getElementById('wizStepLabel');
@@ -12470,7 +12553,7 @@
     else if (_wizStep === 2) renderWizStep2_signoff(body, footer);
     else if (_wizStep === 3) renderWizStep3_checklist(body, footer);
     else if (_wizStep === 4) renderWizStep4_submit(body, footer);
-  }
+  };
 
   // ── STEP 1: Stage Photos ──
   function renderWizStep1(body, footer) {
@@ -12497,7 +12580,7 @@
     body.innerHTML = html;
 
     var canProceed = count >= 3;
-    footer.innerHTML = '<button class="wiz-btn wiz-btn-primary' + (canProceed ? '' : '" disabled') + '" onclick="_wizStep=2;renderWizStep()">Next — Voice Summary</button>';
+    footer.innerHTML = '<button class="wiz-btn wiz-btn-primary"' + (canProceed ? '' : ' disabled') + ' onclick="wizGoStep(2)">Next — Voice Summary</button>';
   }
 
   window.wizCapturePhoto = function(label, useCamera) {
@@ -12547,8 +12630,12 @@
       html += '<button class="wiz-btn wiz-btn-secondary" style="flex:1;font-size:12px" onclick="wizClientNotOnSite()">Client not on site</button>';
       html += '</div>';
     } else {
-      html += '<div style="text-align:center;padding:12px;color:var(--sw-yellow);font-weight:600">Client not on site — ops will follow up</div>';
-      html += '<button class="wiz-btn wiz-btn-secondary" style="font-size:12px" onclick="_wizClientNotOnSite=false;renderWizStep()">Cancel — client is here</button>';
+      if (_wizClientSmsSent) {
+        html += '<div style="text-align:center;padding:12px;color:var(--sw-green);font-weight:600">Client not on site - SMS sent to client</div>';
+      } else {
+        html += '<div style="text-align:center;padding:12px;color:var(--sw-yellow);font-weight:600">Client not on site - sending SMS...</div>';
+      }
+      html += '<button class="wiz-btn wiz-btn-secondary" style="font-size:12px" onclick="_wizClientNotOnSite=false;_wizClientSmsSent=false;renderWizStep()">Cancel - client is here</button>';
     }
     html += '</div>';
 
@@ -12573,10 +12660,29 @@
   };
 
   window.wizClientNotOnSite = function() {
+    var job = _currentJob ? _currentJob.job : {};
+    if (!job.ghl_contact_id) {
+      toast('No contact linked - client must sign on site', true);
+      return;
+    }
     _wizClientNotOnSite = true;
-    // Create annotation for ops
-    api('add_note', null, { jobId: _currentJobId, text: 'Client not on site for completion sign-off — follow-up needed', eventType: 'completion.client_absent' }).catch(function() {});
     renderWizStep();
+
+    var firstName = (job.client_name || '').split(' ')[0] || 'there';
+    var jobType = (job.job_type || 'works').toLowerCase();
+    var address = job.site_address || job.site_suburb || 'your property';
+    var smsMsg = 'Hi ' + firstName + ',\n\nYour ' + jobType + ' at ' + address + ' has been completed by our team today. Your final invoice will be sent shortly.\n\nThanks,\nShaun';
+
+    ghlApi('send_sms', null, { contactId: job.ghl_contact_id, message: smsMsg, jobId: job.id }).then(function() {
+      _wizClientSmsSent = true;
+      toast('SMS sent to ' + firstName);
+      api('add_note', null, { jobId: _currentJobId, text: 'Client not on site for completion sign-off - SMS notification sent to client', eventType: 'completion.client_absent' }).catch(function() {});
+      renderWizStep();
+    }).catch(function() {
+      toast('SMS failed - ops will follow up', true);
+      api('add_note', null, { jobId: _currentJobId, text: 'Client not on site for completion sign-off - SMS failed, follow-up needed', eventType: 'completion.client_absent' }).catch(function() {});
+      renderWizStep();
+    });
   };
 
   window.wizGoStep = function(n) { _wizStep = n; renderWizStep(); };
@@ -12634,7 +12740,7 @@
     html += '<div style="background:var(--sw-light);border-radius:12px;padding:16px;margin-bottom:16px">';
     html += '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:8px"><span>Photos</span><span style="font-weight:700">' + photoCount + '</span></div>';
     html += '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:8px"><span>Client Rating</span><span style="font-weight:700">' + (_wizSatisfaction > 0 ? _wizSatisfaction + '/5' : 'N/A') + '</span></div>';
-    html += '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:8px"><span>Signature</span><span style="font-weight:700;color:' + (_wizClientNotOnSite ? 'var(--sw-yellow)' : 'var(--sw-green)') + '">' + (_wizClientNotOnSite ? 'Client absent' : 'Captured') + '</span></div>';
+    html += '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:8px"><span>Signature</span><span style="font-weight:700;color:' + (_wizClientNotOnSite ? (_wizClientSmsSent ? 'var(--sw-green)' : 'var(--sw-yellow)') : 'var(--sw-green)') + '">' + (_wizClientNotOnSite ? (_wizClientSmsSent ? 'Client absent - SMS sent' : 'Client absent') : 'Captured') + '</span></div>';
     html += '<div style="display:flex;justify-content:space-between;font-size:14px"><span>Checklist</span><span style="font-weight:700;color:var(--sw-green)">All done</span></div>';
     html += '</div>';
     html += '</div>';
@@ -12681,8 +12787,8 @@
       if (audio) audio.src = URL.createObjectURL(_wizAudioBlob);
     }
 
-    footer.innerHTML = '<button class="wiz-btn wiz-btn-skip" onclick="_wizStep=3;renderWizStep()">Skip</button>' +
-                       '<button class="wiz-btn wiz-btn-primary" onclick="_wizStep=3;renderWizStep()">Next</button>';
+    footer.innerHTML = '<button class="wiz-btn wiz-btn-skip" onclick="wizGoStep(3)">Skip</button>' +
+                       '<button class="wiz-btn wiz-btn-primary" onclick="wizGoStep(3)">Next</button>';
   }
 
   window.wizToggleRecord = function() {
@@ -12765,8 +12871,8 @@
     html += '</div>';
 
     body.innerHTML = html;
-    footer.innerHTML = '<button class="wiz-btn wiz-btn-skip" onclick="_wizStep=4;renderWizStep()">Skip</button>' +
-                       '<button class="wiz-btn wiz-btn-primary" onclick="_wizStep=4;renderWizStep()">Next — Client Sign-off</button>';
+    footer.innerHTML = '<button class="wiz-btn wiz-btn-skip" onclick="wizGoStep(4)">Skip</button>' +
+                       '<button class="wiz-btn wiz-btn-primary" onclick="wizGoStep(4)">Next — Client Sign-off</button>';
   }
 
   window.wizCaptureMarketing = function(useCamera) {
@@ -12847,11 +12953,11 @@
     setTimeout(initWizSigPad, 50);
 
     var canProceed = _wizSigName.trim() && _wizSigCanvas && _wizSigCanvas._hasStrokes;
-    footer.innerHTML = '<button class="wiz-btn wiz-btn-primary" id="wizStep4Next" ' + (canProceed ? '' : 'disabled') + ' onclick="_wizStep=5;renderWizStep()">Next — Payment &amp; Review</button>';
+    footer.innerHTML = '<button class="wiz-btn wiz-btn-primary" id="wizStep4Next" ' + (canProceed ? '' : 'disabled') + ' onclick="wizGoStep(5)">Next — Payment &amp; Review</button>';
   }
 
   function initWizSigPad() {
-    _wizSigCanvas = document.getElementById('wizSigCanvas');
+    _wizSigCanvas = document.getElementById('wizSigPad');
     if (!_wizSigCanvas) return;
     var rect = _wizSigCanvas.getBoundingClientRect();
     _wizSigCanvas.width = rect.width * 2;
@@ -12958,8 +13064,8 @@
     html += '<div id="wizPaymentStatus" style="text-align:center;margin-top:12px"></div>';
 
     body.innerHTML = html;
-    footer.innerHTML = '<button class="wiz-btn wiz-btn-skip" onclick="_wizStep=6;renderWizStep()">Skip</button>' +
-                       '<button class="wiz-btn wiz-btn-primary" onclick="_wizStep=6;renderWizStep()">Next — Complete</button>';
+    footer.innerHTML = '<button class="wiz-btn wiz-btn-skip" onclick="wizGoStep(6)">Skip</button>' +
+                       '<button class="wiz-btn wiz-btn-primary" onclick="wizGoStep(6)">Next — Complete</button>';
   }
 
   window.wizSendPayment = function() {
@@ -13082,11 +13188,13 @@
       return api('complete_job', null, completePayload);
     });
 
-    // 6. Send client comms trigger (fire and forget)
-    photoChain = photoChain.then(function() {
-      tick('Notifying client...');
-      return api('send_client_update', null, { job_id: jobId, comms_trigger: 'job_complete' }).catch(function() {});
-    });
+    // 6. Send client comms trigger (fire and forget) — skip if already SMS'd absent client
+    if (!(_wizClientNotOnSite && _wizClientSmsSent)) {
+      photoChain = photoChain.then(function() {
+        tick('Notifying client...');
+        return api('send_client_update', null, { job_id: jobId, comms_trigger: 'job_complete' }).catch(function() {});
+      });
+    }
 
     // 7. Pre-generate completion pack (fire and forget)
     photoChain = photoChain.then(function() {
@@ -14059,14 +14167,10 @@
     h += '</div>';
     body.innerHTML = h;
 
-    var canNext = _eodNotes.trim().length > 0 || _eodAudioBlob;
     var fh = '<div style="display:flex;gap:8px">';
     fh += '<button class="wiz-btn wiz-btn-secondary" onclick="eodBack()">Back</button>';
-    fh += '<button class="wiz-btn wiz-btn-primary" id="eodNextBtn" onclick="eodGoToPhotos()"' + (canNext ? '' : ' disabled style="opacity:0.5"') + '>Next — Photos</button>';
+    fh += '<button class="wiz-btn wiz-btn-primary" id="eodNextBtn" onclick="eodGoToPhotos()">Next — Photos</button>';
     fh += '</div>';
-    if (!canNext) {
-      fh += '<div style="font-size:11px;color:var(--sw-yellow);text-align:center;margin-top:6px">Type a note or record a voice note to continue</div>';
-    }
     footer.innerHTML = fh;
   }
 
@@ -14074,10 +14178,6 @@
     // Grab notes from textarea in case oninput didn't fire
     var field = document.getElementById('eodNotesField');
     if (field) _eodNotes = field.value;
-    if (!_eodNotes.trim() && !_eodAudioBlob) {
-      toast('Please add a note or voice recording', true);
-      return;
-    }
     eodGoStep(3);
   };
 
