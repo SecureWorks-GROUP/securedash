@@ -944,6 +944,7 @@
       min-height: 0;
       max-height: none;
       overflow-y: auto;
+      padding-bottom: 56px;
     }
     .kanban-card {
       background: linear-gradient(135deg, rgba(255,255,255,0.38) 0%, rgba(255,255,255,0.15) 100%);
@@ -1812,7 +1813,7 @@
     .job-hover-popover {
       position: fixed; z-index: 170;
       background: var(--sw-card); border-radius: 12px;
-      width: 380px; max-width: 90vw; max-height: 70vh;
+      width: 380px; max-width: 90vw; max-height: calc(100vh - 64px);
       overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,0.18);
       border: 1px solid var(--sw-border);
       opacity: 0; transform: translateY(4px);
@@ -11446,6 +11447,36 @@ function hideJobHover() {
   }, 100);
 }
 
+function _repositionPopover(pop, anchor) {
+  var rect = anchor.getBoundingClientRect();
+  var popW = 380;
+  var barH = 56; // Jarvis bar + padding
+  var maxBottom = window.innerHeight - barH;
+  var left = rect.right + 8;
+  if (left + popW > window.innerWidth) left = rect.left - popW - 8;
+  if (left < 4) left = 4;
+  pop.style.left = left + 'px';
+  // Decide direction: if card is in bottom half, grow upward from card bottom
+  var midpoint = window.innerHeight / 2;
+  var cardCenter = (rect.top + rect.bottom) / 2;
+  pop.style.maxHeight = '';
+  if (cardCenter > midpoint) {
+    // Bottom card — anchor popover bottom to card bottom, grow up
+    var bottom = rect.bottom;
+    var maxH = bottom - 4;
+    pop.style.top = '';
+    pop.style.bottom = (window.innerHeight - bottom) + 'px';
+    pop.style.maxHeight = maxH + 'px';
+  } else {
+    // Top card — anchor popover top to card top, grow down
+    var top = rect.top;
+    var maxH = maxBottom - top;
+    pop.style.bottom = '';
+    pop.style.top = top + 'px';
+    pop.style.maxHeight = maxH + 'px';
+  }
+}
+
 async function showHoverPopover(anchor, jobId) {
   // Remove any existing popover
   if (_hoverPopover) { _hoverPopover.remove(); _hoverPopover = null; }
@@ -11458,16 +11489,8 @@ async function showHoverPopover(anchor, jobId) {
   document.body.appendChild(pop);
   _hoverPopover = pop;
 
-  // Position near the anchor
-  var rect = anchor.getBoundingClientRect();
-  var popW = 380, popH = 300;
-  var left = rect.right + 8;
-  if (left + popW > window.innerWidth) left = rect.left - popW - 8;
-  if (left < 4) left = 4;
-  var top = rect.top;
-  if (top + popH > window.innerHeight) top = Math.max(4, window.innerHeight - popH - 8);
-  pop.style.left = left + 'px';
-  pop.style.top = top + 'px';
+  // Position near the anchor (initial estimate, refined after content loads)
+  _repositionPopover(pop, anchor);
 
   // Fade in
   requestAnimationFrame(function() { pop.classList.add('visible'); });
@@ -11499,7 +11522,7 @@ async function showHoverPopover(anchor, jobId) {
     }
     if (neighbours.length > 0) {
       var nbId = 'hover-nb-' + jobId;
-      html += '<div class="jd-qv-row" style="cursor:pointer;user-select:none;" onclick="var el=document.getElementById(\'' + nbId + '\');var arr=this.querySelector(\'.nb-arrow\');if(el){el.style.display=el.style.display===\'none\'?\'block\':\'none\';arr.textContent=el.style.display===\'none\'?\'▸\':\'▾\';}">';
+      html += '<div class="jd-qv-row" style="cursor:pointer;user-select:none;" onclick="var el=document.getElementById(\'' + nbId + '\');var arr=this.querySelector(\'.nb-arrow\');if(el){el.style.display=el.style.display===\'none\'?\'block\':\'none\';arr.textContent=el.style.display===\'none\'?\'▸\':\'▾\';if(el.style.display!==\'none\')setTimeout(function(){el.scrollIntoView({behavior:\'smooth\',block:\'nearest\'});},50);}">';
       html += '<span class="jd-qv-label">Neighbours</span><span style="font-size:12px;color:var(--sw-text-sec);"><span class="nb-arrow">▸</span> ' + neighbours.length + '</span></div>';
       html += '<div id="' + nbId + '" style="display:none;padding:0 16px 8px;">';
       neighbours.forEach(function(nb, idx) {
@@ -11530,6 +11553,9 @@ async function showHoverPopover(anchor, jobId) {
     html += '</div>';
     pop.innerHTML = html;
 
+    // Reposition popover now that real content is rendered
+    _repositionPopover(pop, anchor);
+
     // Fetch and append ops notes
     try {
       var notesData = await opsFetch('list_ops_notes', { jobId: jobId });
@@ -11541,6 +11567,7 @@ async function showHoverPopover(anchor, jobId) {
         });
         notesHtml += '</div>';
         pop.innerHTML += notesHtml;
+        _repositionPopover(pop, anchor);
       }
     } catch(e) { /* silent — notes are supplementary */ }
   } catch(e) {
