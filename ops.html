@@ -7363,15 +7363,21 @@ function renderKanbanCard(j, status) {
   if (j.assignment_count > 0) html += '<span class="kanban-meta-badge">' + j.assignment_count + ' sched</span>';
   if (j.po_count > 0) html += '<span class="kanban-meta-badge">' + j.po_count + ' PO</span>';
   if (j.wo_count > 0) html += '<span class="kanban-meta-badge">' + j.wo_count + ' WO</span>';
-  if (j.council_count > 0) html += '<span class="kanban-meta-badge" style="background:rgba(52,152,219,0.1);color:var(--sw-blue,#3498DB);">' + j.council_count + ' council</span>';
-  if (status === 'approvals' && j.council_status) {
-    if (j.council_status === 'complete') {
+  // Council indicator: undecided patio warning, council badge, step progress
+  if (j.type === 'patio' && j.council_required === null && j.council_count === 0 && status === 'accepted') {
+    html += '<span class="kanban-meta-badge" style="background:rgba(231,76,60,0.12);color:#E74C3C;" title="Council not decided">&#9888; Council?</span>';
+  }
+  if (j.council_count > 0) {
+    html += '<span class="kanban-meta-badge" style="background:rgba(52,152,219,0.1);color:var(--sw-blue,#3498DB);">Council</span>';
+    if (j.council_status === 'complete' || j.council_status === 'approved') {
       html += '<span class="kanban-meta-badge" style="background:rgba(39,174,96,0.15);color:#27AE60;font-weight:600;">Approved</span>';
     } else if (j.council_status === 'blocked') {
       html += '<span class="kanban-meta-badge" style="background:rgba(231,76,60,0.15);color:#E74C3C;font-weight:600;">Blocked</span>';
-    } else {
-      html += '<span class="kanban-meta-badge" style="background:rgba(52,152,219,0.15);color:var(--sw-blue,#3498DB);font-weight:600;">Council' + (j.council_step ? ': Step ' + j.council_step : ' In Progress') + '</span>';
+    } else if (j.council_step) {
+      html += '<span class="kanban-meta-badge" style="background:rgba(52,152,219,0.15);color:var(--sw-blue,#3498DB);font-weight:600;">Council: Step ' + j.council_step + '</span>';
     }
+  } else if (j.type === 'patio' && j.council_required === true) {
+    html += '<span class="kanban-meta-badge" style="background:rgba(52,152,219,0.1);color:var(--sw-blue,#3498DB);">Council</span>';
   }
   if (j.ghl_opportunity_id) html += '<a class="kanban-ghl-link" href="https://app.maxlead.com.au/v2/location/' + GHL_LOCATION_ID + '/opportunities/' + j.ghl_opportunity_id + '" target="_blank" onclick="event.stopPropagation()" title="View in GHL">&#8599;</a>';
   html += '</div>';
@@ -7503,6 +7509,20 @@ async function kanbanDrop(e) {
       var toLabel = STATUS_LABELS[toStatus] || toStatus;
       if (!confirm('Move this job backwards from "' + fromLabel + '" to "' + toLabel + '"?')) return;
     }
+  }
+  // Council gate for patio drag-and-drop
+  var dropJob = null;
+  if (_pipelineData && _pipelineData.columns) {
+    Object.values(_pipelineData.columns).forEach(function(arr) {
+      arr.forEach(function(j) { if (j.id === jobId) dropJob = j; });
+    });
+  }
+  if (dropJob && dropJob.type === 'patio' && dropJob.council_required == null && !dropJob.council_count) {
+    showToast('Council decision required before moving this patio job.', 'warning', [
+      { label: 'Council Yes', primary: true, onclick: "setCouncilRequired('" + jobId + "',true)" },
+      { label: 'Council No', primary: false, onclick: "setCouncilRequired('" + jobId + "',false)" }
+    ]);
+    return;
   }
   try {
     await opsPost('update_job_status', { jobId: jobId, status: toStatus });
@@ -9776,6 +9796,20 @@ function daysSince(dateStr) {
 function confirmStepChange(jobId, targetStatus, targetIdx, currentIdx) {
   if (targetIdx <= currentIdx) return; // Can't go backwards
   if (targetIdx !== currentIdx + 1) return; // Only advance one step
+  // Council gate for patio jobs at accepted
+  var stepJob = null;
+  if (_pipelineData && _pipelineData.columns) {
+    Object.values(_pipelineData.columns).forEach(function(arr) {
+      arr.forEach(function(j) { if (j.id === jobId) stepJob = j; });
+    });
+  }
+  if (stepJob && stepJob.type === 'patio' && stepJob.council_required == null && !stepJob.council_count) {
+    showToast('Council decision required before moving this patio job.', 'warning', [
+      { label: 'Council Yes', primary: true, onclick: "setCouncilRequired('" + jobId + "',true)" },
+      { label: 'Council No', primary: false, onclick: "setCouncilRequired('" + jobId + "',false)" }
+    ]);
+    return;
+  }
   if (targetStatus === 'complete') {
     // Use existing cascade modal
     openCascadeModal(jobId);
@@ -11513,6 +11547,20 @@ async function showHoverPopover(anchor, jobId) {
     if (j.site_address) html += '<div class="jd-qv-row"><span class="jd-qv-label">Address</span><span style="font-size:12px">' + escapeHtml(j.site_address) + '</span></div>';
     if (j.client_phone) html += '<div class="jd-qv-row"><span class="jd-qv-label">Phone</span><a href="tel:' + j.client_phone + '">' + j.client_phone + '</a></div>';
 
+    // Council toggle for patio jobs
+    if (j.type === 'patio') {
+      var crVal = j.council_required;
+      var yesActive = crVal === true;
+      var noActive = crVal === false;
+      var btnBase = 'padding:3px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid;transition:all 0.15s;';
+      var yesStyle = yesActive ? btnBase + 'background:var(--sw-blue,#3498DB);color:#fff;border-color:var(--sw-blue,#3498DB);' : btnBase + 'background:transparent;color:var(--sw-text-sec,#8896A6);border-color:var(--sw-border,#e5e7eb);';
+      var noStyle = noActive ? btnBase + 'background:#E74C3C;color:#fff;border-color:#E74C3C;' : btnBase + 'background:transparent;color:var(--sw-text-sec,#8896A6);border-color:var(--sw-border,#e5e7eb);';
+      html += '<div class="jd-qv-row"><span class="jd-qv-label">Council</span><span style="display:flex;gap:4px;">';
+      html += '<button onclick="event.stopPropagation();setCouncilRequired(\'' + j.id + '\',true)" style="' + yesStyle + '">Yes</button>';
+      html += '<button onclick="event.stopPropagation();setCouncilRequired(\'' + j.id + '\',false)" style="' + noStyle + '">No</button>';
+      html += '</span></div>';
+    }
+
     // Neighbour dropdown — try job_contacts first, fall back to pricing_json
     var neighbours = (data.job_contacts || []).filter(function(c) { return !c.is_primary; });
     if (neighbours.length === 0 && j.pricing_json && j.pricing_json.neighbour_splits && j.pricing_json.neighbour_splits.neighbours) {
@@ -11984,6 +12032,27 @@ function getNextStatuses(current, jobType) {
   return transitions[current] || [];
 }
 
+async function setCouncilRequired(jobId, value) {
+  try {
+    await opsPost('update_job_field', { job_id: jobId, field: 'council_required', value: value });
+    // Update local pipeline data so card re-renders without refetch
+    if (_pipelineData && _pipelineData.columns) {
+      Object.values(_pipelineData.columns).forEach(function(arr) {
+        arr.forEach(function(j) { if (j.id === jobId) j.council_required = value; });
+      });
+    }
+    refreshActiveView();
+    // Re-show popover if still open for this job
+    if (_hoverPopover && _hoverJobId === jobId) {
+      var anchor = document.querySelector('[data-job-id="' + jobId + '"]');
+      if (anchor) showHoverPopover(anchor, jobId);
+    }
+    showToast('Council set to ' + (value ? 'Yes' : 'No'), 'success');
+  } catch (e) {
+    alert('Failed to set council required: ' + e.message);
+  }
+}
+
 async function changeJobStatus(jobId, status) {
   // Feature 4: If moving to "complete", offer cascade modal instead
   if (status === 'complete') {
@@ -11994,6 +12063,22 @@ async function changeJobStatus(jobId, status) {
   if (status === 'accepted') {
     openAcceptModal(jobId);
     return;
+  }
+  // Council gate: block patio jobs from moving past accepted if council_required is undecided
+  if (status !== 'accepted' && status !== 'quoted') {
+    var gateJob = null;
+    if (_pipelineData && _pipelineData.columns) {
+      Object.values(_pipelineData.columns).forEach(function(arr) {
+        arr.forEach(function(j) { if (j.id === jobId) gateJob = j; });
+      });
+    }
+    if (gateJob && gateJob.type === 'patio' && gateJob.council_required == null && !gateJob.council_count) {
+      showToast('Council decision required before moving this patio job.', 'warning', [
+        { label: 'Council Yes', primary: true, onclick: "setCouncilRequired('" + jobId + "',true)" },
+        { label: 'Council No', primary: false, onclick: "setCouncilRequired('" + jobId + "',false)" }
+      ]);
+      return;
+    }
   }
   try {
     await opsPost('update_job_status', { jobId: jobId, status: status });
