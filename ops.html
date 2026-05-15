@@ -7367,16 +7367,7 @@ function renderKanbanCard(j, status) {
   if (j.type === 'patio' && j.council_required === null && j.council_count === 0 && status === 'accepted') {
     html += '<span class="kanban-meta-badge" style="background:rgba(231,76,60,0.12);color:#E74C3C;" title="Council not decided">&#9888; Council?</span>';
   }
-  if (j.council_count > 0) {
-    html += '<span class="kanban-meta-badge" style="background:rgba(52,152,219,0.1);color:var(--sw-blue,#3498DB);">Council</span>';
-    if (j.council_status === 'complete' || j.council_status === 'approved') {
-      html += '<span class="kanban-meta-badge" style="background:rgba(39,174,96,0.15);color:#27AE60;font-weight:600;">Approved</span>';
-    } else if (j.council_status === 'blocked') {
-      html += '<span class="kanban-meta-badge" style="background:rgba(231,76,60,0.15);color:#E74C3C;font-weight:600;">Blocked</span>';
-    } else if (j.council_step) {
-      html += '<span class="kanban-meta-badge" style="background:rgba(52,152,219,0.15);color:var(--sw-blue,#3498DB);font-weight:600;">Council: Step ' + j.council_step + '</span>';
-    }
-  } else if (j.type === 'patio' && j.council_required === true) {
+  if (j.council_count > 0 || (j.type === 'patio' && j.council_required === true)) {
     html += '<span class="kanban-meta-badge" style="background:rgba(52,152,219,0.1);color:var(--sw-blue,#3498DB);">Council</span>';
   }
   if (j.ghl_opportunity_id) html += '<a class="kanban-ghl-link" href="https://app.maxlead.com.au/v2/location/' + GHL_LOCATION_ID + '/opportunities/' + j.ghl_opportunity_id + '" target="_blank" onclick="event.stopPropagation()" title="View in GHL">&#8599;</a>';
