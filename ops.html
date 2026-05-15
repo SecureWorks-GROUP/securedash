@@ -1829,6 +1829,17 @@
       display: flex; justify-content: space-between; align-items: flex-start;
     }
     .job-hover-popover .jd-qv-body { padding: 12px 16px; }
+    .council-step-popup {
+      position: fixed; z-index: 180;
+      background: var(--sw-card); border-radius: 10px;
+      width: 240px; box-shadow: 0 8px 28px rgba(0,0,0,0.15);
+      border: 1px solid var(--sw-border);
+      opacity: 0; transform: translateY(4px);
+      transition: opacity 0.18s ease, transform 0.18s ease;
+    }
+    .council-step-popup.visible {
+      opacity: 1; transform: translateY(0);
+    }
 
     /* Ops Notes popup */
     .ops-notes-popup {
@@ -7369,6 +7380,9 @@ function renderKanbanCard(j, status) {
   }
   if (j.council_count > 0 || (j.type === 'patio' && j.council_required === true)) {
     html += '<span class="kanban-meta-badge" style="background:rgba(52,152,219,0.1);color:var(--sw-blue,#3498DB);">Council</span>';
+    if (status === 'approvals' && j.council_step) {
+      html += '<span class="kanban-meta-badge council-step-badge" style="background:rgba(52,152,219,0.15);color:var(--sw-blue,#3498DB);font-weight:600;cursor:pointer;" onclick="event.stopPropagation();showCouncilSteps(this,\'' + j.id + '\')">Step ' + j.council_step + '</span>';
+    }
   }
   if (j.ghl_opportunity_id) html += '<a class="kanban-ghl-link" href="https://app.maxlead.com.au/v2/location/' + GHL_LOCATION_ID + '/opportunities/' + j.ghl_opportunity_id + '" target="_blank" onclick="event.stopPropagation()" title="View in GHL">&#8599;</a>';
   html += '</div>';
@@ -12041,6 +12055,63 @@ async function setCouncilRequired(jobId, value) {
     showToast('Council set to ' + (value ? 'Yes' : 'No'), 'success');
   } catch (e) {
     alert('Failed to set council required: ' + e.message);
+  }
+}
+
+var _councilStepPopup = null;
+async function showCouncilSteps(anchor, jobId) {
+  // Close existing
+  if (_councilStepPopup) { _councilStepPopup.remove(); _councilStepPopup = null; }
+
+  var pop = document.createElement('div');
+  pop.className = 'council-step-popup';
+  pop.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--sw-text-sec);">Loading...</div>';
+  document.body.appendChild(pop);
+  _councilStepPopup = pop;
+
+  // Position near anchor
+  var rect = anchor.getBoundingClientRect();
+  pop.style.top = (rect.bottom + 6) + 'px';
+  pop.style.left = rect.left + 'px';
+
+  // Fade in
+  requestAnimationFrame(function() { pop.classList.add('visible'); });
+
+  // Auto-close on mouseleave
+  pop.addEventListener('mouseleave', function() {
+    pop.classList.remove('visible');
+    setTimeout(function() { if (pop.parentElement) pop.remove(); if (_councilStepPopup === pop) _councilStepPopup = null; }, 200);
+  });
+
+  try {
+    var data = await opsFetch('list_council_submissions', { job_id: jobId });
+    var subs = data.submissions || data || [];
+    if (!subs.length) { pop.innerHTML = '<div style="padding:12px;font-size:12px;">No council submission found</div>'; return; }
+    var sub = subs[0];
+    var steps = sub.steps || [];
+    var currentIdx = sub.current_step_index || 0;
+
+    var html = '<div style="padding:10px 14px 6px;font-weight:600;font-size:12px;color:var(--sw-dark);border-bottom:1px solid var(--sw-border,#e5e7eb);">Council Steps</div>';
+    html += '<div style="padding:8px 14px 10px;">';
+    steps.forEach(function(s, i) {
+      var isCurrent = i === currentIdx && s.status !== 'complete' && s.status !== 'skipped';
+      var isComplete = s.status === 'complete';
+      var isSkipped = s.status === 'skipped';
+      var icon = isComplete ? '<span style="color:#27AE60;">&#10003;</span>' : isSkipped ? '<span style="color:var(--sw-text-sec);">&#8212;</span>' : isCurrent ? '<span style="color:var(--sw-blue,#3498DB);">&#9658;</span>' : '<span style="color:var(--sw-border,#ccc);">&#9675;</span>';
+      var weight = isCurrent ? 'font-weight:600;color:var(--sw-blue,#3498DB);' : isComplete ? 'color:#27AE60;' : isSkipped ? 'color:var(--sw-text-sec);text-decoration:line-through;' : 'color:var(--sw-text-sec);';
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;' + weight + '">';
+      html += icon + ' ' + (i + 1) + '. ' + s.name;
+      html += '</div>';
+    });
+    html += '</div>';
+    pop.innerHTML = html;
+
+    // Reposition if near edge
+    var popRect = pop.getBoundingClientRect();
+    if (popRect.right > window.innerWidth - 8) pop.style.left = (window.innerWidth - popRect.width - 8) + 'px';
+    if (popRect.bottom > window.innerHeight - 8) pop.style.top = (rect.top - popRect.height - 6) + 'px';
+  } catch (e) {
+    pop.innerHTML = '<div style="padding:12px;font-size:12px;color:#E74C3C;">Error loading steps</div>';
   }
 }
 
