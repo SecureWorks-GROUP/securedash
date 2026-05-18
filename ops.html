@@ -7523,10 +7523,21 @@ async function kanbanDrop(e) {
     });
   }
   if (dropJob && dropJob.type === 'patio' && dropJob.council_required == null && !dropJob.council_count) {
+    var kc0 = document.querySelector('#jobsBody .kanban-container');
+    _kanbanSavedScroll = kc0 ? kc0.scrollLeft : 0;
+    if (_pipelineData) renderJobs(_pipelineData);
     showToast('Council decision required before moving this patio job.', 'warning', [
       { label: 'Council Yes', primary: true, onclick: "setCouncilRequired('" + jobId + "',true)" },
       { label: 'Council No', primary: false, onclick: "setCouncilRequired('" + jobId + "',false)" }
     ]);
+    return;
+  }
+  // Block non-council jobs from entering Approvals
+  if (toStatus === 'approvals' && dropJob && dropJob.council_required !== true) {
+    var kc0b = document.querySelector('#jobsBody .kanban-container');
+    _kanbanSavedScroll = kc0b ? kc0b.scrollLeft : 0;
+    if (_pipelineData) renderJobs(_pipelineData);
+    showToast('Only council-required jobs can be moved to Approvals.', 'warning');
     return;
   }
   try {
@@ -9809,10 +9820,18 @@ function confirmStepChange(jobId, targetStatus, targetIdx, currentIdx) {
     });
   }
   if (stepJob && stepJob.type === 'patio' && stepJob.council_required == null && !stepJob.council_count) {
+    var kc1 = document.querySelector('#jobsBody .kanban-container');
+    _kanbanSavedScroll = kc1 ? kc1.scrollLeft : 0;
+    if (_pipelineData) renderJobs(_pipelineData);
     showToast('Council decision required before moving this patio job.', 'warning', [
       { label: 'Council Yes', primary: true, onclick: "setCouncilRequired('" + jobId + "',true)" },
       { label: 'Council No', primary: false, onclick: "setCouncilRequired('" + jobId + "',false)" }
     ]);
+    return;
+  }
+  // Block non-council jobs from entering Approvals
+  if (targetStatus === 'approvals' && stepJob && stepJob.council_required !== true) {
+    showToast('Only council-required jobs can be moved to Approvals.', 'warning');
     return;
   }
   if (targetStatus === 'complete') {
@@ -12046,7 +12065,10 @@ async function setCouncilRequired(jobId, value) {
         arr.forEach(function(j) { if (j.id === jobId) j.council_required = value; });
       });
     }
-    refreshActiveView();
+    // Re-render kanban from cached data, preserving scroll
+    var kc = document.querySelector('#jobsBody .kanban-container');
+    _kanbanSavedScroll = kc ? kc.scrollLeft : 0;
+    if (_pipelineData) renderJobs(_pipelineData);
     // Re-show popover if still open for this job
     if (_hoverPopover && _hoverJobId === jobId) {
       var anchor = document.querySelector('[data-job-id="' + jobId + '"]');
@@ -12135,6 +12157,9 @@ async function changeJobStatus(jobId, status) {
       });
     }
     if (gateJob && gateJob.type === 'patio' && gateJob.council_required == null && !gateJob.council_count) {
+      var kc2 = document.querySelector('#jobsBody .kanban-container');
+      _kanbanSavedScroll = kc2 ? kc2.scrollLeft : 0;
+      if (_pipelineData) renderJobs(_pipelineData);
       showToast('Council decision required before moving this patio job.', 'warning', [
         { label: 'Council Yes', primary: true, onclick: "setCouncilRequired('" + jobId + "',true)" },
         { label: 'Council No', primary: false, onclick: "setCouncilRequired('" + jobId + "',false)" }
