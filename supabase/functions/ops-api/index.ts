@@ -3205,7 +3205,7 @@ async function pipeline(client: any, params: URLSearchParams) {
   const search = params.get('search') || ''
 
   let query = client.from('jobs')
-    .select('id, type, status, client_name, client_phone, site_address, site_suburb, pricing_json, ghl_contact_id, ghl_opportunity_id, job_number, accepted_at, approvals_at, deposit_at, processing_at, scheduled_at, completed_at, created_at, updated_at, deposit_invoice_id, deposit_amount, council_required')
+    .select('id, type, status, client_name, client_phone, client_email, site_address, site_suburb, pricing_json, ghl_contact_id, ghl_opportunity_id, job_number, accepted_at, approvals_at, deposit_at, processing_at, scheduled_at, completed_at, created_at, updated_at, deposit_invoice_id, deposit_amount, council_required')
     .eq('org_id', DEFAULT_ORG_ID)
     .or('legacy.is.null,legacy.eq.false')
     // Show all jobs with a job_number, plus any active-stage job even without one.
@@ -3584,18 +3584,12 @@ async function listInvoices(client: any, params: URLSearchParams) {
 async function listQuotes(client: any, params: URLSearchParams) {
   const typeFilter = params.get('type')
   const search = params.get('search') || ''
-  const statusFilter = params.get('status') || 'all'
-
-  const allStatuses = ['draft', 'quoted', 'accepted', 'declined']
-  const filterStatuses = statusFilter === 'all' ? allStatuses
-    : statusFilter === 'sent' ? ['quoted'] // sent = quoted + sent_to_client, filtered client-side
-    : [statusFilter]
 
   let query = client.from('jobs')
-    .select('id, type, status, client_name, client_phone, client_email, site_address, site_suburb, job_number, pricing_json, sent_to_client, sent_at, viewed_at, accepted_at, declined_at, created_at, updated_at')
+    .select('id, type, status, client_name, client_phone, client_email, site_address, site_suburb, job_number, pricing_json, quoted_at, accepted_at, created_at, updated_at')
     .eq('org_id', DEFAULT_ORG_ID)
     .not('legacy', 'is', true)
-    .in('status', filterStatuses)
+    .in('status', ['draft', 'quoted', 'accepted'])
     .order('created_at', { ascending: false })
     .limit(500)
 
@@ -3612,23 +3606,14 @@ async function listQuotes(client: any, params: URLSearchParams) {
       || (j.job_number || '').toLowerCase().includes(s)
   })
 
-  // Build counts from unfiltered data for chip badges
-  const countQuery = client.from('jobs')
-    .select('status, sent_to_client, accepted_at, declined_at', { count: 'exact', head: false })
-    .eq('org_id', DEFAULT_ORG_ID)
-    .not('legacy', 'is', true)
-    .in('status', allStatuses)
-
-  const { data: countData } = await countQuery
-  const counts = { draft: 0, sent: 0, accepted: 0, declined: 0, all: 0 }
-  for (const j of (countData || [])) {
-    counts.all++
+  // Build counts per status for chip badges
+  const counts = { draft: 0, sent: 0, accepted: 0, all: 0 }
+  for (const j of (data || [])) {
     if (j.status === 'draft') counts.draft++
-    else if (j.status === 'accepted' || j.accepted_at) counts.accepted++
-    else if (j.status === 'declined' || j.declined_at) counts.declined++
-    else if (j.sent_to_client) counts.sent++
-    else counts.draft++ // quoted but not sent = draft
+    else if (j.status === 'quoted') counts.sent++
+    else if (j.status === 'accepted') counts.accepted++
   }
+  counts.all = counts.draft + counts.sent + counts.accepted
 
   return { quotes, total: quotes.length, counts }
 }
