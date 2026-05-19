@@ -2712,7 +2712,6 @@
           <button class="filter-chip" onclick="filterQuoteStatus('draft')" data-quote-status="draft">Draft</button>
           <button class="filter-chip" onclick="filterQuoteStatus('sent')" data-quote-status="sent">Sent</button>
           <button class="filter-chip" onclick="filterQuoteStatus('accepted')" data-quote-status="accepted">Accepted</button>
-          <button class="filter-chip" onclick="filterQuoteStatus('declined')" data-quote-status="declined">Declined</button>
           <input type="text" class="filter-search" id="quoteSearch" placeholder="Search client, job#, suburb..." oninput="filterQuoteSearch()" style="width:180px;">
         </div>
         <div class="data-table-wrap">
@@ -2725,8 +2724,7 @@
                 <th onclick="sortTable('quoteTable',3,'string')">Type</th>
                 <th onclick="sortTable('quoteTable',4,'string')">Status</th>
                 <th onclick="sortTable('quoteTable',5,'date')">Sent</th>
-                <th onclick="sortTable('quoteTable',6,'date')">Viewed</th>
-                <th onclick="sortTable('quoteTable',7,'number')">Total</th>
+                <th onclick="sortTable('quoteTable',6,'number')">Total</th>
               </tr>
             </thead>
             <tbody id="quoteTableBody"></tbody>
@@ -8208,35 +8206,89 @@ function renderWOTable(wos) {
   tbody.innerHTML = html;
 }
 
+function filterQuoteStatus(status) {
+  _quoteStatusFilter = status;
+  document.querySelectorAll('[data-quote-status]').forEach(function(el) {
+    el.classList.toggle('active', el.dataset.quoteStatus === status);
+  });
+  renderQuoteTable(_allQuotes);
+}
+
+function filterQuoteSearch() {
+  _quoteSearchQuery = (document.getElementById('quoteSearch').value || '').toLowerCase();
+  renderQuoteTable(_allQuotes);
+}
+
+function getQuoteStatus(q) {
+  if (q.status === 'accepted') return 'accepted';
+  if (q.status === 'quoted') return 'sent';
+  return 'draft';
+}
+
+function renderQuoteTable(quotes) {
+  var tbody = document.getElementById('quoteTableBody');
+  var filtered = (quotes || []).slice();
+
+  // Status filter
+  if (_quoteStatusFilter !== 'all') {
+    filtered = filtered.filter(function(q) { return getQuoteStatus(q) === _quoteStatusFilter; });
+  }
+
+  // Search filter
+  if (_quoteSearchQuery) {
+    filtered = filtered.filter(function(q) {
+      return (q.client_name || '').toLowerCase().includes(_quoteSearchQuery)
+        || (q.job_number || '').toLowerCase().includes(_quoteSearchQuery)
+        || (q.site_suburb || '').toLowerCase().includes(_quoteSearchQuery);
+    });
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No quotes found</td></tr>';
+    return;
+  }
+
+  var STATUS_LABELS = { draft: 'Draft', sent: 'Sent', accepted: 'Accepted' };
+  var STATUS_CLASSES = { draft: 'draft', sent: 'sent', accepted: 'accepted' };
+  var TYPE_LABELS = { patio: 'Patio', fencing: 'Fencing', decking: 'Decking' };
+
+  var html = '';
+  filtered.forEach(function(q) {
+    var qs = getQuoteStatus(q);
+    var total = 0;
+    try { total = q.pricing_json && q.pricing_json.totals ? (q.pricing_json.totals.total_inc_gst || q.pricing_json.totals.totalIncGst || 0) : 0; } catch(e) {}
+    html += '<tr style="cursor:pointer;" onclick="openJobPeek(\'' + q.id + '\')">';
+    html += '<td><strong>' + (q.job_number || '-') + '</strong></td>';
+    html += '<td>' + (q.client_name || '-') + '</td>';
+    html += '<td>' + (q.site_suburb || '-') + '</td>';
+    html += '<td>' + (TYPE_LABELS[q.type] || q.type || '-') + '</td>';
+    html += '<td><span class="status-badge ' + (STATUS_CLASSES[qs] || 'draft') + '">' + (STATUS_LABELS[qs] || qs) + '</span></td>';
+    html += '<td>' + (q.quoted_at ? fmtDate(q.quoted_at.slice(0, 10)) : '-') + '</td>';
+    html += '<td style="font-family:var(--sw-font-num);">' + (total ? fmt$(total) : '-') + '</td>';
+    html += '</tr>';
+  });
+  tbody.innerHTML = html;
+}
+
 async function loadQuotes() {
-  // Fetch quotes via ops-api (direct Supabase blocked by RLS)
   var tbody = document.getElementById('quoteTableBody');
   try {
     var data = await opsFetch('list_quotes');
-    var quotes = data.quotes || [];
+    _allQuotes = data.quotes || [];
 
-    if (quotes.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No quotes found</td></tr>';
-      return;
-    }
-
-    var html = '';
-    quotes.forEach(function(q) {
-      var status = q.accepted_at ? 'Accepted' : q.declined_at ? 'Declined' : q.sent_to_client ? 'Sent' : 'Draft';
-      var statusClass = q.accepted_at ? 'accepted' : q.declined_at ? 'overdue' : q.sent_to_client ? 'sent' : 'draft';
-      html += '<tr>';
-      html += '<td>' + fmtDate(q.created_at ? q.created_at.slice(0, 10) : '') + '</td>';
-      html += '<td>' + (q.job_id ? '<a href="#" onclick="openJobPeek(\'' + q.job_id + '\');return false;">View</a>' : '-') + '</td>';
-      html += '<td>' + (q.client_name || '-') + '</td>';
-      html += '<td><span class="status-badge ' + statusClass + '">' + status + '</span></td>';
-      html += '<td>' + (q.sent_at ? fmtDate(q.sent_at.slice(0, 10)) : '-') + '</td>';
-      html += '<td>' + (q.viewed_at ? fmtDate(q.viewed_at.slice(0, 10)) : '-') + '</td>';
-      html += '</tr>';
+    // Update chip counts
+    var counts = data.counts || {};
+    document.querySelectorAll('[data-quote-status]').forEach(function(el) {
+      var s = el.dataset.quoteStatus;
+      var c = s === 'all' ? (counts.all || 0) : (counts[s] || 0);
+      var label = el.textContent.replace(/\s*\d+$/, '');
+      el.textContent = label + ' ' + c;
     });
-    tbody.innerHTML = html;
+
+    renderQuoteTable(_allQuotes);
   } catch (e) {
     console.error('loadQuotes error:', e);
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load quotes</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load quotes</td></tr>';
   }
 }
 
