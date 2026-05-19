@@ -1247,6 +1247,7 @@ serve(async (req: Request) => {
       // ── Spine: Council/Engineering ──
       case 'create_council_submission': return json(await createCouncilSubmission(client, body))
       case 'update_council_status': return json(await updateCouncilStatus(client, body))
+      case 'jump_council_step': return json(await jumpCouncilStep(client, body))
       case 'send_council_email': return json(await sendCouncilEmail(client, body))
       case 'send_council_sms': return json(await sendCouncilSMS(client, body))
       case 'list_council_submissions': return json(await listCouncilSubmissions(client, url.searchParams))
@@ -3583,14 +3584,20 @@ async function listInvoices(client: any, params: URLSearchParams) {
 async function listQuotes(client: any, params: URLSearchParams) {
   const typeFilter = params.get('type')
   const search = params.get('search') || ''
+  const statusFilter = params.get('status') || 'all'
+
+  const allStatuses = ['draft', 'quoted', 'accepted', 'declined']
+  const filterStatuses = statusFilter === 'all' ? allStatuses
+    : statusFilter === 'sent' ? ['quoted'] // sent = quoted + sent_to_client, filtered client-side
+    : [statusFilter]
 
   let query = client.from('jobs')
-    .select('id, type, status, client_name, client_phone, client_email, site_address, site_suburb, job_number, pricing_json, created_at, updated_at, notes')
+    .select('id, type, status, client_name, client_phone, client_email, site_address, site_suburb, job_number, pricing_json, sent_to_client, sent_at, viewed_at, accepted_at, declined_at, created_at, updated_at')
     .eq('org_id', DEFAULT_ORG_ID)
     .not('legacy', 'is', true)
-    .in('status', ['quoted', 'draft'])
+    .in('status', filterStatuses)
     .order('created_at', { ascending: false })
-    .limit(100)
+    .limit(500)
 
   if (typeFilter) query = query.eq('type', typeFilter)
 
@@ -3602,9 +3609,28 @@ async function listQuotes(client: any, params: URLSearchParams) {
     const s = search.toLowerCase()
     return (j.client_name || '').toLowerCase().includes(s)
       || (j.site_suburb || '').toLowerCase().includes(s)
+      || (j.job_number || '').toLowerCase().includes(s)
   })
 
-  return { quotes, total: quotes.length }
+  // Build counts from unfiltered data for chip badges
+  const countQuery = client.from('jobs')
+    .select('status, sent_to_client, accepted_at, declined_at', { count: 'exact', head: false })
+    .eq('org_id', DEFAULT_ORG_ID)
+    .not('legacy', 'is', true)
+    .in('status', allStatuses)
+
+  const { data: countData } = await countQuery
+  const counts = { draft: 0, sent: 0, accepted: 0, declined: 0, all: 0 }
+  for (const j of (countData || [])) {
+    counts.all++
+    if (j.status === 'draft') counts.draft++
+    else if (j.status === 'accepted' || j.accepted_at) counts.accepted++
+    else if (j.status === 'declined' || j.declined_at) counts.declined++
+    else if (j.sent_to_client) counts.sent++
+    else counts.draft++ // quoted but not sent = draft
+  }
+
+  return { quotes, total: quotes.length, counts }
 }
 
 async function listPOs(client: any, params: URLSearchParams) {
@@ -4117,7 +4143,7 @@ async function updateJobStatus(client: any, body: any) {
 
   // Capture old status + job data for business_events dual-write
   const { data: jobBefore } = await client.from('jobs')
-    .select('status, job_number, client_name, pricing_json')
+    .select('status, job_number, client_name, pricing_json, type, council_required')
     .eq('id', jId).single()
   const oldStatus = jobBefore?.status || 'unknown'
 
@@ -4146,6 +4172,17 @@ async function updateJobStatus(client: any, body: any) {
     .single()
 
   if (error) throw error
+
+  // Auto-create council submission when council-required patio enters approvals
+  if (status === 'approvals' && jobBefore?.type === 'patio' && jobBefore?.council_required === true) {
+    const { data: existingSub } = await client.from('council_submissions')
+      .select('id').eq('job_id', jId).maybeSingle()
+    if (!existingSub) {
+      try {
+        await createCouncilSubmission(client, { job_id: jId, template_type: 'standard_council' })
+      } catch (_) { /* non-blocking — submission can be created manually */ }
+    }
+  }
 
   const source = body.source || 'ops_dashboard'
   await client.from('job_events').insert({
@@ -10997,6 +11034,72 @@ async function updateCouncilStatus(client: any, body: any) {
   })
 
   return { success: true, overall_status: overallStatus, step: steps[idx] }
+}
+
+async function jumpCouncilStep(client: any, body: any) {
+  const { submission_id, target_step_index } = body
+  if (!submission_id || target_step_index == null) throw new Error('submission_id and target_step_index required')
+
+  const { data: sub } = await client.from('council_submissions')
+    .select('id, job_id, steps, current_step_index')
+    .eq('id', submission_id)
+    .single()
+  if (!sub) throw new Error('Submission not found')
+
+  const steps = sub.steps || []
+  const target = Number(target_step_index)
+  if (target < 0 || target >= steps.length) throw new Error('target_step_index out of range')
+
+  const now = new Date().toISOString()
+
+  // Steps before target -> complete (skipped gaps only for Development Approval)
+  for (let i = 0; i < target; i++) {
+    if (steps[i].status === 'complete' || steps[i].status === 'skipped') {
+      // Already complete/skipped -> leave as is
+    } else if (steps[i].name === 'Development Approval' && steps[i].status === 'pending') {
+      // Development Approval skipped only if never touched (still pending)
+      steps[i].status = 'skipped'
+      steps[i].started_at = null
+      steps[i].completed_at = null
+    } else {
+      steps[i].status = 'complete'
+      if (!steps[i].completed_at) steps[i].completed_at = now
+      if (!steps[i].started_at) steps[i].started_at = now
+    }
+  }
+
+  // Target step -> in_progress
+  steps[target].status = 'in_progress'
+  if (!steps[target].started_at) steps[target].started_at = now
+  steps[target].completed_at = null
+
+  // Steps after target -> pending (reset)
+  for (let i = target + 1; i < steps.length; i++) {
+    steps[i].status = 'pending'
+    steps[i].started_at = null
+    steps[i].completed_at = null
+  }
+
+  const overallStatus = target === 0 && steps.length > 1 ? 'in_progress' : steps.every((s: any) => s.status === 'complete') ? 'complete' : 'in_progress'
+
+  await client.from('council_submissions').update({
+    steps,
+    current_step_index: target,
+    overall_status: overallStatus,
+    updated_at: now,
+  }).eq('id', submission_id)
+
+  const { data: job } = await client.from('jobs').select('job_number').eq('id', sub.job_id).maybeSingle()
+
+  logBusinessEvent(client, {
+    event_type: 'council.step_jumped',
+    entity_type: 'council_submission',
+    entity_id: submission_id,
+    job_id: job?.job_number || sub.job_id,
+    payload: { target_step: target, step_name: steps[target].name, overall_status: overallStatus },
+  })
+
+  return { success: true, overall_status: overallStatus, current_step_index: target, steps }
 }
 
 async function sendCouncilEmail(client: any, body: any) {

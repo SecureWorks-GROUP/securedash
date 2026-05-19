@@ -2707,10 +2707,27 @@
 
       <!-- Quotes -->
       <div id="subQuotes" class="sub-view">
+        <div class="filter-bar">
+          <button class="filter-chip active" onclick="filterQuoteStatus('all')" data-quote-status="all">All</button>
+          <button class="filter-chip" onclick="filterQuoteStatus('draft')" data-quote-status="draft">Draft</button>
+          <button class="filter-chip" onclick="filterQuoteStatus('sent')" data-quote-status="sent">Sent</button>
+          <button class="filter-chip" onclick="filterQuoteStatus('accepted')" data-quote-status="accepted">Accepted</button>
+          <button class="filter-chip" onclick="filterQuoteStatus('declined')" data-quote-status="declined">Declined</button>
+          <input type="text" class="filter-search" id="quoteSearch" placeholder="Search client, job#, suburb..." oninput="filterQuoteSearch()" style="width:180px;">
+        </div>
         <div class="data-table-wrap">
           <table class="data-table" id="quoteTable">
             <thead>
-              <tr><th>Date</th><th>Job</th><th>Client</th><th>Status</th><th>Sent</th><th>Viewed</th></tr>
+              <tr>
+                <th onclick="sortTable('quoteTable',0,'string')">Job #</th>
+                <th onclick="sortTable('quoteTable',1,'string')">Customer</th>
+                <th onclick="sortTable('quoteTable',2,'string')">Suburb</th>
+                <th onclick="sortTable('quoteTable',3,'string')">Type</th>
+                <th onclick="sortTable('quoteTable',4,'string')">Status</th>
+                <th onclick="sortTable('quoteTable',5,'date')">Sent</th>
+                <th onclick="sortTable('quoteTable',6,'date')">Viewed</th>
+                <th onclick="sortTable('quoteTable',7,'number')">Total</th>
+              </tr>
             </thead>
             <tbody id="quoteTableBody"></tbody>
           </table>
@@ -3821,6 +3838,9 @@ var _jobSearch = '';
 var _invFilter = 'ACCREC';
 var _invStatusFilter = 'all'; // 'all', 'DRAFT', 'AUTHORISED', 'PAID', 'overdue'
 var _poStatusFilter = 'all'; // 'all', 'draft', 'submitted', 'authorised', 'billed'
+var _quoteStatusFilter = 'all'; // 'all', 'draft', 'sent', 'accepted', 'declined'
+var _quoteSearchQuery = '';
+var _allQuotes = [];
 var _invJobCache = null; // cached job data for invoice modal
 var _calEvents = [];
 var _calDeliveries = [];
@@ -12115,13 +12135,14 @@ async function showCouncilSteps(anchor, jobId) {
 
     var html = '<div style="padding:10px 14px 6px;font-weight:600;font-size:12px;color:var(--sw-dark);border-bottom:1px solid var(--sw-border,#e5e7eb);">Council Steps</div>';
     html += '<div style="padding:8px 14px 10px;">';
+    var subId = sub.id;
     steps.forEach(function(s, i) {
       var isCurrent = i === currentIdx && s.status !== 'complete' && s.status !== 'skipped';
       var isComplete = s.status === 'complete';
       var isSkipped = s.status === 'skipped';
       var icon = isComplete ? '<span style="color:#27AE60;">&#10003;</span>' : isSkipped ? '<span style="color:var(--sw-text-sec);">&#8212;</span>' : isCurrent ? '<span style="color:var(--sw-blue,#3498DB);">&#9658;</span>' : '<span style="color:var(--sw-border,#ccc);">&#9675;</span>';
       var weight = isCurrent ? 'font-weight:600;color:var(--sw-blue,#3498DB);' : isComplete ? 'color:#27AE60;' : isSkipped ? 'color:var(--sw-text-sec);text-decoration:line-through;' : 'color:var(--sw-text-sec);';
-      html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;' + weight + '">';
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;cursor:pointer;border-radius:4px;padding:5px 4px;' + weight + '" onmouseenter="this.style.background=\'rgba(52,152,219,0.08)\'" onmouseleave="this.style.background=\'transparent\'" onclick="setCouncilStep(\'' + subId + '\',' + i + ',\'' + jobId + '\')">';
       html += icon + ' ' + (i + 1) + '. ' + s.name;
       html += '</div>';
     });
@@ -12134,6 +12155,53 @@ async function showCouncilSteps(anchor, jobId) {
     if (popRect.bottom > window.innerHeight - 8) pop.style.top = (rect.top - popRect.height - 6) + 'px';
   } catch (e) {
     pop.innerHTML = '<div style="padding:12px;font-size:12px;color:#E74C3C;">Error loading steps</div>';
+  }
+}
+
+async function setCouncilStep(submissionId, stepIndex, jobId) {
+  try {
+    var result = await opsPost('jump_council_step', { submission_id: submissionId, target_step_index: stepIndex });
+    // Update badge on kanban card
+    if (_pipelineData && _pipelineData.columns) {
+      Object.values(_pipelineData.columns).forEach(function(arr) {
+        arr.forEach(function(j) {
+          if (j.id === jobId) {
+            j.council_step = (stepIndex + 1) + '/' + (result.steps ? result.steps.length : 7);
+          }
+        });
+      });
+    }
+    // Re-render the popup in place
+    if (_councilStepPopup) {
+      var anchor = _councilStepPopup;
+      var pop = _councilStepPopup;
+      var steps = result.steps || [];
+      var currentIdx = result.current_step_index;
+      var html = '<div style="padding:10px 14px 6px;font-weight:600;font-size:12px;color:var(--sw-dark);border-bottom:1px solid var(--sw-border,#e5e7eb);">Council Steps</div>';
+      html += '<div style="padding:8px 14px 10px;">';
+      steps.forEach(function(s, i) {
+        var isCurrent = i === currentIdx && s.status !== 'complete' && s.status !== 'skipped';
+        var isComplete = s.status === 'complete';
+        var isSkipped = s.status === 'skipped';
+        var icon = isComplete ? '<span style="color:#27AE60;">&#10003;</span>' : isSkipped ? '<span style="color:var(--sw-text-sec);">&#8212;</span>' : isCurrent ? '<span style="color:var(--sw-blue,#3498DB);">&#9658;</span>' : '<span style="color:var(--sw-border,#ccc);">&#9675;</span>';
+        var weight = isCurrent ? 'font-weight:600;color:var(--sw-blue,#3498DB);' : isComplete ? 'color:#27AE60;' : isSkipped ? 'color:var(--sw-text-sec);text-decoration:line-through;' : 'color:var(--sw-text-sec);';
+        html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;cursor:pointer;border-radius:4px;padding:5px 4px;' + weight + '" onmouseenter="this.style.background=\'rgba(52,152,219,0.08)\'" onmouseleave="this.style.background=\'transparent\'" onclick="setCouncilStep(\'' + submissionId + '\',' + i + ',\'' + jobId + '\')">';
+        html += icon + ' ' + (i + 1) + '. ' + s.name;
+        html += '</div>';
+      });
+      html += '</div>';
+      pop.innerHTML = html;
+    }
+    // Update the badge text on the kanban card
+    var badges = document.querySelectorAll('.council-step-badge');
+    badges.forEach(function(b) {
+      if (b.getAttribute('onclick') && b.getAttribute('onclick').indexOf(jobId) !== -1) {
+        b.textContent = 'Step ' + (stepIndex + 1) + '/' + (result.steps ? result.steps.length : 7);
+      }
+    });
+    showToast('Council step updated to: ' + (result.steps ? result.steps[stepIndex].name : 'Step ' + (stepIndex + 1)), 'success');
+  } catch (e) {
+    showToast('Failed to update council step: ' + e.message, 'error');
   }
 }
 
