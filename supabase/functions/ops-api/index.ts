@@ -595,6 +595,7 @@ serve(async (req: Request) => {
       case 'ops_summary': return json(await opsSummary(client))
       case 'calendar': return json(await calendarEvents(client, url.searchParams))
       case 'pipeline': return json(await pipeline(client, url.searchParams))
+      case 'search_jobs': return json(await searchJobs(client, url.searchParams))
       case 'job_detail': {
         let jid = url.searchParams.get('jobId') || url.searchParams.get('job_id') || ''
         // If not a UUID, try resolving as job_number (e.g. SWF-26037)
@@ -3372,6 +3373,88 @@ async function pipeline(client: any, params: URLSearchParams) {
   }
 
   return { columns, total: enriched.length }
+}
+
+async function searchJobs(client: any, params: URLSearchParams) {
+  const q = (params.get('q') || '').trim()
+  if (!q || q.length < 2) return { results: [] }
+
+  const term = `%${q}%`
+
+  // Search across jobs, invoices, quotes, contacts in parallel
+  const [jobRes, invoiceRes, contactRes, quoteRes] = await Promise.all([
+    // Direct job fields: client name, job number, address, suburb, email, phone
+    client.from('jobs')
+      .select('id, job_number, client_name, client_email, client_phone, site_address, site_suburb, type, status')
+      .eq('org_id', DEFAULT_ORG_ID)
+      .or('legacy.is.null,legacy.eq.false')
+      .or(`client_name.ilike.${term},job_number.ilike.${term},site_address.ilike.${term},site_suburb.ilike.${term},client_email.ilike.${term},client_phone.ilike.${term}`)
+      .not('status', 'in', '("lost","cancelled","draft")')
+      .order('updated_at', { ascending: false })
+      .limit(20),
+    // Xero invoices: reference or invoice number
+    client.from('xero_invoices')
+      .select('job_id, reference, invoice_number, status, invoice_type')
+      .or(`reference.ilike.${term},invoice_number.ilike.${term}`)
+      .not('status', 'in', '("VOIDED","DELETED")')
+      .limit(10),
+    // Job contacts (neighbours etc): name, email, phone
+    client.from('job_contacts')
+      .select('job_id, client_name, contact_label, client_email, client_phone')
+      .eq('status', 'active')
+      .or(`client_name.ilike.${term},client_email.ilike.${term},client_phone.ilike.${term}`)
+      .limit(10),
+    // Quote revisions: quote number
+    client.from('quote_revisions')
+      .select('job_id, quote_number')
+      .ilike('quote_number', term)
+      .limit(10),
+  ])
+
+  // Collect all matched job IDs from secondary tables
+  const secondaryJobIds = new Set<string>()
+  const matchContext: Record<string, string> = {} // jobId -> why it matched
+
+  for (const inv of (invoiceRes.data || [])) {
+    if (inv.job_id) {
+      secondaryJobIds.add(inv.job_id)
+      matchContext[inv.job_id] = `Invoice: ${inv.invoice_number || inv.reference || ''}`
+    }
+  }
+  for (const c of (contactRes.data || [])) {
+    if (c.job_id) {
+      secondaryJobIds.add(c.job_id)
+      matchContext[c.job_id] = `Contact: ${c.client_name || ''} (${c.contact_label || 'neighbour'})`
+    }
+  }
+  for (const qr of (quoteRes.data || [])) {
+    if (qr.job_id) {
+      secondaryJobIds.add(qr.job_id)
+      matchContext[qr.job_id] = `Quote: ${qr.quote_number}`
+    }
+  }
+
+  // Remove IDs already in direct results
+  const directIds = new Set((jobRes.data || []).map((j: any) => j.id))
+  const extraIds = [...secondaryJobIds].filter(id => !directIds.has(id))
+
+  // Fetch job info for secondary matches
+  let extraJobs: any[] = []
+  if (extraIds.length > 0) {
+    const { data } = await client.from('jobs')
+      .select('id, job_number, client_name, client_email, client_phone, site_address, site_suburb, type, status')
+      .in('id', extraIds)
+      .not('status', 'in', '("lost","cancelled","draft")')
+    extraJobs = data || []
+  }
+
+  // Combine and format results
+  const results = [
+    ...(jobRes.data || []).map((j: any) => ({ ...j, match_source: 'job' })),
+    ...extraJobs.map((j: any) => ({ ...j, match_source: matchContext[j.id] || 'related' })),
+  ].filter((j: any) => !isTestRecord(j.client_name)).slice(0, 15)
+
+  return { results }
 }
 
 async function jobDetail(client: any, jobId: string) {
