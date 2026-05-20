@@ -1276,6 +1276,7 @@ serve(async (req: Request) => {
       case 'confirm_document_upload': return json(await confirmDocumentUpload(client, body))
       case 'toggle_document_visibility': return json(await toggleDocumentVisibility(client, body))
       case 'delete_document': return json(await deleteDocument(client, body))
+      case 'delete_media': return json(await deleteMedia(client, body))
 
       // ── Proposed Actions (SMS drafts etc.) ──
       case 'list_proposed_actions': return json(await listProposedActions(client, url.searchParams))
@@ -7607,6 +7608,53 @@ async function deleteDocument(client: any, body: any) {
     entity_id: dId,
     job_id: doc.job_id,
     payload: { type: doc.type, file_name: doc.file_name },
+    metadata: { operator: body.operator_email || null },
+  })
+
+  return { success: true }
+}
+
+async function deleteMedia(client: any, body: any) {
+  const mediaId = body.mediaId || body.media_id
+  if (!mediaId) throw new Error('mediaId required')
+
+  const { data: media, error: fetchErr } = await client
+    .from('job_media')
+    .select('id, job_id, storage_url, label, phase')
+    .eq('id', mediaId)
+    .single()
+
+  if (fetchErr) throw fetchErr
+  if (!media) throw new Error('Media not found')
+
+  // Delete from storage
+  if (media.storage_url) {
+    try {
+      const bucket = 'job-photos'
+      const urlParts = media.storage_url.split(`/storage/v1/object/public/${bucket}/`)
+      if (urlParts.length > 1) {
+        await client.storage.from(bucket).remove([urlParts[1]])
+      }
+    } catch (e) {
+      console.log('[ops-api] Storage delete failed (non-blocking):', (e as Error).message)
+    }
+  }
+
+  const { error: delErr } = await client.from('job_media').delete().eq('id', mediaId)
+  if (delErr) throw delErr
+
+  await client.from('job_events').insert({
+    job_id: media.job_id,
+    event_type: 'media_deleted',
+    detail_json: { media_id: mediaId, label: media.label, phase: media.phase },
+  })
+
+  logBusinessEvent(client, {
+    event_type: 'media.deleted',
+    entity_type: 'job_media',
+    entity_id: mediaId,
+    job_id: media.job_id,
+    payload: { label: media.label, phase: media.phase },
     metadata: { operator: body.operator_email || null },
   })
 

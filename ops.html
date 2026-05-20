@@ -1725,6 +1725,16 @@
       font-size: 9px; background: rgba(0,0,0,0.6); color: #fff;
       padding: 1px 5px; border-radius: 3px;
     }
+    .jd-photo-delete {
+      position: absolute; top: 4px; right: 4px;
+      width: 20px; height: 20px; border-radius: 50%;
+      background: rgba(0,0,0,0.55); color: #fff;
+      border: none; cursor: pointer; font-size: 13px; line-height: 20px;
+      text-align: center; padding: 0; opacity: 0;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    .jd-photo-item:hover .jd-photo-delete { opacity: 1; }
+    .jd-photo-delete:hover { background: #E74C3C; }
     .jd-notes-feed { margin-top: 12px; }
     .jd-note-item {
       padding: 8px 0; border-bottom: 1px solid var(--sw-border);
@@ -11161,6 +11171,7 @@ function renderFilesView(data) {
       var src = m.thumbnail_url || m.storage_url;
       html += '<div class="jd-photo-item">';
       html += '<img src="' + escapeHtml(src) + '" alt="' + escapeHtml(m.label || m.phase || '') + '" onclick="window.open(\'' + escapeHtml(m.storage_url) + '\',\'_blank\')">';
+      html += '<button class="jd-photo-delete" onclick="event.stopPropagation();deleteMedia(\'' + m.id + '\')" title="Delete photo">&times;</button>';
       if (m.phase) html += '<span class="jd-photo-phase">' + m.phase + '</span>';
       html += '</div>';
     });
@@ -11178,6 +11189,7 @@ function renderFilesView(data) {
       var poLabel = m.po_id && poLookup[m.po_id] ? poLookup[m.po_id] : 'No PO';
       html += '<div class="jd-photo-item">';
       html += '<img src="' + escapeHtml(src) + '" alt="Receipt" onclick="window.open(\'' + escapeHtml(m.storage_url) + '\',\'_blank\')">';
+      html += '<button class="jd-photo-delete" onclick="event.stopPropagation();deleteMedia(\'' + m.id + '\')" title="Delete photo">&times;</button>';
       html += '<span class="jd-photo-phase">' + poLabel + '</span>';
       html += '</div>';
     });
@@ -11401,6 +11413,17 @@ window.deleteDocument = async function(docId, fileName) {
     if (_currentJobId) refreshJobDetail();
   } catch (err) {
     alert('Error: ' + (err.message || err));
+  }
+};
+
+window.deleteMedia = async function(mediaId) {
+  if (!confirm('Delete this photo? This cannot be undone.')) return;
+  try {
+    await opsPost('delete_media', { mediaId: mediaId });
+    showToast('Photo deleted', 'success');
+    if (_currentJobId) refreshJobDetail();
+  } catch (err) {
+    showToast('Error: ' + (err.message || err), 'warning');
   }
 };
 
