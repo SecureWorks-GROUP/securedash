@@ -3193,9 +3193,32 @@ async function calendarEvents(client: any, params: URLSearchParams) {
   }
 
   // Strip heavy fields (scope_json used above for readiness but not needed in response)
+  // Preserve lightweight run_breakdown for fencing jobs before stripping scope_json
   const lightEvents = (events || []).map((e: any) => {
+    let run_breakdown = null
+    let core_drill = false
+    let asbestos = false
+    let removal_length = 0
+    if (e.job_type === 'fencing' && e.scope_json) {
+      try {
+        const scope = typeof e.scope_json === 'string' ? JSON.parse(e.scope_json) : e.scope_json
+        const runs = scope?.job?.runs || scope?.sections || []
+        if (runs.length > 0) {
+          run_breakdown = runs.map((r: any, i: number) => ({
+            name: r.name || r.label || ('Run ' + (i + 1)),
+            panels: (r.panels || []).length,
+            length: parseFloat(r.length) || 0
+          }))
+        }
+        if (scope?.job?.installation?.coreDrill) core_drill = true
+        if (scope?.job?.removal?.existingFenceType === 'asbestos') {
+          asbestos = true
+          removal_length = parseFloat(scope?.job?.removal?.existingFenceLength) || 0
+        }
+      } catch (_) { /* ignore parse errors */ }
+    }
     const { scope_json, org_id, ...rest } = e
-    return rest
+    return { ...rest, run_breakdown, core_drill, asbestos, removal_length }
   })
 
   return { events: lightEvents, deliveries: deliveries || [], readiness }
@@ -6199,15 +6222,15 @@ async function createDepositInvoice(client: any, body: any) {
     }
   }
 
-  // Create Xero invoice — AUTHORISED so Shaun can send immediately
+  // Create Xero invoice as DRAFT — Shaun approves manually before sending
   const invoiceResult = await createInvoice(client, {
     job_id: jId,
     xero_contact_id: invoiceContactId,
     contact_name: invoiceContactName,
     line_items: lineItems,
     reference,
-    xero_status: 'AUTHORISED',
-    send_email: body.send_email !== false, // default: send
+    xero_status: 'DRAFT',
+    send_email: false, // never auto-send; Shaun approves and sends manually
     job_contact_id: job_contact_id,
     run_label: runLabel,
   })

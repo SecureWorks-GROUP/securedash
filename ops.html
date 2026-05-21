@@ -6492,6 +6492,14 @@ function openCalJobPopup(event, assignmentId) {
   }
   if (metaParts.length) html += '<div class="cal-popup-meta">' + metaParts.join(' &middot; ') + '</div>';
 
+  // Run breakdown for fencing calendar events
+  if (ev.job_type === 'fencing' && ev.run_breakdown && ev.run_breakdown.length > 0) {
+    html += '<div style="margin:4px 0;padding:4px 0;border-top:1px solid var(--sw-border,#e5e7eb);border-bottom:1px solid var(--sw-border,#e5e7eb);">';
+    html += '<div style="font-size:10px;font-weight:600;color:var(--sw-text-sec);margin-bottom:2px;">RUN BREAKDOWN</div>';
+    html += renderRunBreakdown(ev.run_breakdown, 'fencing', { coreDrill: ev.core_drill, asbestos: ev.asbestos, removalLength: ev.removal_length }, { address: ev.site_address, scheduledDate: ev.scheduled_date, jobNumber: ev.job_number, clientName: ev.client_name });
+    html += '</div>';
+  }
+
   // 3. Schedule dates + crew
   var schedParts = [];
   if (ev.scheduled_date) {
@@ -9185,6 +9193,117 @@ function renderScopeSummary(scope_json, jobType, jobId) {
   return html;
 }
 
+function renderRunBreakdown(scopeOrBreakdown, jobType, flags, jobCtx) {
+  if (jobType !== 'fencing') return '';
+  var runs = [];
+  flags = flags || {};
+  jobCtx = jobCtx || {};
+  var needsCoreDrill = !!flags.coreDrill;
+  var hasAsbestos = !!flags.asbestos;
+  var removalLength = flags.removalLength || 0;
+  if (Array.isArray(scopeOrBreakdown)) {
+    runs = scopeOrBreakdown;
+  } else {
+    var scope = typeof scopeOrBreakdown === 'string' ? JSON.parse(scopeOrBreakdown) : scopeOrBreakdown;
+    if (!scope) return '';
+    var fenceJob = scope.job || {};
+    var sections = fenceJob.runs || scope.sections || [];
+    runs = sections.map(function(r, i) {
+      return {
+        name: r.name || ('Run ' + (i + 1)),
+        panels: (r.panels || []).length,
+        length: parseFloat(r.length) || 0
+      };
+    });
+    if (fenceJob.installation && fenceJob.installation.coreDrill) needsCoreDrill = true;
+    if (fenceJob.removal && fenceJob.removal.existingFenceType === 'asbestos') {
+      hasAsbestos = true;
+      removalLength = parseFloat(fenceJob.removal.existingFenceLength) || 0;
+    }
+  }
+  if (runs.length === 0 && !needsCoreDrill && !hasAsbestos) return '';
+  var html = '';
+  runs.forEach(function(r) {
+    html += '<div style="font-size:12px;color:var(--sw-text-sec);">' +
+      escapeHtml(r.name) + ': ' + r.panels + ' panels, ' + r.length + 'm</div>';
+  });
+  var tags = '';
+  if (needsCoreDrill) tags += '<span style="display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;">Core Drill</span> ';
+  if (hasAsbestos) {
+    window._asbestosCtx = { address: jobCtx.address || '', removalLength: removalLength, scheduledDate: jobCtx.scheduledDate || '', jobNumber: jobCtx.jobNumber || '', clientName: jobCtx.clientName || '' };
+    tags += '<span onclick="event.stopPropagation();openAsbestosNotifyModal(window._asbestosCtx)" style="display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;cursor:pointer;" title="Click to notify Luka for WorkSafe submission">Asbestos</span> ';
+  }
+  if (tags) html += '<div style="margin-top:4px;">' + tags + '</div>';
+  return html;
+}
+
+// ── Asbestos WorkSafe Notification Modal ──
+var LUKA_GHL_CONTACT_ID = 'HPremMelwzxfDxPfwjVV';
+
+function openAsbestosNotifyModal(data) {
+  var address = data.address || 'TBC';
+  var metres = data.removalLength || 'TBC';
+  var scheduled = data.scheduledDate ? fmtDate(data.scheduledDate) : 'TBC';
+  var msg = 'Hi Luka,\n\nWe\'ve got another removal we\'d like to get done, could you get the Worksafe submission sorted? Below are the details:\n\n' +
+    address + '\n' +
+    (metres ? metres + 'm removal\n' : '') +
+    'Scheduled for ' + scheduled + '.\n\n' +
+    'Let us know if you need anything else from our end.\n\nThanks!\nShaun';
+
+  // Build modal
+  var existing = document.getElementById('asbestosNotifyBackdrop');
+  if (existing) existing.remove();
+
+  var backdrop = document.createElement('div');
+  backdrop.id = 'asbestosNotifyBackdrop';
+  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:10000;display:flex;align-items:center;justify-content:center;';
+  backdrop.onclick = function(e) { if (e.target === backdrop) backdrop.remove(); };
+
+  var modal = document.createElement('div');
+  modal.style.cssText = 'background:#fff;border-radius:12px;padding:24px;width:420px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.3);font-family:inherit;';
+
+  var html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">';
+  html += '<span style="display:inline-block;font-size:12px;font-weight:600;padding:3px 10px;border-radius:4px;background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;">Asbestos</span>';
+  html += '<span style="font-size:15px;font-weight:700;color:var(--sw-dark,#1a1a2e);">Notify Luka - WorkSafe</span>';
+  html += '</div>';
+  html += '<div style="font-size:12px;color:var(--sw-text-sec,#8896A6);margin-bottom:8px;">SMS to Luka (Pratezina & Son) - 0483 161 329</div>';
+  html += '<textarea id="asbestosNotifyMsg" style="width:100%;height:200px;border:1.5px solid var(--sw-border,#e5e7eb);border-radius:8px;padding:12px;font-size:13px;font-family:inherit;resize:vertical;line-height:1.5;box-sizing:border-box;">' + escapeHtml(msg) + '</textarea>';
+  html += '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">';
+  html += '<button onclick="document.getElementById(\'asbestosNotifyBackdrop\').remove()" style="padding:8px 18px;border-radius:8px;border:1.5px solid var(--sw-border,#e5e7eb);background:#fff;font-size:13px;font-weight:600;cursor:pointer;color:var(--sw-text-sec);">Cancel</button>';
+  html += '<button id="asbestosNotifySendBtn" onclick="sendAsbestosNotify()" style="padding:8px 18px;border-radius:8px;border:none;background:#991B1B;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">Send SMS</button>';
+  html += '</div>';
+
+  modal.innerHTML = html;
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  // Focus textarea
+  setTimeout(function() { document.getElementById('asbestosNotifyMsg').focus(); }, 50);
+}
+
+async function sendAsbestosNotify() {
+  var msg = document.getElementById('asbestosNotifyMsg').value.trim();
+  if (!msg) { showToast('Message is empty', 'warning'); return; }
+  var btn = document.getElementById('asbestosNotifySendBtn');
+  btn.textContent = 'Sending...';
+  btn.disabled = true;
+  try {
+    var resp = await fetch(window.SUPABASE_URL + '/functions/v1/ghl-proxy?action=send_sms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY },
+      body: JSON.stringify({ contactId: LUKA_GHL_CONTACT_ID, message: msg })
+    });
+    var data = await resp.json();
+    if (!data.success) throw new Error(data.error || 'Send failed');
+    showToast('SMS sent to Luka', 'success');
+    document.getElementById('asbestosNotifyBackdrop').remove();
+  } catch (e) {
+    showToast('SMS failed: ' + e.message, 'warning');
+    btn.textContent = 'Send SMS';
+    btn.disabled = false;
+  }
+}
+
 // ════════════════════════════════════════════════════════════
 // FULL-PAGE JOB DETAIL VIEW
 // ════════════════════════════════════════════════════════════
@@ -11675,6 +11794,7 @@ async function showHoverPopover(anchor, jobId) {
 
     if (j.site_address) html += '<div class="jd-qv-row"><span class="jd-qv-label">Address</span><span style="font-size:12px">' + escapeHtml(j.site_address) + '</span></div>';
     if (j.client_phone) html += '<div class="jd-qv-row"><span class="jd-qv-label">Phone</span><a href="tel:' + j.client_phone + '">' + j.client_phone + '</a></div>';
+    if (j.client_email) html += '<div class="jd-qv-row"><span class="jd-qv-label">Email</span><a href="mailto:' + escapeHtml(j.client_email) + '" style="font-size:12px" onclick="event.stopPropagation()">' + escapeHtml(j.client_email) + '</a></div>';
 
     // Council toggle for patio jobs
     if (j.type === 'patio') {
@@ -11711,6 +11831,17 @@ async function showHoverPopover(anchor, jobId) {
         html += '</div>';
       });
       html += '</div>';
+    }
+
+    // Run breakdown for fencing jobs
+    if (j.type === 'fencing' && j.scope_json) {
+      var rbHtml = renderRunBreakdown(j.scope_json, j.type, {}, { address: j.site_address, scheduledDate: j.scheduled_at, jobNumber: j.job_number, clientName: j.client_name });
+      if (rbHtml) {
+        html += '<div style="margin:6px 0 4px;padding:6px 0;border-top:1px solid var(--sw-border);">';
+        html += '<div style="font-size:11px;font-weight:600;color:var(--sw-text-sec);margin-bottom:2px;">RUN BREAKDOWN</div>';
+        html += rbHtml;
+        html += '</div>';
+      }
     }
 
     html += '<div style="display:flex;gap:12px;margin-top:10px;padding-top:8px;border-top:1px solid var(--sw-border);font-size:12px;color:var(--sw-text-sec);">';
