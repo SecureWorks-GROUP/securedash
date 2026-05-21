@@ -755,7 +755,7 @@
     .cal-job-popup {
       position: fixed; z-index: 530; background: var(--sw-card);
       border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-      padding: 16px; width: 340px; display: none;
+      padding: 16px; width: 380px; max-height: calc(100vh - 72px); overflow-y: auto; display: none;
     }
     .cal-job-popup.open { display: block; }
     .cal-job-popup-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
@@ -1823,7 +1823,7 @@
     .job-hover-popover {
       position: fixed; z-index: 170;
       background: var(--sw-card); border-radius: 12px;
-      width: 380px; max-width: 90vw; max-height: calc(100vh - 64px);
+      width: 380px; max-width: 90vw; max-height: calc(100vh - 72px);
       overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,0.18);
       border: 1px solid var(--sw-border);
       opacity: 0; transform: translateY(4px);
@@ -6460,54 +6460,10 @@ function openCalJobPopup(event, assignmentId) {
 
   var readiness = _calReadiness[ev.job_id];
   var rdColors = { blocked: '#EF4444', at_risk: '#F59E0B', ready: '#22C55E' };
-  var isBlocked = readiness && readiness.status === 'blocked';
   var isReady = readiness && readiness.status === 'ready';
   var isLocked = confStatus === 'confirmed';
 
-  // 1. Title + Open Job + close
-  var html = '<div style="display:flex;justify-content:space-between;align-items:start;gap:6px;">';
-  if (ev.job_id) {
-    html += '<div class="cal-job-popup-title">' + (ev.job_number || '') + ' ' + escapeHtml(ev.client_name || 'Unknown');
-    html += ' <span onclick="event.stopPropagation();closeCalJobPopup();openJobQuickView(\'' + ev.job_id + '\')" style="display:inline-block;font-size:10px;font-weight:600;color:var(--sw-mid);background:var(--sw-light);padding:1px 6px;border-radius:100px;cursor:pointer;vertical-align:middle;margin-left:4px;">Open Job</span>';
-    html += '</div>';
-  } else {
-    html += '<div><strong style="font-size:15px;">' + escapeHtml(ev.label || 'Internal Event') + '</strong>';
-    html += '<div style="font-size:12px;color:var(--sw-text-sec);">Internal / No Job</div></div>';
-  }
-  html += '<button onclick="closeCalJobPopup()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--sw-text-sec);">&times;</button>';
-  html += '</div>';
-
-  // 2. Suburb + quoted value (job assignments only)
-  var metaParts = [];
-  if (ev.job_id) {
-    if (ev.site_suburb) metaParts.push('&#128205; ' + escapeHtml(ev.site_suburb));
-    var quotedVal = 0;
-    if (ev.pricing_json) {
-      try {
-        var pj = typeof ev.pricing_json === 'string' ? JSON.parse(ev.pricing_json) : ev.pricing_json;
-        quotedVal = parseFloat(pj.totalIncGST || pj.total || 0) || 0;
-      } catch(e) {}
-    }
-    if (quotedVal > 0) metaParts.push('<strong>$' + Math.round(quotedVal).toLocaleString() + '</strong>');
-  }
-  if (metaParts.length) html += '<div class="cal-popup-meta">' + metaParts.join(' &middot; ') + '</div>';
-
-  // Run breakdown for fencing calendar events
-  if (ev.job_type === 'fencing' && ev.run_breakdown && ev.run_breakdown.length > 0) {
-    html += '<div style="margin:4px 0;padding:4px 0;border-top:1px solid var(--sw-border,#e5e7eb);border-bottom:1px solid var(--sw-border,#e5e7eb);">';
-    html += '<div style="font-size:10px;font-weight:600;color:var(--sw-text-sec);margin-bottom:2px;">RUN BREAKDOWN</div>';
-    html += renderRunBreakdown(ev.run_breakdown, 'fencing', { coreDrill: ev.core_drill, asbestos: ev.asbestos, removalLength: ev.removal_length }, { address: ev.site_address, scheduledDate: ev.scheduled_date, jobNumber: ev.job_number, clientName: ev.client_name });
-    html += '</div>';
-  }
-
-  // 3. Schedule dates + crew
-  var schedParts = [];
-  if (ev.scheduled_date) {
-    var schedStr = fmtDate(ev.scheduled_date);
-    if (ev.scheduled_end && ev.scheduled_end !== ev.scheduled_date) schedStr += ' → ' + fmtDate(ev.scheduled_end);
-    schedParts.push(schedStr);
-  }
-  // Find all crew assigned to this job (or just this assignment if no job)
+  // Find all crew assigned to this job
   var crewForJob = [];
   _calEvents.forEach(function(e) {
     var sameEntry = ev.job_id ? e.job_id === ev.job_id : e.assignment_id === ev.assignment_id;
@@ -6516,10 +6472,166 @@ function openCalJobPopup(event, assignmentId) {
       if (cn && cn !== 'Unassigned' && crewForJob.indexOf(cn) === -1) crewForJob.push(cn);
     }
   });
-  if (crewForJob.length) schedParts.push(crewForJob.join(', '));
-  if (schedParts.length) html += '<div class="cal-popup-meta">' + schedParts.join(' &middot; ') + '</div>';
 
-  // 4. Certainty + Readiness row (job entries only for readiness; certainty dropdown shown for all)
+  // Internal events — simple popup, no fetch
+  if (!ev.job_id) {
+    var html = '<div style="display:flex;justify-content:space-between;align-items:start;gap:6px;">';
+    html += '<div><strong style="font-size:15px;">' + escapeHtml(ev.label || 'Internal Event') + '</strong>';
+    html += '<div style="font-size:12px;color:var(--sw-text-sec);">Internal / No Job</div></div>';
+    html += '<button onclick="closeCalJobPopup()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--sw-text-sec);">&times;</button></div>';
+    html += _buildCalActions(ev, assignmentId, confStatus, isLocked, isReady, readiness, crewForJob);
+    popup.innerHTML = html;
+    popup.classList.add('open');
+    _positionCalPopup(popup, event);
+    return;
+  }
+
+  // Job events — show loading, then fetch full details
+  var html = '<div style="display:flex;justify-content:space-between;align-items:start;gap:6px;">';
+  html += '<div class="cal-job-popup-title">' + (ev.job_number || '') + ' ' + escapeHtml(ev.client_name || 'Unknown');
+  html += ' <span onclick="event.stopPropagation();closeCalJobPopup();openJobQuickView(\'' + ev.job_id + '\')" style="display:inline-block;font-size:10px;font-weight:600;color:var(--sw-mid);background:var(--sw-light);padding:1px 6px;border-radius:100px;cursor:pointer;vertical-align:middle;margin-left:4px;">Open Job</span></div>';
+  html += '<button onclick="closeCalJobPopup()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--sw-text-sec);">&times;</button></div>';
+  html += '<div id="calPopupDetailArea"><div style="font-size:12px;color:var(--sw-text-sec);padding:8px 0;">Loading...</div></div>';
+  html += _buildCalActions(ev, assignmentId, confStatus, isLocked, isReady, readiness, crewForJob);
+  popup.innerHTML = html;
+  popup.classList.add('open');
+  _positionCalPopup(popup, event);
+
+  // Fetch job_detail and render full content
+  opsFetch('job_detail', { jobId: ev.job_id }).then(function(data) {
+    var area = document.getElementById('calPopupDetailArea');
+    if (!area || !popup.classList.contains('open')) return;
+    var j = data.job;
+    var h = '<div class="jd-qv-body">';
+
+    // Copy button in header
+    var headerDiv = popup.querySelector('.cal-job-popup-title');
+    if (headerDiv) {
+      var copyBtn = document.createElement('button');
+      copyBtn.onclick = function(e) { e.stopPropagation(); copyJobInfo(j.id); };
+      copyBtn.title = 'Copy job info';
+      copyBtn.style.cssText = 'background:none;border:none;padding:4px;cursor:pointer;color:var(--sw-text-sec,#8896A6);display:inline-flex;align-items:center;border-radius:6px;vertical-align:middle;margin-left:4px;';
+      copyBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+      headerDiv.appendChild(copyBtn);
+    }
+
+    h += '<div class="jd-qv-row"><span class="jd-qv-label">Type</span><span class="type-badge ' + j.type + '">' + typeBadgeLabel(j.type) + '</span></div>';
+    h += '<div class="jd-qv-row"><span class="jd-qv-label">Status</span><span class="status-badge ' + j.status + '">' + (STATUS_LABELS[j.status] || j.status) + '</span></div>';
+
+    var quoteVal = j.pricing_json?.totalIncGST || j.pricing_json?.total || 0;
+    if (quoteVal) h += '<div class="jd-qv-row"><span class="jd-qv-label">Quote</span><strong style="color:var(--sw-green)">' + fmt$(quoteVal) + '</strong></div>';
+
+    if (j.site_address) h += '<div class="jd-qv-row"><span class="jd-qv-label">Address</span><span style="font-size:12px">' + escapeHtml(j.site_address) + '</span></div>';
+    if (j.client_phone) h += '<div class="jd-qv-row"><span class="jd-qv-label">Phone</span><a href="tel:' + j.client_phone + '">' + j.client_phone + '</a></div>';
+    if (j.client_email) h += '<div class="jd-qv-row"><span class="jd-qv-label">Email</span><a href="mailto:' + escapeHtml(j.client_email) + '" style="font-size:12px" onclick="event.stopPropagation()">' + escapeHtml(j.client_email) + '</a></div>';
+
+    // Council toggle for patio jobs
+    if (j.type === 'patio') {
+      var crVal = j.council_required;
+      var yesActive = crVal === true;
+      var noActive = crVal === false;
+      var btnBase = 'padding:3px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid;transition:all 0.15s;';
+      var yesStyle = yesActive ? btnBase + 'background:var(--sw-blue,#3498DB);color:#fff;border-color:var(--sw-blue,#3498DB);' : btnBase + 'background:transparent;color:var(--sw-text-sec,#8896A6);border-color:var(--sw-border,#e5e7eb);';
+      var noStyle = noActive ? btnBase + 'background:#E74C3C;color:#fff;border-color:#E74C3C;' : btnBase + 'background:transparent;color:var(--sw-text-sec,#8896A6);border-color:var(--sw-border,#e5e7eb);';
+      h += '<div class="jd-qv-row"><span class="jd-qv-label">Council</span><span style="display:flex;gap:4px;">';
+      h += '<button onclick="event.stopPropagation();setCouncilRequired(\'' + j.id + '\',true)" style="' + yesStyle + '">Yes</button>';
+      h += '<button onclick="event.stopPropagation();setCouncilRequired(\'' + j.id + '\',false)" style="' + noStyle + '">No</button>';
+      h += '</span></div>';
+    }
+
+    // Neighbours
+    var neighbours = (data.job_contacts || []).filter(function(c) { return !c.is_primary; });
+    if (neighbours.length === 0 && j.pricing_json && j.pricing_json.neighbour_splits && j.pricing_json.neighbour_splits.neighbours) {
+      neighbours = j.pricing_json.neighbour_splits.neighbours.map(function(nb, i) {
+        return { contact_label: String.fromCharCode(66 + i), client_name: nb.name, client_phone: nb.phone, site_address: nb.address, share_percentage: nb.share_percent };
+      });
+    }
+    if (neighbours.length > 0) {
+      var nbId = 'calpop-nb-' + j.id;
+      h += '<div class="jd-qv-row" style="cursor:pointer;user-select:none;" onclick="var el=document.getElementById(\'' + nbId + '\');var arr=this.querySelector(\'.nb-arrow\');if(el){el.style.display=el.style.display===\'none\'?\'block\':\'none\';arr.textContent=el.style.display===\'none\'?\'▸\':\'▾\';}">';
+      h += '<span class="jd-qv-label">Neighbours</span><span style="font-size:12px;color:var(--sw-text-sec);"><span class="nb-arrow">▸</span> ' + neighbours.length + '</span></div>';
+      h += '<div id="' + nbId + '" style="display:none;padding:0 16px 8px;">';
+      neighbours.forEach(function(nb, idx) {
+        h += '<div style="font-size:12px;padding:6px 8px;margin-bottom:4px;background:var(--sw-bg,#f8f9fa);border-radius:6px;border:1px solid var(--sw-border,#e5e7eb);">';
+        h += '<div style="font-weight:600;color:var(--sw-dark);">Neighbour ' + (idx + 1) + ': ' + escapeHtml(nb.client_name || 'Unknown') + '</div>';
+        if (nb.client_phone) h += '<div style="margin-top:2px;"><a href="tel:' + nb.client_phone + '" style="color:var(--sw-mid);" onclick="event.stopPropagation();">' + escapeHtml(nb.client_phone) + '</a></div>';
+        if (nb.site_address) h += '<div style="margin-top:2px;color:var(--sw-text-sec);">' + escapeHtml(nb.site_address) + '</div>';
+        if (nb.share_percentage) h += '<div style="margin-top:2px;color:var(--sw-text-sec);">Cost share: ' + nb.share_percentage + '%</div>';
+        h += '</div>';
+      });
+      h += '</div>';
+    }
+
+    // Run breakdown
+    if (j.type === 'fencing' && j.scope_json) {
+      var rbHtml = renderRunBreakdown(j.scope_json, j.type, {}, { address: j.site_address, scheduledDate: ev.scheduled_date, jobNumber: j.job_number, clientName: j.client_name });
+      if (rbHtml) {
+        h += '<div style="margin:6px 0 4px;padding:6px 0;border-top:1px solid var(--sw-border);border-bottom:1px solid var(--sw-border);">';
+        h += '<div style="font-size:11px;font-weight:600;color:var(--sw-text-sec);margin-bottom:2px;">RUN BREAKDOWN</div>';
+        h += rbHtml;
+        h += '</div>';
+      }
+    }
+
+    // Schedule + crew
+    var schedParts = [];
+    if (ev.scheduled_date) {
+      var schedStr = fmtDate(ev.scheduled_date);
+      if (ev.scheduled_end && ev.scheduled_end !== ev.scheduled_date) schedStr += ' \u2192 ' + fmtDate(ev.scheduled_end);
+      schedParts.push(schedStr);
+    }
+    if (crewForJob.length) schedParts.push(crewForJob.join(', '));
+    if (schedParts.length) h += '<div style="font-size:12px;color:var(--sw-text-sec);padding:4px 0;">' + schedParts.join(' \u00b7 ') + '</div>';
+
+    // Assignments / POs / WOs count
+    h += '<div style="display:flex;gap:12px;margin-top:6px;padding-top:8px;border-top:1px solid var(--sw-border);font-size:12px;color:var(--sw-text-sec);">';
+    h += '<span>' + (data.assignments || []).length + ' assignments</span>';
+    h += '<span>' + (data.purchase_orders || []).length + ' POs</span>';
+    h += '<span>' + (data.work_orders || []).length + ' WOs</span>';
+    h += '</div>';
+
+    h += '</div>';
+    area.innerHTML = h;
+
+    // Fetch ops notes
+    opsFetch('list_ops_notes', { jobId: ev.job_id }).then(function(notesData) {
+      if (!popup.classList.contains('open') || !notesData.notes || notesData.notes.length === 0) return;
+      var nh = '<div style="margin-top:8px;padding:8px 0 4px;border-top:1px solid var(--sw-border);">';
+      nh += '<div style="font-size:11px;font-weight:600;color:var(--sw-text-sec);margin-bottom:4px;">OPS NOTES</div>';
+      notesData.notes.forEach(function(n) {
+        nh += '<div style="font-size:12px;color:var(--sw-text);padding:3px 0;border-bottom:1px solid var(--sw-border);">' + escapeHtml(n.note) + '</div>';
+      });
+      nh += '</div>';
+      area.innerHTML += nh;
+    }).catch(function() {});
+  }).catch(function(e) {
+    var area = document.getElementById('calPopupDetailArea');
+    if (area) area.innerHTML = '<div style="font-size:12px;color:var(--sw-red);padding:4px 0;">Error loading details</div>';
+  });
+}
+
+function _positionCalPopup(popup, event) {
+  var rect = event.target.getBoundingClientRect();
+  var barH = 56;
+  var maxBottom = window.innerHeight - barH;
+  var top = rect.bottom + 8;
+  var maxH = maxBottom - top;
+  // If not enough room below, shift up
+  if (maxH < 300) {
+    top = Math.max(8, maxBottom - 500);
+    maxH = maxBottom - top;
+  }
+  popup.style.top = top + 'px';
+  popup.style.left = Math.min(rect.left, window.innerWidth - 400) + 'px';
+  popup.style.maxHeight = maxH + 'px';
+}
+
+function _buildCalActions(ev, assignmentId, confStatus, isLocked, isReady, readiness, crewForJob) {
+  var rdColors = { blocked: '#EF4444', at_risk: '#F59E0B', ready: '#22C55E' };
+  var statusLabels = { placeholder: 'Placeholder', tentative: 'Planned', confirmed: 'Confirmed' };
+  var html = '';
+
+  // Certainty + Readiness row
   html += '<div class="cal-job-popup-row" style="display:flex;gap:8px;align-items:center;margin:8px 0;">';
   html += '<select id="popupCertainty" onchange="updateCertainty(\'' + assignmentId + '\',this.value)" style="font-size:12px;padding:3px 8px;border:1px solid var(--sw-border);border-radius:4px;font-weight:600">';
   ['placeholder','tentative','confirmed'].forEach(function(s) {
@@ -6528,20 +6640,19 @@ function openCalJobPopup(event, assignmentId) {
   html += '</select>';
   if (ev.job_id && readiness) {
     var unmetBlockers = (readiness.blockers || []).filter(function(b) {
-      // If frontend knows crew is assigned, suppress stale backend crew_assigned blocker
       if (!b.met && b.key === 'crew_assigned' && crewForJob.length > 0) return false;
       return !b.met;
     });
     var unmetCount = unmetBlockers.length + ((readiness.warnings || []).filter(function(w) { return !w.met; }).length);
     var rdText = '';
-    if (readiness.status === 'blocked') rdText = unmetCount > 0 ? 'Not Ready — ' + unmetCount + ' item' + (unmetCount !== 1 ? 's' : '') + ' to do' : '✓ Ready';
+    if (readiness.status === 'blocked') rdText = unmetCount > 0 ? 'Not Ready \u2014 ' + unmetCount + ' item' + (unmetCount !== 1 ? 's' : '') + ' to do' : '\u2713 Ready';
     else if (readiness.status === 'at_risk') rdText = unmetCount + ' item' + (unmetCount !== 1 ? 's' : '') + ' to do';
-    else rdText = '✓ Ready';
+    else rdText = '\u2713 Ready';
     html += '<span style="font-size:12px;font-weight:600;color:' + (rdColors[readiness.status] || '#6B7280') + '">' + rdText + '</span>';
   }
   html += '</div>';
 
-  // 5. Blockers (prominent, boxed, with fix actions inline)
+  // Blockers
   var unmetBlockers = readiness ? (readiness.blockers || []).filter(function(b) {
     if (!b.met && b.key === 'crew_assigned' && crewForJob.length > 0) return false;
     return !b.met;
@@ -6559,7 +6670,7 @@ function openCalJobPopup(event, assignmentId) {
     html += '</div>';
   }
 
-  // 6. Warnings (collapsed)
+  // Warnings
   if (unmetWarnings.length > 0) {
     html += '<details style="font-size:11px;margin-top:4px;"><summary style="cursor:pointer;color:#D97706;font-weight:600;">' + unmetWarnings.length + ' warning' + (unmetWarnings.length > 1 ? 's' : '') + '</summary>';
     unmetWarnings.forEach(function(w) {
@@ -6568,38 +6679,25 @@ function openCalJobPopup(event, assignmentId) {
     html += '</details>';
   }
 
-  // 7. Context-dependent actions
+  // Action buttons
   html += '<div class="cal-job-popup-actions" style="margin-top:10px;">';
-
   if (!ev.job_id) {
-    // Internal / job-less entry — just edit + delete
     html += '<button class="btn-secondary-action" onclick="closeCalJobPopup();openEditAssignmentModal(\'' + assignmentId + '\')">Edit</button>';
     html += '<button class="btn-secondary-action" style="color:#EF4444;" onclick="deleteAssignment(\'' + assignmentId + '\')">Delete</button>';
   } else if (!isLocked) {
-    // Not confirmed (placeholder or planned): show both confirm options
     html += '<button class="btn-primary-action" onclick="confirmAssignment(\'' + assignmentId + '\',true)">Confirm &amp; Notify Client</button>';
     html += '<button class="btn-secondary-action" onclick="confirmAssignment(\'' + assignmentId + '\',false)">Confirm Date</button>';
     html += '<button class="btn-secondary-action" onclick="closeCalJobPopup();openEditAssignmentModal(\'' + assignmentId + '\')">Edit Dates</button>';
     html += popupOverflow(assignmentId, ev.job_id, confStatus);
   } else if (isLocked && isReady) {
-    // Confirmed + ready: clean, two buttons
     html += '<button class="btn-secondary-action" style="color:#D97706;" onclick="rescheduleLockedJob(\'' + assignmentId + '\')">Reschedule</button>';
     html += '<button class="btn-secondary-action" onclick="closeCalJobPopup();openJobQuickView(\'' + ev.job_id + '\')">Full Record</button>';
   } else {
-    // Confirmed + not ready: reschedule + full record (blocker fix buttons are in the blocker box above)
     html += '<button class="btn-secondary-action" style="color:#D97706;" onclick="rescheduleLockedJob(\'' + assignmentId + '\')">Reschedule</button>';
     html += '<button class="btn-secondary-action" onclick="closeCalJobPopup();openJobQuickView(\'' + ev.job_id + '\')">Full Record</button>';
   }
-
   html += '</div>';
-
-  popup.innerHTML = html;
-  popup.classList.add('open');
-
-  // Position near click
-  var rect = event.target.getBoundingClientRect();
-  popup.style.top = Math.min(rect.bottom + 8, window.innerHeight - 350) + 'px';
-  popup.style.left = Math.min(rect.left, window.innerWidth - 360) + 'px';
+  return html;
 }
 
 // Helper: blocker fix button
@@ -11739,17 +11837,16 @@ function _repositionPopover(pop, anchor) {
   // Decide direction: if card is in bottom half, grow upward from card bottom
   var midpoint = window.innerHeight / 2;
   var cardCenter = (rect.top + rect.bottom) / 2;
-  pop.style.maxHeight = '';
   if (cardCenter > midpoint) {
     // Bottom card — anchor popover bottom to card bottom, grow up
-    var bottom = rect.bottom;
-    var maxH = bottom - 4;
+    var bottomOffset = window.innerHeight - Math.min(rect.bottom, maxBottom);
+    var maxH = maxBottom - 4;
     pop.style.top = '';
-    pop.style.bottom = (window.innerHeight - bottom) + 'px';
+    pop.style.bottom = bottomOffset + 'px';
     pop.style.maxHeight = maxH + 'px';
   } else {
     // Top card — anchor popover top to card top, grow down
-    var top = rect.top;
+    var top = Math.max(4, rect.top);
     var maxH = maxBottom - top;
     pop.style.bottom = '';
     pop.style.top = top + 'px';
