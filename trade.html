@@ -6061,111 +6061,198 @@
       h += '</div>';
     }
 
-    // ── 4. WHAT YOU'RE BUILDING — per-run cards + colour/profile/removal/gates ──
+    // ── 4. WHAT YOU'RE BUILDING ──
     h += '<div class="detail-section">';
     h += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--sw-dark);margin-bottom:10px">What You\'re Building</div>';
 
-    if (type === 'fencing') {
-      // Colour + Profile summary row
+    if (type === 'fencing' && scopeJob.runs && scopeJob.runs.length > 0) {
+      // Rich fencing work order — ported from fence designer
+      var _WO_POST = {
+        1200:[{ret:0,post:2400},{ret:150,post:2400},{ret:300,post:2400},{ret:450,post:2400},{ret:600,post:2400}],
+        1500:[{ret:0,post:2400},{ret:150,post:2400},{ret:300,post:2400},{ret:450,post:2700},{ret:600,post:2700}],
+        1800:[{ret:0,post:2400},{ret:150,post:2700},{ret:300,post:2700},{ret:450,post:3000},{ret:600,post:3000}],
+        2100:[{ret:0,post:2700},{ret:150,post:3000},{ret:300,post:3000},{ret:450,post:3000},{ret:600,post:3000}]
+      };
+      var _woSup = {RNR:2380,Metroll:2365,Lysaght:2360,Stratco:2350};
+      function _woPost(sh,ret) {
+        var t = _WO_POST[sh] || _WO_POST[1800];
+        var e = t.find(function(x){return x.ret===ret;});
+        if (e) return e.post;
+        var req = sh + ret + 600;
+        return req <= 2400 ? 2400 : req <= 2700 ? 2700 : 3000;
+      }
+
+      var colour = scopeJob.colour || '';
+      var profile = scopeJob.profile || '';
+      var supplier = scopeJob.supplier || '';
+      var panelWidthMm = _woSup[supplier] || 2365;
+
+      // Fence spec badges
+      h += '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">';
+      if (supplier) h += '<div style="background:var(--sw-border);color:var(--sw-dark);padding:4px 10px;font-size:12px;font-weight:600">' + esc(supplier) + '</div>';
+      if (profile) h += '<div style="background:var(--sw-dark);color:#fff;padding:4px 10px;font-size:12px;font-weight:700">' + esc(profile) + '</div>';
+      if (colour) h += '<div style="background:var(--sw-border);color:var(--sw-dark);padding:4px 10px;font-size:12px;font-weight:600">' + esc(colour) + '</div>';
+      h += '<div style="background:var(--sw-border);color:var(--sw-dark);padding:4px 10px;font-size:12px">' + panelWidthMm + 'mm panels</div>';
+      h += '</div>';
+
+      // Process runs
+      var woTotalMetres = 0, woTotalPanels = 0, woTotalPosts = 0, woTotalPlinths = 0, woTotalPatioTubes = 0;
+      var woConcrete = 0, woTekBoxes = 0, woGatePosts = 0;
+
+      scopeJob.runs.forEach(function(run) {
+        var panels = run.panels || [];
+        var panelCount = panels.length;
+        woTotalMetres += run.length || 0;
+        woTotalPanels += panelCount;
+        woTotalPosts += panelCount + 1;
+        var runPlinths = 0, runPatioCount = 0;
+        var panelDetails = [];
+
+        panels.forEach(function(p, idx) {
+          var slopePl = p.slopePlinths || 0;
+          var manualPl = p.retaining / 150;
+          var totalPl = Math.min(4, slopePl + manualPl);
+          var totalRet = totalPl * 150;
+          runPlinths += totalPl;
+          var postH = _woPost(p.height, totalRet);
+          var patio = totalPl >= 3 && totalPl <= 4;
+          if (patio) runPatioCount++;
+          panelDetails.push({ num: idx+1, height: p.height, retaining: totalRet, totalH: p.height + totalRet, postH: postH, patio: patio, stepMm: p.stepMm || 0 });
+        });
+
+        var patioTubes = runPatioCount > 0 ? runPatioCount + 1 : 0;
+        woTotalPlinths += runPlinths;
+        woTotalPatioTubes += patioTubes;
+        var hasRetaining = panels.some(function(p) { return (p.slopePlinths||0) + (p.retaining/150) > 0; });
+
+        // Run header
+        h += '<div style="background:#F8F6F3;border-left:3px solid var(--sw-dark);padding:10px 12px;margin-bottom:8px">';
+        h += '<div style="font-size:14px;font-weight:700;color:var(--sw-dark);margin-bottom:6px">' + esc(run.name || 'Run') + ' (' + panelCount + ' panels, ' + (run.length || 0) + 'm)';
+        if (patioTubes > 0) h += ' <span style="color:var(--sw-orange);font-weight:700">[' + patioTubes + ' patio tubes]</span>';
+        h += '</div>';
+
+        // Panel table
+        if (hasRetaining) {
+          h += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">';
+          h += '<tr style="background:var(--sw-dark);color:#fff"><th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.3px">Panel</th><th style="padding:6px 8px;font-size:10px;text-transform:uppercase">Fence</th><th style="padding:6px 8px;font-size:10px;text-transform:uppercase">Ret.</th><th style="padding:6px 8px;font-size:10px;text-transform:uppercase">Total</th><th style="padding:6px 8px;font-size:10px;text-transform:uppercase">Post</th><th style="padding:6px 8px;font-size:10px;text-transform:uppercase">Notes</th></tr>';
+          panelDetails.forEach(function(pd) {
+            var notes = '';
+            if (pd.patio) notes += '<span style="color:var(--sw-orange);font-weight:700">PATIO TUBE</span> ';
+            if (pd.stepMm !== 0) notes += (pd.stepMm < 0 ? '\u2193' : '\u2191') + Math.abs(pd.stepMm) + 'mm';
+            h += '<tr style="border-bottom:1px solid var(--sw-border)">';
+            h += '<td style="padding:5px 8px;font-weight:600">P' + pd.num + '</td>';
+            h += '<td style="padding:5px 8px">' + pd.height + 'mm</td>';
+            h += '<td style="padding:5px 8px">' + pd.retaining + 'mm</td>';
+            h += '<td style="padding:5px 8px">' + pd.totalH + 'mm</td>';
+            h += '<td style="padding:5px 8px">' + pd.postH + 'mm</td>';
+            h += '<td style="padding:5px 8px">' + notes + '</td></tr>';
+          });
+          h += '</table></div>';
+        } else {
+          var flatPost = panelDetails.length > 0 ? panelDetails[0].postH : 2400;
+          var flatSheet = panelDetails.length > 0 ? panelDetails[0].height : 1800;
+          h += '<div style="font-size:13px;color:var(--sw-text);padding:4px 0">P1\u2013P' + panelCount + ': ' + flatSheet + 'mm fence, 0mm retaining | Post: ' + flatPost + 'mm</div>';
+        }
+        h += '</div>';
+      });
+
+      // Corner post sharing
+      if (scopeJob.runs.length > 1) woTotalPosts -= (scopeJob.runs.length - 1);
+
+      // Gates
+      var gates = scopeJob.gates || [];
+      if (gates.length > 0) {
+        h += '<div style="margin-top:4px;margin-bottom:8px">';
+        h += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--sw-dark);margin-bottom:6px">Gates</div>';
+        gates.forEach(function(g) {
+          var gp = g.type === 'double' ? 4 : 2;
+          woGatePosts += gp;
+          var desc = g.type === 'double' ? 'Double swing gate' : 'Pedestrian gate ' + (g.width || 900) + 'mm';
+          h += '<div style="background:#F8F6F3;padding:8px 12px;margin-bottom:4px;font-size:13px">' + esc(desc) + ' \u2014 90\u00D790mm SHS posts</div>';
+        });
+        h += '</div>';
+      }
+
+      // Concrete & tek screws
+      var woAllPosts = woTotalPosts + woGatePosts;
+      woConcrete = Math.ceil(woAllPosts * 2 * 1.1 / 2) * 2;
+      woTekBoxes = woTotalPanels > 0 ? Math.max(1, Math.ceil(woTotalPanels / 4)) : 0;
+
+      // Summary grid
+      h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--sw-border);overflow:hidden;margin-bottom:8px">';
+      var summaryItems = [
+        ['Total Length', woTotalMetres.toFixed(1) + 'm'], ['Panels', woTotalPanels],
+        ['Posts', woTotalPosts], ['Gate Posts', woGatePosts + ' \u00D7 90\u00D790mm'],
+        ['Plinths', woTotalPlinths], ['Patio Tubes', woTotalPatioTubes],
+        ['Concrete', woConcrete + ' bags'], ['Tek Screws', woTekBoxes + ' boxes']
+      ];
+      summaryItems.forEach(function(row) {
+        h += '<div style="padding:8px 10px;background:var(--sw-card)">';
+        h += '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--sw-text-sec)">' + row[0] + '</div>';
+        h += '<div style="font-size:14px;font-weight:600;color:var(--sw-dark)">' + row[1] + '</div>';
+        h += '</div>';
+      });
+      h += '</div>';
+
+      // Removal info
+      var removal = scopeJob.removal || {};
+      if (removal.removalRequired && removal.existingFenceType) {
+        h += '<div style="background:#F8F6F3;border-left:3px solid var(--sw-mid);padding:10px 12px;margin-bottom:8px">';
+        h += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--sw-mid);margin-bottom:4px">Removal</div>';
+        h += '<div style="font-size:13px;color:var(--sw-text)">' + esc(removal.existingFenceType.charAt(0).toUpperCase() + removal.existingFenceType.slice(1)) + ' fence \u2014 ' + (removal.existingFenceLength || 0) + 'm</div>';
+        if (removal.existingFenceType === 'asbestos') h += '<div style="color:#dc2626;font-weight:700;font-size:13px;margin-top:4px">ASBESTOS: Licensed removal required. Do NOT break sheets.</div>';
+        h += '</div>';
+      }
+
+      // Scope of work checklist
+      h += '<div style="margin-bottom:8px">';
+      h += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--sw-dark);margin-bottom:6px">Scope of Work</div>';
+      var scopeList = ['Install COLORBOND\u00AE fencing per specification', 'Set all posts in concrete (2 bags/post)'];
+      if (woTotalPlinths > 0) scopeList.push('Install ' + woTotalPlinths + ' retaining plinths');
+      if (woTotalPatioTubes > 0) scopeList.push('Install ' + woTotalPatioTubes + ' patio tubes at retained sections');
+      if (removal.removalRequired && removal.existingFenceType) scopeList.push('Remove existing ' + removal.existingFenceType + ' fencing (' + (removal.existingFenceLength||0) + 'm)');
+      gates.forEach(function(g) { scopeList.push('Install ' + (g.type === 'double' ? 'double swing gate' : 'pedestrian gate ' + (g.width||900) + 'mm')); });
+      scopeList.push('Site clean-up and rubbish removal');
+      scopeList.forEach(function(item) {
+        h += '<div style="font-size:13px;padding:3px 0;padding-left:16px;position:relative;color:var(--sw-text)"><span style="position:absolute;left:0;color:var(--sw-orange);font-weight:700">\u2022</span>' + item + '</div>';
+      });
+      h += '</div>';
+
+      // Safety & compliance
+      h += '<div style="background:#fef2f2;border-left:3px solid #dc2626;padding:10px 12px;margin-bottom:8px">';
+      h += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:#dc2626;margin-bottom:6px">Safety &amp; Compliance</div>';
+      var safetyItems = [
+        'Dial Before You Dig check completed',
+        'PPE: steel-cap boots, gloves, safety glasses, ear protection',
+        'First aid kit on site',
+        'No overhead power lines within 3m of work area'
+      ];
+      if (removal.existingFenceType === 'asbestos') safetyItems.splice(2, 0, 'ASBESTOS: Licensed removal required. Do NOT break sheets.');
+      safetyItems.forEach(function(item) {
+        var isAsbestos = item.indexOf('ASBESTOS') === 0;
+        h += '<div style="font-size:12px;padding:3px 0;padding-left:16px;position:relative;color:' + (isAsbestos ? '#dc2626;font-weight:700' : 'var(--sw-text)') + '"><span style="position:absolute;left:0">\u25A1</span>' + item + '</div>';
+      });
+      h += '</div>';
+
+      // Completion requirements
+      h += '<div style="margin-bottom:8px">';
+      h += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--sw-dark);margin-bottom:6px">Completion Requirements</div>';
+      ['QC photos of every post alignment and panel fit', 'Client walkthrough and sign-off', 'Tradify job completion sign-off', 'All rubbish removed from site'].forEach(function(item) {
+        h += '<div style="font-size:12px;padding:3px 0;padding-left:16px;position:relative;color:var(--sw-text)"><span style="position:absolute;left:0">\u25A1</span>' + item + '</div>';
+      });
+      h += '</div>';
+
+    } else if (type === 'fencing') {
+      // Fencing without rich scope — fallback to simple display
       var colour = scopeJob.colour || config.colour || config.color || '';
       var profile = scopeJob.profile || config.material || '';
       if (colour || profile) {
         h += '<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">';
-        if (profile) {
-          h += '<div style="background:var(--sw-dark);color:#fff;padding:6px 12px;font-size:13px;font-weight:700">' + esc(profile) + '</div>';
-        }
-        if (colour) {
-          h += '<div style="background:var(--sw-border);color:var(--sw-dark);padding:6px 12px;font-size:13px;font-weight:600">' + esc(colour) + '</div>';
-        }
+        if (profile) h += '<div style="background:var(--sw-dark);color:#fff;padding:6px 12px;font-size:13px;font-weight:700">' + esc(profile) + '</div>';
+        if (colour) h += '<div style="background:var(--sw-border);color:var(--sw-dark);padding:6px 12px;font-size:13px;font-weight:600">' + esc(colour) + '</div>';
         h += '</div>';
       }
-
-      // Per-run cards
-      var runs = scopeJob.runs || config.runs || [];
-      if (runs.length > 0) {
-        runs.forEach(function(run, idx) {
-          var label = run.name || run.label || run.boundary || ('Run ' + (idx + 1));
-          var len = run.totalLength || run.lengthM || run.length || 0;
-          var panelArr = Array.isArray(run.panels) ? run.panels : [];
-          var panelCount = panelArr.length || run.panelCount || '';
-          var ht = run.sheetHeight || run.height || config.height || '';
-          // Compute retaining from panel data
-          var retDetail = '';
-          if (panelArr.length > 0) {
-            var retValues = panelArr.map(function(p) { return Number(p.retaining) || 0; }).filter(function(v) { return v > 0; });
-            if (retValues.length > 0) {
-              var retMin = Math.min.apply(null, retValues);
-              var retMax = Math.max.apply(null, retValues);
-              retDetail = retMin === retMax ? retMin + 'mm' : retMin + '-' + retMax + 'mm';
-              retDetail += ' (' + retValues.length + '/' + panelArr.length + ' panels)';
-            }
-          } else if (run.retaining) {
-            retDetail = String(run.retaining);
-          }
-
-          h += '<div style="background:#F8F6F3;border-left:3px solid var(--sw-dark);padding:10px 12px;margin-bottom:6px">';
-          h += '<div style="font-size:14px;font-weight:700;color:var(--sw-dark);margin-bottom:4px">' + esc(label) + '</div>';
-          h += '<div style="font-size:13px;color:var(--sw-text);display:flex;flex-wrap:wrap;gap:4px 16px">';
-          if (len) h += '<span>' + Math.round(len) + 'm</span>';
-          if (panelCount) h += '<span>' + panelCount + ' panels</span>';
-          if (ht) h += '<span>' + ht + 'mm</span>';
-          if (retDetail) h += '<span style="color:var(--sw-orange);font-weight:600">Ret: ' + esc(retDetail) + '</span>';
-          h += '</div>';
-          h += '</div>';
-        });
-      } else {
-        // Fallback: simple spec grid
-        var specRows = [];
-        if (config.material) specRows.push(['Panel Type', humanise('material', config.material)]);
-        if (config.height) specRows.push(['Height', config.height + 'mm']);
-        if (config.totalLength || config.length) specRows.push(['Total Length', (config.totalLength || config.length) + 'm']);
-        if (specRows.length > 0) {
-          h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--sw-border);overflow:hidden">';
-          specRows.forEach(function(row) {
-            h += '<div style="padding:10px 12px;background:var(--sw-card)">';
-            h += '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--sw-text-sec);margin-bottom:2px">' + esc(row[0]) + '</div>';
-            h += '<div style="font-size:14px;font-weight:600;color:var(--sw-dark)">' + esc(String(row[1])) + '</div>';
-            h += '</div>';
-          });
-          if (specRows.length % 2 !== 0) h += '<div style="background:var(--sw-card)"></div>';
-          h += '</div>';
-        }
-      }
-
-      // Removal info
-      var removal = scopeJob.removal || {};
-      var remType = removal.existingFenceType || removal.type || '';
-      var remLength = removal.existingFenceLength || removal.length || '';
-      var remRequired = removal.removalRequired !== false;
-      if (remRequired && (remType || remLength)) {
-        h += '<div style="background:#F8F6F3;border-left:3px solid var(--sw-mid);padding:10px 12px;margin-top:8px">';
-        h += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--sw-mid);margin-bottom:4px">Removal</div>';
-        h += '<div style="font-size:13px;color:var(--sw-text);display:flex;flex-wrap:wrap;gap:4px 16px">';
-        if (remType) h += '<span>' + esc(remType.charAt(0).toUpperCase() + remType.slice(1)) + ' fence</span>';
-        if (remLength) h += '<span>' + remLength + 'm</span>';
-        if (removal.access) h += '<span>Access: ' + esc(removal.access) + '</span>';
-        if (removal.disposal) h += '<span>Disposal: ' + esc(removal.disposal) + '</span>';
-        h += '</div>';
-        h += '</div>';
-      }
-
-      // Gates
-      var gates = scopeJob.gates || config.gates || [];
-      if (Array.isArray(gates) && gates.length > 0) {
-        h += '<div style="margin-top:8px">';
-        h += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--sw-dark);margin-bottom:6px">Gates</div>';
-        gates.forEach(function(g, i) {
-          h += '<div style="background:#F8F6F3;padding:8px 12px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center">';
-          h += '<span style="font-size:13px;font-weight:600;color:var(--sw-dark)">Gate ' + (i + 1) + '</span>';
-          h += '<span style="font-size:13px;color:var(--sw-text)">' + (g.width || '?') + 'mm ' + esc(g.type || g.style || 'swing') + '</span>';
-          h += '</div>';
-        });
-        h += '</div>';
-      } else if (typeof gates === 'number' && gates > 0) {
-        h += '<div style="background:#F8F6F3;padding:8px 12px;margin-top:8px;font-size:13px;color:var(--sw-text)">';
-        h += '<span style="font-weight:600;color:var(--sw-dark)">Gates:</span> ' + gates;
-        h += '</div>';
-      }
+      h += '<div style="padding:16px;text-align:center;color:var(--sw-text-sec);font-size:13px">No detailed scope data available</div>';
 
     } else {
       // Patio / Decking build spec — grid layout

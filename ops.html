@@ -9758,7 +9758,7 @@ async function renderJarvisView(data) {
       { label: 'Notes', count: noteEvents.length, latest: noteEvents[0] && noteEvents[0].created_at, tab: 'overview' },
       { label: 'History', count: events.length, latest: events[0] && events[0].created_at, tab: 'history' },
       { label: 'Comms', count: commsEvents.length, latest: commsEvents[0] && commsEvents[0].occurred_at, tab: 'comms' },
-      { label: 'Files', count: documents.length, latest: filesLatest && filesLatest.created_at, tab: 'files' },
+      { label: 'Files', count: documents.length + (data.work_orders || []).length, latest: filesLatest && filesLatest.created_at, tab: 'files' },
     ];
     html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">';
     evidence.forEach(function(e) {
@@ -11126,6 +11126,412 @@ function printWOModal() {
   win.print();
 }
 
+// ── Rich Work Order generator — ported from fence designer ──
+// Generates the exact same Work Order PDF as the scoping tool's "Work Order PDF" button.
+// Reads scope_json from the job detail data and reconstructs the full document.
+
+var _woConst = {
+  POST_LOOKUP: {
+    1200: [{ret:0,post:2400,patio:false},{ret:150,post:2400,patio:false},{ret:300,post:2400,patio:false},{ret:450,post:2400,patio:true},{ret:600,post:2400,patio:true}],
+    1500: [{ret:0,post:2400,patio:false},{ret:150,post:2400,patio:false},{ret:300,post:2400,patio:false},{ret:450,post:2700,patio:true},{ret:600,post:2700,patio:true}],
+    1800: [{ret:0,post:2400,patio:false},{ret:150,post:2700,patio:false},{ret:300,post:2700,patio:false},{ret:450,post:3000,patio:true},{ret:600,post:3000,patio:true}],
+    2100: [{ret:0,post:2700,patio:false},{ret:150,post:3000,patio:false},{ret:300,post:3000,patio:false},{ret:450,post:3000,patio:true},{ret:600,post:3000,patio:true}]
+  },
+  SUPPLIER_PROFILES: { RNR:{panelWidth:2380}, Metroll:{panelWidth:2365}, Lysaght:{panelWidth:2360}, Stratco:{panelWidth:2350} },
+  COST_PRICES: {
+    panelKit1800_2400:185, panelKit1800_2700:210, panelKit1800_3000:235,
+    panelKit1500_2400:165, panelKit1200_2400:145, panelKit2100_2700:230, panelKit2100_3000:255,
+    plinth:28, patioTube:45, gateKitPedestrian:320, gateKitDouble:580, gatePost90x90:85,
+    concrete:9.50, tekScrewBox:18, labourPerMetre:35, delivery:250,
+    removeHardieSheet:25, removeTimberLap:15, removeAsbestosSheet:85, vegClear:150,
+    groundMulch:12, groundStones:18, groundTurf:22
+  },
+  ACCESS_SURCHARGE: { easy:0, moderate:0.10, difficult:0.20 },
+  LOGO_SVG: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490 79.55"><defs><style>.c1{fill:#fff}.c3{fill:rgba(255,255,255,0.6)}</style></defs><path class="c1" d="M85.11,46.94c.24,1.73,.73,3.02,1.44,3.88,1.31,1.56,3.56,2.34,6.74,2.34,1.91,0,3.45-.21,4.64-.62,2.26-.79,3.38-2.25,3.38-4.39,0-1.25-.55-2.22-1.66-2.9-1.11-.67-2.86-1.26-5.26-1.77l-4.1-.9c-4.03-.89-6.8-1.86-8.3-2.9-2.55-1.75-3.83-4.48-3.83-8.19,0-3.39,1.25-6.21,3.74-8.45s6.16-3.36,11-3.36c4.04,0,7.48,1.06,10.33,3.17,2.85,2.11,4.35,5.18,4.48,9.21h-7.6c-.14-2.28-1.16-3.89-3.05-4.85-1.26-.63-2.83-.95-4.71-.95-2.09,0-3.76,.41-5,1.23-1.25,.82-1.87,1.97-1.87,3.44,0,1.35,.61,2.36,1.84,3.03,.79,.45,2.47,.97,5.03,1.57l6.64,1.57c2.91,.69,5.09,1.6,6.55,2.75,2.26,1.78,3.38,4.36,3.38,7.73s-1.34,6.33-4.01,8.62c-2.67,2.29-6.45,3.43-11.33,3.43s-8.9-1.13-11.76-3.38c-2.86-2.25-4.28-5.35-4.28-9.28h7.55Z"/><path class="c1" d="M130.99,31.2c1.95,.87,3.57,2.26,4.84,4.14,1.15,1.66,1.89,3.59,2.23,5.79,.2,1.29,.28,3.14,.24,5.56h-20.39c.11,2.81,1.09,4.78,2.93,5.91,1.12,.7,2.46,1.05,4.04,1.05,1.67,0,3.02-.43,4.06-1.28,.57-.46,1.07-1.1,1.51-1.93h7.47c-.2,1.66-1.1,3.35-2.71,5.06-2.51,2.72-6.02,4.08-10.53,4.08-3.73,0-7.01-1.15-9.86-3.44-2.85-2.3-4.27-6.03-4.27-11.21,0-4.85,1.28-8.57,3.86-11.16,2.57-2.59,5.91-3.88,10.01-3.88,2.44,0,4.63,.44,6.58,1.31Zm-10.95,6.32c-1.03,1.07-1.68,2.51-1.95,4.33h12.61c-.13-1.94-.78-3.42-1.95-4.42s-2.61-1.51-4.34-1.51c-1.88,0-3.34,.53-4.37,1.6Z"/><path class="c1" d="M157.58,40.68c-.14-1.04-.49-1.99-1.06-2.82-.82-1.13-2.1-1.7-3.84-1.7-2.47,0-4.16,1.22-5.07,3.67-.48,1.3-.72,3.02-.72,5.17s.24,3.7,.72,4.94c.87,2.33,2.52,3.49,4.94,3.49,1.72,0,2.94-.46,3.66-1.39,.72-.92,1.16-2.12,1.31-3.6h7.47c-.17,2.23-.98,4.33-2.42,6.32-2.3,3.2-5.7,4.8-10.21,4.8s-7.82-1.34-9.95-4.01c-2.12-2.67-3.19-6.13-3.19-10.39,0-4.8,1.17-8.54,3.52-11.21,2.35-2.67,5.59-4.01,9.72-4.01,3.51,0,6.39,.79,8.63,2.36,2.24,1.58,3.56,4.36,3.97,8.35h-7.5Z"/><path class="c1" d="M176.23,30.63v16.87c0,1.59,.19,2.79,.56,3.6,.66,1.42,1.97,2.13,3.91,2.13,2.49,0,4.19-1.01,5.11-3.03,.48-1.1,.72-2.54,.72-4.34v-15.23h7.42v27.99h-7.11v-3.96c-.07,.09-.24,.34-.51,.77s-.6,.8-.97,1.13c-1.14,1.03-2.25,1.73-3.32,2.11-1.07,.38-2.32,.57-3.75,.57-4.13,0-6.92-1.49-8.35-4.47-.8-1.64-1.2-4.07-1.2-7.27V30.63h7.5Z"/><path class="c1" d="M215.46,29.98c.09,0,.3,.02,.63,.04v7.5c-.46-.05-.87-.09-1.23-.1-.36-.02-.65-.03-.87-.03-2.95,0-4.92,.96-5.93,2.88-.57,1.08-.85,2.74-.85,4.98v13.38h-7.37V30.63h6.99v4.88c1.13-1.87,2.11-3.14,2.95-3.83,1.37-1.15,3.15-1.72,5.34-1.72,.14,0,.25,0,.35,.01Z"/><path class="c1" d="M237.46,31.2c1.95,.87,3.57,2.26,4.84,4.14,1.15,1.66,1.89,3.59,2.23,5.79,.2,1.29,.28,3.14,.24,5.56h-20.39c.11,2.81,1.09,4.78,2.93,5.91,1.12,.7,2.46,1.05,4.04,1.05,1.67,0,3.02-.43,4.06-1.28,.57-.46,1.07-1.1,1.51-1.93h7.47c-.2,1.66-1.1,3.35-2.71,5.06-2.51,2.72-6.02,4.08-10.53,4.08-3.73,0-7.01-1.15-9.86-3.44-2.85-2.3-4.27-6.03-4.27-11.21,0-4.85,1.28-8.57,3.86-11.16,2.57-2.59,5.91-3.88,10.01-3.88,2.44,0,4.63,.44,6.58,1.31Zm-10.95,6.32c-1.03,1.07-1.68,2.51-1.95,4.33h12.61c-.13-1.94-.78-3.42-1.95-4.42s-2.61-1.51-4.34-1.51c-1.88,0-3.34,.53-4.37,1.6Z"/><path class="c1" d="M257.19,20.77l.39,21.68-.21,6.04,2.36-5.91,8.91-21.8h8.35l-.13,21.68-.13,6.04,2.39-5.8,9.73-21.91h8.04l-18.7,37.86h-7.55l.13-22.14,.21-7.32-2.88,7.32-9.27,22.14h-7.34l-2.7-37.86h8.4Z"/><path class="c1" d="M303.31,59.6c-4.81,0-8.09-1.46-9.82-4.38-1.74-2.92-2.17-6.43-1.3-10.54,.86-4.04,2.78-7.54,5.78-10.5,3-2.96,6.9-4.44,11.71-4.44s8.08,1.48,9.81,4.44c1.73,2.96,2.17,6.46,1.31,10.5-.87,4.11-2.8,7.62-5.79,10.54-2.99,2.92-6.89,4.38-11.7,4.38Zm9.81-14.92c.6-2.81,.48-4.97-.35-6.49-.83-1.52-2.32-2.27-4.46-2.27s-3.95,.76-5.42,2.27c-1.47,1.52-2.51,3.68-3.11,6.49-.6,2.81-.48,4.97,.35,6.5,.83,1.52,2.32,2.29,4.46,2.29s3.95-.76,5.42-2.29,2.51-3.69,3.11-6.5Z"/><path class="c1" d="M344.17,30.02l-1.59,7.5c-.45-.05-.85-.09-1.21-.1-.36-.02-.65-.03-.87-.03-2.94,0-5.13,.96-6.55,2.88-.79,1.08-1.42,2.74-1.9,4.98l-2.83,13.38h-7.37l5.93-27.99h6.99l-1.03,4.88c1.52-1.87,2.77-3.14,3.75-3.83,1.63-1.15,3.54-1.72,5.73-1.72,.14,0,.25,0,.35,.01,.09,0,.3,.02,.6,.04Z"/><path class="c1" d="M349.18,20.9h7.19l-4.34,20.39,11.35-10.53h9.07l-12.07,10.71,6.55,17.16h-8.83l-4.16-11.97-3.72,3.16-1.85,8.81h-7.19l8.01-37.73Z"/><path class="c1" d="M376.91,49.69c-.12,1.3,.03,2.23,.44,2.77,.68,.98,2.25,1.46,4.7,1.46,1.44,0,2.63-.21,3.57-.64,.94-.43,1.51-1.07,1.7-1.93,.17-.82-.04-1.45-.64-1.87-.6-.43-2.99-1.16-7.17-2.21-3-.79-5.02-1.77-6.06-2.95-1.06-1.16-1.35-2.84-.87-5.03,.55-2.59,2.03-4.81,4.46-6.66,2.42-1.86,5.47-2.79,9.16-2.79s6.19,.7,8.09,2.09c1.9,1.4,2.65,3.81,2.26,7.23h-7.32c.09-.94-.02-1.69-.33-2.23-.6-.99-1.87-1.49-3.8-1.49-1.59,0-2.78,.25-3.56,.74-.78,.5-1.24,1.08-1.37,1.75-.19,.84,.04,1.45,.69,1.82,.63,.39,3.03,1.07,7.19,2.03,2.76,.69,4.72,1.72,5.88,3.11,1.15,1.4,1.5,3.16,1.05,5.26-.6,2.77-2.11,5.04-4.55,6.79-2.43,1.76-5.8,2.63-10.12,2.63s-7.45-.93-9.16-2.79c-1.7-1.86-2.26-4.22-1.66-7.1h7.42Z"/><text class="c3" x="406" y="52" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="21" font-weight="400" letter-spacing="0.5">Group</text><polygon class="c1" points="53.4 30.35 53.4 22.29 31.41 8.51 8.87 22.26 8.87 34.53 45.59 42.34 45.59 52.83 38.55 52.83 31.39 45.47 24.15 52.83 16.68 52.83 16.68 39 8.87 37.4 8.87 60.64 27.43 60.64 31.36 56.65 35.25 60.64 53.4 60.64 53.4 36.01 16.68 28.21 16.68 26.65 31.35 17.69 45.59 26.61 45.59 31.95 53.4 33.41 53.4 30.35"/><rect fill="#F15A29" x="8.96" y="62.99" width="44.53" height="7.77"/></svg>'
+};
+
+function _woLookupPost(sheetHeight, retaining) {
+  var table = _woConst.POST_LOOKUP[sheetHeight] || _woConst.POST_LOOKUP[1800];
+  var entry = table.find(function(e) { return e.ret === retaining; });
+  if (entry) return entry;
+  var totalFence = sheetHeight + retaining;
+  var required = totalFence + 600;
+  var postSize = required <= 2400 ? 2400 : required <= 2700 ? 2700 : 3000;
+  var plinths = retaining / 150;
+  return { ret: retaining, post: postSize, patio: plinths >= 3 && plinths <= 4 };
+}
+
+function _woFmt(n) { return n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+function _woCollectData(sj) {
+  var C = _woConst;
+  var CP = C.COST_PRICES;
+  var supplier = C.SUPPLIER_PROFILES[sj.supplier] || C.SUPPLIER_PROFILES.RNR;
+  var panelWidthMm = supplier.panelWidth;
+  var removal = sj.removal || {};
+  var access = removal.access || 'easy';
+  var accessRate = C.ACCESS_SURCHARGE[access] || 0;
+
+  var totalMetres = 0, totalPanels = 0, totalPosts = 0, totalPlinths = 0, totalPatioTubes = 0;
+  var postGroups = {};
+  var runDetails = [];
+
+  (sj.runs || []).forEach(function(run) {
+    var panelCount = (run.panels || []).length;
+    var postCount = panelCount + 1;
+    totalMetres += run.length || 0;
+    totalPanels += panelCount;
+    totalPosts += postCount;
+    var runPlinths = 0, panelsWithPatio = 0;
+    var panelDetails = [];
+
+    (run.panels || []).forEach(function(panel, idx) {
+      var slopePl = panel.slopePlinths || 0;
+      var manualPl = panel.retaining / 150;
+      var totalPl = Math.min(4, slopePl + manualPl);
+      var totalRet = totalPl * 150;
+      var plinths = totalPl;
+      runPlinths += plinths;
+      var lookup = _woLookupPost(panel.height, totalRet);
+      var postH = lookup.post;
+      var patio = plinths >= 3 && plinths <= 4;
+      if (patio) panelsWithPatio++;
+      var key = panel.height + '_' + postH;
+      if (!postGroups[key]) postGroups[key] = { sheetH: panel.height, postH: postH, count: 0 };
+      postGroups[key].count++;
+      panelDetails.push({ num: idx + 1, height: panel.height, retaining: totalRet, plinths: plinths, totalH: panel.height + totalRet, postH: postH, patio: patio, stepMm: panel.stepMm || 0 });
+    });
+
+    var patioTubes = panelsWithPatio > 0 ? panelsWithPatio + 1 : 0;
+    totalPlinths += runPlinths;
+    totalPatioTubes += patioTubes;
+    var hasRetaining = (run.panels || []).some(function(p) { return (p.slopePlinths || 0) + (p.retaining / 150) > 0; });
+
+    runDetails.push({ name: run.name, length: run.length || 0, panelCount: panelCount, postCount: postCount, plinths: runPlinths, patioTubes: patioTubes, hasRetaining: hasRetaining, panels: panelDetails });
+  });
+
+  if ((sj.runs || []).length > 1) totalPosts -= ((sj.runs || []).length - 1);
+
+  // Gates
+  var gatePosts = 0;
+  var gateLineItems = [];
+  (sj.gates || []).forEach(function(g) {
+    var gp = g.type === 'double' ? 4 : 2;
+    gatePosts += gp;
+    var desc = g.type === 'double' ? 'Double swing gate ' + (g.width || '') + 'mm' : 'Pedestrian gate ' + (g.width || 900) + 'mm';
+    gateLineItems.push({ desc: desc, qty: 1 });
+  });
+
+  // Concrete & tek screws
+  var allPosts = totalPosts + gatePosts;
+  var rawBags = allPosts * 2 * 1.1;
+  var concreteBags = Math.ceil(rawBags / 2) * 2;
+  var tekBoxes = totalPanels > 0 ? Math.max(1, Math.ceil(totalPanels / 4)) : 0;
+
+  // Removal items
+  var removalItems = [];
+  if (removal.removalRequired && removal.existingFenceType) {
+    var fenceType = removal.existingFenceType;
+    var fenceLen = removal.existingFenceLength || 0;
+    if (fenceType === 'asbestos') {
+      var sheets = Math.ceil(fenceLen / 2.4);
+      removalItems.push({ desc: 'Remove asbestos sheets (licenced)', qty: sheets, unit: 'sheets' });
+    } else if (fenceType === 'hardie' || fenceType === 'super6') {
+      var hSheets = Math.ceil(fenceLen / 2.4);
+      removalItems.push({ desc: 'Remove Hardie sheets', qty: hSheets, unit: 'sheets' });
+    } else if (fenceType === 'timber') {
+      removalItems.push({ desc: 'Remove timber lap fence', qty: fenceLen, unit: 'm' });
+    } else {
+      removalItems.push({ desc: 'Remove existing ' + fenceType + ' fencing', qty: fenceLen, unit: 'm' });
+    }
+  }
+  if (removal.vegetation) removalItems.push({ desc: 'Vegetation / site clear', qty: 1, unit: 'lot' });
+
+  // Internal cost breakdown
+  var internalCost = 0;
+  Object.values(postGroups).forEach(function(g) {
+    var unitCost = CP.panelKit1800_2400;
+    if (g.sheetH === 1200) unitCost = CP.panelKit1200_2400;
+    else if (g.sheetH === 1500) unitCost = CP.panelKit1500_2400;
+    else if (g.sheetH === 1800) {
+      if (g.postH <= 2400) unitCost = CP.panelKit1800_2400;
+      else if (g.postH <= 2700) unitCost = CP.panelKit1800_2700;
+      else unitCost = CP.panelKit1800_3000;
+    } else if (g.sheetH === 2100) {
+      unitCost = g.postH <= 2700 ? CP.panelKit2100_2700 : CP.panelKit2100_3000;
+    }
+    internalCost += g.count * unitCost;
+  });
+  internalCost += totalPlinths * CP.plinth;
+  internalCost += totalPatioTubes * CP.patioTube;
+  internalCost += concreteBags * CP.concrete;
+  internalCost += tekBoxes * CP.tekScrewBox;
+  (sj.gates || []).forEach(function(g) {
+    internalCost += g.type === 'double' ? (CP.gateKitDouble + 4 * CP.gatePost90x90) : (CP.gateKitPedestrian + 2 * CP.gatePost90x90);
+  });
+  var labourBase = totalMetres * CP.labourPerMetre;
+  var internalLabour = labourBase * (1 + accessRate);
+  var deliveryFee = CP.delivery;
+
+  // Post breakdown string
+  var postBreakdown = Object.values(postGroups).map(function(g) { return (g.count + 1) + ' @ ' + g.postH + 'mm'; }).join(', ');
+  // Recalc: posts per group = panels + shared corners handled above
+  postBreakdown = [];
+  var heightCounts = {};
+  runDetails.forEach(function(r) { r.panels.forEach(function(p) { heightCounts[p.postH] = (heightCounts[p.postH] || 0) + 1; }); });
+  Object.keys(heightCounts).sort().forEach(function(h) { postBreakdown.push(heightCounts[h] + ' @ ' + h + 'mm'); });
+  postBreakdown = postBreakdown.join(', ');
+
+  return {
+    supplier: sj.supplier, profile: sj.profile, colour: sj.colour,
+    panelWidthMm: panelWidthMm, access: access, accessRate: accessRate,
+    totalMetres: totalMetres, totalPanels: totalPanels, totalPosts: totalPosts,
+    totalPlinths: totalPlinths, totalPatioTubes: totalPatioTubes,
+    postGroups: postGroups, postBreakdown: postBreakdown, runDetails: runDetails,
+    gatePosts: gatePosts, gateLineItems: gateLineItems,
+    concreteBags: concreteBags, tekBoxes: tekBoxes,
+    removalItems: removalItems,
+    internalCost: internalCost, internalLabour: internalLabour, deliveryFee: deliveryFee,
+    removal: removal
+  };
+}
+
+function generateRichWorkOrder(data) {
+  var j = data.job;
+  var scope = j.scope_json || {};
+  var sj = scope.job || {};
+  if (!sj.runs || sj.runs.length === 0) { alert('No fencing scope data on this job.'); return; }
+
+  var d = _woCollectData(sj);
+  var pricing = sj._pricing_json || j.pricing_json || {};
+  var media = data.media || [];
+  var sitePhotos = media.filter(function(m) { return m.phase !== 'receipt'; });
+  var date = sj.date || j.created_at;
+  var fmtDate = date ? new Date(date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  var e = function(s) { return escapeHtml(s || ''); };
+
+  // CSS — exact match of fence designer _outputCSS
+  var css = '* { box-sizing: border-box; }';
+  css += 'body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color: #293C46; margin: 0; padding: 0; font-size: 13px; line-height: 1.5; }';
+  css += '.page { max-width: 820px; margin: 0 auto; padding: 0 40px 40px; }';
+  css += '.header-band { background: #293C46; padding: 0; margin: 0; }';
+  css += '.header-accent { height: 4px; background: #F15A29; }';
+  css += '.header-inner { max-width: 820px; margin: 0 auto; padding: 16px 40px; display: flex; align-items: center; justify-content: space-between; }';
+  css += '.header-logo svg { height: 28px; width: auto; }';
+  css += '.header-meta { text-align: right; color: #fff; }';
+  css += '.header-meta .ref { font-size: 13px; font-weight: 700; }';
+  css += '.header-meta .date { font-size: 11px; opacity: 0.7; margin-top: 2px; }';
+  css += '.doc-title { padding: 16px 0 12px; border-bottom: 3px solid #F15A29; margin-bottom: 24px; }';
+  css += '.doc-title h1 { font-size: 22px; margin: 0; color: #293C46; text-transform: uppercase; letter-spacing: 1px; }';
+  css += '.section { margin-bottom: 22px; }';
+  css += '.section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700; color: #293C46; margin: 0 0 8px 0; padding: 6px 0 6px 10px; border-left: 3px solid #F15A29; background: #f0f4f7; }';
+  css += '.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; margin-bottom: 14px; }';
+  css += '.info-grid .label { font-weight: 700; font-size: 10px; text-transform: uppercase; color: #4C6A7C; letter-spacing: 0.5px; }';
+  css += '.info-grid .value { font-size: 13px; }';
+  css += 'table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 12px; }';
+  css += 'th { background: #293C46; color: #fff; padding: 8px 10px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }';
+  css += 'td { padding: 7px 10px; border-bottom: 1px solid #e5e7eb; }';
+  css += 'tr:nth-child(even) td { background: #f8fafb; }';
+  css += '.text-right { text-align: right; }';
+  css += '.total-row td { font-weight: 700; border-top: 2px solid #293C46; background: #fff !important; }';
+  css += '.checklist { padding-left: 20px; }';
+  css += '.checklist li { margin-bottom: 5px; font-size: 12px; }';
+  css += '.patio-flag { color: #F15A29; font-weight: 700; }';
+  css += '.confidential { background: #fef2f2; border: 2px solid #dc2626; padding: 3px 10px; display: inline-block; font-size: 10px; font-weight: 700; color: #dc2626; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }';
+  css += '.footer { border-top: 1px solid #c8c8c8; padding-top: 12px; margin-top: 30px; text-align: center; font-size: 10px; color: #4C6A7C; line-height: 1.6; }';
+  css += '.print-btn { position: fixed; top: 12px; right: 12px; padding: 10px 20px; background: #F15A29; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 100; }';
+  css += '.print-btn:hover { background: #d94e22; }';
+  css += '@media print { body { padding: 0; } .page { padding: 0 20px 20px; } .header-inner { padding: 12px 20px; } .no-print { display: none !important; } .header-band, .header-accent, th, .section h2 { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }';
+
+  // Site plan
+  var sitePlanHtml = '';
+  if (sj._latlng && sj._latlng.lat) {
+    sitePlanHtml = '<img src="https://maps.googleapis.com/maps/api/staticmap?center=' + sj._latlng.lat + ',' + sj._latlng.lng + '&zoom=19&size=800x400&maptype=satellite&key=AIzaSyCVNUaGS6k6MBG6_-MbCyiIGUajnzHU7DM" style="width:100%;border-radius:4px" onerror="this.style.display=\'none\'">';
+  }
+
+  // Runs HTML
+  var runsHtml = '';
+  d.runDetails.forEach(function(r) {
+    runsHtml += '<div class="section"><h2>' + e(r.name) + ' (' + r.panelCount + ' panels, ' + r.length + 'm)';
+    if (r.patioTubes > 0) runsHtml += ' <span class="patio-flag">[' + r.patioTubes + ' patio tubes]</span>';
+    runsHtml += '</h2>';
+    if (r.hasRetaining) {
+      runsHtml += '<table><thead><tr><th>Panel</th><th>Fence</th><th>Ret.</th><th>Total</th><th>Post</th><th>Notes</th></tr></thead><tbody>';
+      r.panels.forEach(function(p) {
+        var notes = '';
+        if (p.patio) notes += '<span class="patio-flag">PATIO TUBE</span> ';
+        if (p.stepMm !== 0) notes += (p.stepMm < 0 ? '\u2193' + Math.abs(p.stepMm) + 'mm' : '\u2191' + p.stepMm + 'mm');
+        runsHtml += '<tr><td>P' + p.num + '</td><td>' + p.height + 'mm</td><td>' + p.retaining + 'mm</td><td>' + p.totalH + 'mm</td><td>' + p.postH + 'mm</td><td>' + notes + '</td></tr>';
+      });
+      runsHtml += '</tbody></table>';
+    } else {
+      var postH = r.panels.length > 0 ? r.panels[0].postH : 2400;
+      var sheetH = r.panels.length > 0 ? r.panels[0].height : 1800;
+      runsHtml += '<p style="padding-left:12px;">P1\u2013P' + r.panelCount + ': ' + sheetH + 'mm fence, 0mm retaining | Post height: ' + postH + 'mm</p>';
+    }
+    runsHtml += '</div>';
+  });
+
+  // Gates HTML
+  var gatesHtml = d.gateLineItems.length > 0
+    ? d.gateLineItems.map(function(g) { return '<p style="padding-left:12px;">' + e(g.desc) + ' \u2014 90\u00D790mm SHS gate posts</p>'; }).join('')
+    : '<p style="padding-left:12px;">None</p>';
+
+  // Scope checklist
+  var scopeChecklist = '<ul class="checklist">';
+  scopeChecklist += '<li>Install COLORBOND\u00AE fencing per specification</li>';
+  scopeChecklist += '<li>Set all posts in concrete (2 bags/post)</li>';
+  if (d.totalPlinths > 0) scopeChecklist += '<li>Install ' + d.totalPlinths + ' retaining plinths</li>';
+  if (d.totalPatioTubes > 0) scopeChecklist += '<li>Install ' + d.totalPatioTubes + ' patio tubes at retained sections</li>';
+  d.removalItems.forEach(function(r) { scopeChecklist += '<li>' + e(r.desc) + ' (' + r.qty + ' ' + r.unit + ')</li>'; });
+  d.gateLineItems.forEach(function(g) { scopeChecklist += '<li>' + e(g.desc) + '</li>'; });
+  scopeChecklist += '<li>Site clean-up and rubbish removal</li></ul>';
+
+  // Cost breakdown
+  var totalCostBase = d.internalCost + d.internalLabour + d.deliveryFee;
+  var quoteTotalExGST = pricing.totalExGST || (pricing.totalIncGST ? pricing.totalIncGST / 1.1 : 0);
+  var margin = quoteTotalExGST - totalCostBase;
+  var costHtml = '<table><thead><tr><th>Item</th><th class="text-right">Cost</th></tr></thead><tbody>';
+  costHtml += '<tr><td>Materials (panels, posts, plinths, concrete, fixings)</td><td class="text-right">$' + _woFmt(d.internalCost) + '</td></tr>';
+  costHtml += '<tr><td>Labour base (' + d.totalMetres.toFixed(1) + 'm @ $' + _woConst.COST_PRICES.labourPerMetre + '/m' + (d.accessRate > 0 ? ' + ' + (d.accessRate * 100) + '% access' : '') + ')</td><td class="text-right">$' + _woFmt(d.internalLabour) + '</td></tr>';
+  costHtml += '<tr><td>Delivery</td><td class="text-right">$' + _woFmt(d.deliveryFee) + '</td></tr>';
+  costHtml += '<tr class="total-row"><td>Total cost</td><td class="text-right">$' + _woFmt(totalCostBase) + '</td></tr>';
+  costHtml += '<tr><td>Quote total (excl. GST)</td><td class="text-right">$' + _woFmt(quoteTotalExGST) + '</td></tr>';
+  costHtml += '<tr style="font-weight:700"><td>Margin</td><td class="text-right">$' + _woFmt(margin) + '</td></tr>';
+  costHtml += '</tbody></table>';
+
+  // Site photos
+  var photosHtml = '';
+  if (sitePhotos.length > 0) {
+    photosHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">';
+    sitePhotos.forEach(function(m) {
+      var src = m.thumbnail_url || m.storage_url;
+      photosHtml += '<div style="text-align:center"><img src="' + e(src) + '" style="width:100%;max-height:200px;object-fit:cover;border-radius:4px"><div style="font-size:10px;color:#666;margin-top:2px">' + e(m.label || '') + '</div></div>';
+    });
+    photosHtml += '</div>';
+  }
+
+  // Assemble document
+  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Work Order \u2014 ' + e(j.job_number) + '</title><style>' + css + '</style></head><body>';
+  html += '<button class="print-btn no-print" onclick="window.print()">Print / PDF</button>';
+
+  // Header band
+  html += '<div class="header-accent"></div>';
+  html += '<div class="header-band"><div class="header-inner">';
+  html += '<div class="header-logo">' + _woConst.LOGO_SVG.replace('viewBox=', 'style="height:28px;width:auto;" viewBox=') + '</div>';
+  html += '<div class="header-meta"><div class="ref">' + e(j.job_number || sj.ref) + '</div><div class="date">' + fmtDate + '</div></div>';
+  html += '</div></div>';
+
+  html += '<div class="page">';
+  html += '<div class="doc-title"><h1>Work Order \u2014 ' + e(j.job_number || sj.ref) + '</h1></div>';
+
+  // Client info
+  html += '<div class="section"><div class="info-grid">';
+  html += '<div><span class="label">Client</span><br><span class="value">' + e(j.client_name || sj.client) + '</span></div>';
+  html += '<div><span class="label">Job Ref</span><br><span class="value">' + e(j.job_number || sj.ref) + '</span></div>';
+  html += '<div><span class="label">Address</span><br><span class="value">' + e(j.site_address || sj.address) + '</span></div>';
+  html += '<div><span class="label">Date</span><br><span class="value">' + fmtDate + '</span></div>';
+  html += '<div><span class="label">Phone</span><br><span class="value">' + e(j.client_phone || sj.phone) + '</span></div>';
+  html += '<div><span class="label">Email</span><br><span class="value">' + e(j.client_email || sj.email) + '</span></div>';
+  html += '<div><span class="label">Scoper</span><br><span class="value">' + e(sj.scoper) + '</span></div>';
+  html += '<div><span class="label">Access</span><br><span class="value">' + e(d.access) + '</span></div>';
+  html += '</div></div>';
+
+  // Site plan
+  if (sitePlanHtml) html += '<div class="section"><h2>Site Plan</h2>' + sitePlanHtml + '</div>';
+
+  // Fence spec
+  html += '<div class="section"><h2>Fence Specification</h2><div class="info-grid">';
+  html += '<div><span class="label">Supplier</span><br><span class="value">' + e(d.supplier) + '</span></div>';
+  html += '<div><span class="label">Profile</span><br><span class="value">' + e(d.profile) + '</span></div>';
+  html += '<div><span class="label">Colour</span><br><span class="value">' + e(d.colour) + '</span></div>';
+  html += '<div><span class="label">Panel Width</span><br><span class="value">' + d.panelWidthMm + 'mm</span></div>';
+  html += '</div></div>';
+
+  // Runs
+  html += runsHtml;
+
+  // Gates
+  html += '<div class="section"><h2>Gates</h2>' + gatesHtml + '</div>';
+
+  // Summary
+  html += '<div class="section"><h2>Summary</h2><div class="info-grid">';
+  html += '<div><span class="label">Total Length</span><br><span class="value">' + d.totalMetres.toFixed(1) + 'm</span></div>';
+  html += '<div><span class="label">Panels</span><br><span class="value">' + d.totalPanels + '</span></div>';
+  html += '<div><span class="label">Posts</span><br><span class="value">' + d.totalPosts + ' (' + d.postBreakdown + ')</span></div>';
+  html += '<div><span class="label">Gate Posts</span><br><span class="value">' + d.gatePosts + ' \u00D7 90\u00D790mm SHS</span></div>';
+  html += '<div><span class="label">Plinths</span><br><span class="value">' + d.totalPlinths + '</span></div>';
+  html += '<div><span class="label">Patio Tubes</span><br><span class="value">' + d.totalPatioTubes + '</span></div>';
+  html += '<div><span class="label">Concrete</span><br><span class="value">' + d.concreteBags + ' bags</span></div>';
+  html += '<div><span class="label">Tek Screws</span><br><span class="value">' + d.tekBoxes + ' boxes</span></div>';
+  html += '</div></div>';
+
+  // Scope of work
+  html += '<div class="section"><h2>Scope of Work</h2>' + scopeChecklist + '</div>';
+
+  // Safety
+  html += '<div class="section"><h2>Safety &amp; Compliance</h2><ul class="checklist">';
+  html += '<li>Dial Before You Dig check completed: <strong>___</strong></li>';
+  html += '<li>PPE: steel-cap boots, gloves, safety glasses, ear protection</li>';
+  html += '<li>First aid kit on site</li>';
+  if (d.removal.existingFenceType === 'asbestos') html += '<li style="color:#dc2626;font-weight:700;">ASBESTOS: Licensed removal required. Do NOT break sheets.</li>';
+  html += '<li>No overhead power lines within 3m of work area confirmed: <strong>___</strong></li>';
+  html += '</ul></div>';
+
+  // Completion
+  html += '<div class="section"><h2>Completion Requirements</h2><ul class="checklist">';
+  html += '<li>QC photos of every post alignment and panel fit</li>';
+  html += '<li>Client walkthrough and sign-off</li>';
+  html += '<li>Tradify job completion sign-off</li>';
+  html += '<li>All rubbish removed from site</li>';
+  html += '</ul></div>';
+
+  // Site notes
+  if (sj.siteNotes) html += '<div class="section"><h2>Site Notes</h2><p style="padding-left:12px;">' + e(sj.siteNotes).replace(/\n/g, '<br>') + '</p></div>';
+
+  // Site photos
+  if (photosHtml) html += '<div class="section"><h2>Site Photos</h2>' + photosHtml + '</div>';
+
+  // Cost breakdown (confidential)
+  html += '<div class="section" style="margin-top:30px; page-break-before:auto;">';
+  html += '<span class="confidential">Confidential \u2014 Internal Use Only</span>';
+  html += '<h2 style="border-left:none;background:none;padding-left:0;">Cost Breakdown</h2>';
+  html += costHtml + '</div>';
+
+  // Footer
+  html += '<div class="footer">SecureWorks WA Pty Ltd | ABN 64 689 223 416<br>fencing@secureworkswa.com.au | 0489 267 772<br>Fully Licensed | Quality Guaranteed</div>';
+  html += '</div></body></html>';
+
+  var win = window.open('', '_blank', 'width=900,height=800');
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+}
+
+function viewWOHtml(url) {
+  fetch(url).then(function(r) { return r.text(); }).then(function(html) {
+    var win = window.open('', '_blank', 'width=900,height=800');
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+  }).catch(function(e) { showToast('Failed to load: ' + e.message, 'error'); });
+}
+
+async function saveWOToFiles(jobId) {
+  if (!jobId) { showToast('No job selected', 'error'); return; }
+  showToast('Generating work order...', 'info');
+  try {
+    var result = await opsPost('generate_work_order_doc', { job_id: jobId });
+    showToast('Work order saved to Files', 'success');
+    // Refresh job detail to show new document
+    if (_currentJobData && _currentJobData.job.id === jobId) {
+      openJobDetail(jobId);
+    }
+  } catch (err) {
+    showToast('Failed: ' + (err.message || err), 'error');
+  }
+}
+
 async function loadLabourReconciliation(jobId) {
   var container = document.getElementById('jdLabourRecon');
   if (!container) return;
@@ -11473,8 +11879,12 @@ function renderFilesView(data) {
       // Visibility toggle
       html += '<button onclick="toggleDocVisibility(\'' + doc.id + '\', ' + !isVisible + ')" style="background:none;border:1px solid var(--sw-border);border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;color:' + (isVisible ? 'var(--sw-green)' : 'var(--sw-text-sec)') + ';white-space:nowrap" title="' + (isVisible ? 'Visible to trades' : 'Hidden from trades') + '">' + (isVisible ? '&#128065; Trades' : '&#128274; Hidden') + '</button>';
 
-      // View button
-      if (url) html += '<a href="' + escapeHtml(url) + '" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 8px;">View</a>';
+      // View button — work_order HTML files open via fetch+render to avoid sandbox issues
+      if (url && doc.type === 'work_order' && /\.html$/i.test(name)) {
+        html += '<button onclick="viewWOHtml(\'' + escapeHtml(url) + '\')" class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 8px;">View</button>';
+      } else if (url) {
+        html += '<a href="' + escapeHtml(url) + '" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 8px;">View</a>';
+      }
 
       // Delete button
       html += '<button onclick="deleteDocument(\'' + doc.id + '\',\'' + escapeHtml(name).replace(/'/g, "\\'") + '\')" style="background:none;border:none;cursor:pointer;padding:4px;font-size:14px;color:var(--sw-text-sec);opacity:0.5" title="Delete">&times;</button>';
@@ -11492,7 +11902,40 @@ function renderFilesView(data) {
     });
   }
 
-  if (!readiness && jobPhotos.length === 0 && receiptPhotos.length === 0 && (data.documents || []).length === 0) {
+  // Work Orders
+  var workOrders = data.work_orders || [];
+  if (workOrders.length > 0) {
+    html += '<div style="font-size:14px;font-weight:700;margin-top:16px;margin-bottom:8px;">Work Orders (' + workOrders.length + ')</div>';
+    workOrders.forEach(function(wo) {
+      html += '<div style="padding:10px 12px;border:1px solid var(--sw-border);border-radius:8px;margin-bottom:8px;background:var(--sw-light)">';
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">';
+      html += '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;padding:2px 6px;border-radius:3px;background:#F59E0B20;color:#F59E0B">work order</span>';
+      html += '<strong style="font-size:13px">' + escapeHtml(wo.wo_number) + '</strong>';
+      html += '<span class="status-badge ' + wo.status + '" style="font-size:10px;margin-left:auto">' + wo.status + '</span>';
+      html += '</div>';
+      if (wo.scheduled_date) {
+        html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:4px">Scheduled: ' + new Date(wo.scheduled_date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }) + '</div>';
+      }
+      if (wo.scope_items && wo.scope_items.length > 0) {
+        wo.scope_items.forEach(function(item) {
+          html += '<div style="font-size:12px;color:var(--sw-text);padding:2px 0;display:flex;justify-content:space-between">';
+          html += '<span>' + escapeHtml(item.description) + '</span>';
+          html += '<span style="color:var(--sw-text-sec);white-space:nowrap;margin-left:8px">' + item.quantity + ' ' + (item.unit || '') + '</span>';
+          html += '</div>';
+        });
+      }
+      if (wo.trade_name) {
+        html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:4px">Trade: ' + escapeHtml(wo.trade_name) + '</div>';
+      }
+      html += '<div style="display:flex;gap:6px;margin-top:8px">';
+      html += '<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px;" onclick="generateRichWorkOrder(_currentJobData)">View Full WO</button>';
+      html += '<button class="btn btn-primary btn-sm" style="font-size:11px;padding:3px 8px;" onclick="saveWOToFiles(_currentJobData && _currentJobData.job.id)">Save to Files</button>';
+      html += '</div>';
+      html += '</div>';
+    });
+  }
+
+  if (!readiness && jobPhotos.length === 0 && receiptPhotos.length === 0 && (data.documents || []).length === 0 && workOrders.length === 0) {
     html = '<div class="empty-state"><div class="empty-state-icon">&#128247;</div><div class="empty-state-text">No files yet</div></div>';
   }
 
