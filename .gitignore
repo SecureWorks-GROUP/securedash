@@ -14,3 +14,6 @@ drafts/
 
 # Local browser/test audit output
 .gstack/
+
+# Supabase CLI local temp files
+supabase/.temp/
