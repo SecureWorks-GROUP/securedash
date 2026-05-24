@@ -1,0 +1,55 @@
+name: PR Sanity Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  sanity-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed
+        run: |
+          HTML_FILES=$(git diff --name-only --diff-filter=ACM origin/main...HEAD -- '*.html' || true)
+          JS_FILES=$(git diff --name-only --diff-filter=ACM origin/main...HEAD -- '*.js' || true)
+          echo "html=$HTML_FILES" >> "$GITHUB_OUTPUT"
+          echo "js=$JS_FILES" >> "$GITHUB_OUTPUT"
+          echo "has_html=$([ -n "$HTML_FILES" ] && echo 'true' || echo 'false')" >> "$GITHUB_OUTPUT"
+          echo "has_js=$([ -n "$JS_FILES" ] && echo 'true' || echo 'false')" >> "$GITHUB_OUTPUT"
+
+      - name: Install tidy
+        if: steps.changed.outputs.has_html == 'true'
+        run: sudo apt-get update && sudo apt-get install -y tidy
+
+      - name: Check HTML syntax
+        if: steps.changed.outputs.has_html == 'true'
+        run: |
+          has_errors=0
+          for file in ${{ steps.changed.outputs.html }}; do
+            echo "Checking HTML: $file"
+            # tidy exit codes: 0 = clean, 1 = warnings only, 2+ = errors
+            tidy -q --show-warnings no "$file" > /dev/null 2>&1
+            exit_code=$?
+            if [ "$exit_code" -ge 2 ]; then
+              echo "::error file=$file::$file has HTML syntax errors (tidy exit $exit_code)"
+              tidy -q --show-warnings no "$file" 2>&1 | head -20
+              has_errors=1
+            else
+              echo "✅ $file: no HTML errors (tidy exit $exit_code)"
+            fi
+          done
+          exit $has_errors
+
+      - name: Check JS syntax
+        if: steps.changed.outputs.has_js == 'true'
+        run: |
+          for file in ${{ steps.changed.outputs.js }}; do
+            echo "Checking JS: $file"
+            node --check "$file"
+            echo "✅ $file: JS syntax OK"
+          done
