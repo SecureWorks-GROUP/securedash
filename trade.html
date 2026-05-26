@@ -8608,6 +8608,7 @@
   var _calWeekStart = null;
   var _calRange = 'week'; // 'week' or 'month'
   var _calEvents = [];
+  var _calOrgEvents = [];
   var _calCacheTime = 0;
   var _calCrewList = [];
   var _scheduleSubTab = 'calendar';
@@ -8689,6 +8690,7 @@
     try {
       var data = await api('calendar', { from: from, to: to });
       _calEvents = data.events || [];
+      _calOrgEvents = data.orgEvents || [];
       _calCacheTime = Date.now();
 
       // Also load crew list if not cached
@@ -8765,7 +8767,29 @@
       if (isToday) html += ' <span style="font-size:10px;font-weight:600;background:var(--sw-orange);color:#fff;padding:1px 6px;border-radius:4px;margin-left:4px;">TODAY</span>';
       html += '</div>';
 
-      if (dayEvents.length === 0) {
+      // Holiday banner
+      var dayHolidays = (_calOrgEvents || []).filter(function(oe) {
+        return oe.visible_to_trades && dateStr >= oe.event_date && dateStr <= (oe.event_end || oe.event_date);
+      });
+      dayHolidays.forEach(function(h) {
+        html += '<div style="font-size:11px;font-weight:700;color:#DC2626;background:rgba(239,68,68,0.08);padding:4px 8px;border-radius:6px;margin-bottom:6px;text-align:center;border:1px solid rgba(239,68,68,0.15);">';
+        html += esc(h.title);
+        html += '</div>';
+      });
+
+      // Visible non-job events (meetings, reminders with visible_to_trades)
+      var visibleEvents = dayEvents.filter(function(ev) {
+        return !ev.job_id && ev.visible_to_trades && (ev.assignment_type === 'meeting' || ev.assignment_type === 'reminder');
+      });
+      visibleEvents.forEach(function(ev) {
+        var icon = ev.assignment_type === 'meeting' ? '&#128197;' : '&#128276;';
+        html += '<div style="font-size:12px;color:#6B21A8;background:rgba(139,92,246,0.06);padding:6px 10px;border-radius:6px;margin-bottom:6px;border:1px solid rgba(139,92,246,0.15);">';
+        html += icon + ' <strong>' + esc(ev.label || 'Event') + '</strong>';
+        if (ev.start_time) html += ' &middot; ' + ev.start_time.slice(0,5);
+        html += '</div>';
+      });
+
+      if (dayEvents.length === 0 && dayHolidays.length === 0) {
         html += '<div style="font-size:12px;color:var(--sw-text-sec);padding:6px 0;font-style:italic;">No jobs scheduled</div>';
       } else {
         dayEvents.forEach(function(ev) {

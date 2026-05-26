@@ -615,8 +615,11 @@ serve(async (req: Request) => {
       case 'list_users': return json(await listUsers(client))
       case 'ops_targets': return json(await opsTargets(client))
       case 'get_email_events': return json(await getEmailEvents(client, url.searchParams))
+      case 'get_org_events': return json(await getOrgEvents(client, url.searchParams))
 
       // ── Ops Dashboard Write ──
+      case 'create_org_event': return json(await createOrgEvent(client, body))
+      case 'delete_org_event': return json(await deleteOrgEvent(client, body))
       case 'create_assignment': return json(await createAssignment(client, body))
       case 'update_assignment': return json(await updateAssignment(client, body))
       case 'delete_assignment': return json(await deleteAssignment(client, body))
@@ -3124,7 +3127,7 @@ async function calendarEvents(client: any, params: URLSearchParams) {
 
   const calSelect = includeFinancials
     ? '*'
-    : 'assignment_id, job_id, user_id, job_number, client_name, site_address, site_suburb, scheduled_date, scheduled_end, start_time, end_time, crew_name, assigned_to, assignment_type, assignment_status, confirmation_status, job_type, job_status, scope_json, ghl_contact_id, org_id, label'
+    : 'assignment_id, job_id, user_id, job_number, client_name, site_address, site_suburb, scheduled_date, scheduled_end, start_time, end_time, crew_name, assigned_to, assignment_type, assignment_status, confirmation_status, job_type, job_status, scope_json, ghl_contact_id, org_id, label, visible_to_trades'
 
   let query = client
     .from('calendar_events')
@@ -3222,7 +3225,16 @@ async function calendarEvents(client: any, params: URLSearchParams) {
     return { ...rest, run_breakdown, core_drill, asbestos, removal_length }
   })
 
-  return { events: lightEvents, deliveries: deliveries || [], readiness }
+  // Fetch org events (holidays, company days) for the same date range
+  const { data: orgEventsData } = await client
+    .from('org_events')
+    .select('id, event_date, event_end, title, event_type, description, visible_to_trades')
+    .eq('org_id', DEFAULT_ORG_ID)
+    .gte('event_date', from)
+    .lte('event_date', to)
+    .order('event_date', { ascending: true })
+
+  return { events: lightEvents, deliveries: deliveries || [], readiness, orgEvents: orgEventsData || [] }
 }
 
 async function pipeline(client: any, params: URLSearchParams) {
@@ -3889,6 +3901,8 @@ async function createAssignment(client: any, body: any) {
   const validConfStatuses = ['placeholder', 'tentative', 'confirmed']
   const finalConfStatus = validConfStatuses.includes(confStatus) ? confStatus : 'tentative'
 
+  const visibleToTrades = body.visible_to_trades === true || body.visibleToTrades === true
+
   const { data, error } = await client.from('job_assignments').insert({
     job_id: jId || null,
     user_id: userId || user_id || null,
@@ -3905,6 +3919,7 @@ async function createAssignment(client: any, body: any) {
     label: label || null,
     job_type: jId ? null : (jobType || job_type || null),
     org_id: jId ? null : DEFAULT_ORG_ID,
+    visible_to_trades: visibleToTrades,
   }).select().single()
 
   if (error) throw error
@@ -6807,43 +6822,75 @@ function extractMaterialsFromScope(scope_json: any, pricing_json: any): any[] {
   }
 
   // ── Fencing materials (detailed extraction from scoping tool) ──
-  const sections = scope.sections || []
+  const jobData = scope.job || {}
+  const sections = jobData.runs || scope.sections || []
+  const isNewFormat = !!(jobData.runs)
   if (sections.length > 0) {
     // Group panels by sheet height
     const panelsByHeight: Record<number, number> = {}
-    const postsByHeight: Record<string, number> = { end: 0, corner: 0, intermediate: 0 }
     let totalPlinths = 0
-    let totalSleepers = 0
+    let totalPatioTubes = 0
     let totalMetres = 0
+    let totalPanels = 0
+    let totalPosts = 0
+    // Default sheet height from first run (used for gate infill)
+    const defaultSheetHeight = isNewFormat
+      ? (sections[0]?.panels?.[0]?.height || 1800)
+      : (sections[0]?.sheetHeight || 1800)
+    const colour = jobData.colour || ''
 
     for (const sec of sections) {
       const panels = sec.panels || []
-      const height = sec.sheetHeight || 1800
-      panelsByHeight[height] = (panelsByHeight[height] || 0) + panels.length
       totalMetres += sec.length || 0
 
-      // Count posts by type
-      for (const panel of panels) {
-        if (panel.leftPost) postsByHeight[panel.leftPost] = (postsByHeight[panel.leftPost] || 0) + 1
+      if (isNewFormat) {
+        // New format: run.panels[].height, run.panels[].retaining (mm), run.panels[].slopePlinths
+        for (const p of panels) {
+          const h = p.height || 1800
+          panelsByHeight[h] = (panelsByHeight[h] || 0) + 1
+          const slopePl = p.slopePlinths || 0
+          const manualPl = (p.retaining || 0) / 150
+          const pl = Math.min(4, slopePl + manualPl)
+          totalPlinths += pl
+          if (pl >= 3 && pl <= 4) totalPatioTubes++
+        }
+        totalPanels += panels.length
+        totalPosts += panels.length + 1
+      } else {
+        // Legacy format: sec.panels[].leftPost/rightPost, sec.sheetHeight, sec.retaining
+        const height = sec.sheetHeight || 1800
+        panelsByHeight[height] = (panelsByHeight[height] || 0) + panels.length
+        totalPanels += panels.length
+        // Count posts by type (legacy)
+        for (const panel of panels) {
+          if (panel.leftPost) totalPosts++
+        }
+        if (panels.length > 0 && panels[panels.length - 1].rightPost) totalPosts++
+        // Plinths (legacy)
+        if (sec.retaining) {
+          totalPlinths += panels.length
+        }
       }
-      // Last panel's right post
-      if (panels.length > 0 && panels[panels.length - 1].rightPost) {
-        postsByHeight[panels[panels.length - 1].rightPost] = (postsByHeight[panels[panels.length - 1].rightPost] || 0) + 1
-      }
+    }
 
-      // Plinths and sleepers
-      if (sec.retaining) {
-        const plinthCount = panels.length
-        totalPlinths += plinthCount
-        const sleeperRows = sec.retainingHeight ? Math.ceil(sec.retainingHeight / 200) : 1
-        totalSleepers += plinthCount * sleeperRows
+    // Adjust post count for shared posts between runs (new format)
+    if (isNewFormat && sections.length > 1) totalPosts -= (sections.length - 1)
+    // Patio tubes: count needs +1 per run that has any
+    if (isNewFormat) {
+      for (const sec of sections) {
+        const panels = sec.panels || []
+        const hasPatioInRun = panels.some((p: any) => {
+          const pl = Math.min(4, (p.slopePlinths||0) + ((p.retaining||0)/150))
+          return pl >= 3 && pl <= 4
+        })
+        if (hasPatioInRun) totalPatioTubes++ // extra +1 per run (already counted per-panel above)
       }
     }
 
     // Panels by height
     for (const [height, count] of Object.entries(panelsByHeight)) {
       items.push({
-        description: `Colorbond fence sheets — ${height}mm high`,
+        description: `Colorbond fence sheets${colour ? ' (' + colour + ')' : ''} - ${height}mm high`,
         quantity: count,
         unit: 'sheets',
         unit_price: 0,
@@ -6851,14 +6898,12 @@ function extractMaterialsFromScope(scope_json: any, pricing_json: any): any[] {
     }
 
     // Posts (total count)
-    const totalPosts = Object.values(postsByHeight).reduce((s, n) => s + n, 0)
     if (totalPosts > 0) {
       items.push({
         description: 'Fence posts (C-section)',
         quantity: totalPosts,
         unit: 'ea',
         unit_price: 0,
-        notes: `End: ${postsByHeight.end || 0}, Corner: ${postsByHeight.corner || 0}, Intermediate: ${postsByHeight.intermediate || 0}`,
       })
     }
 
@@ -6866,70 +6911,84 @@ function extractMaterialsFromScope(scope_json: any, pricing_json: any): any[] {
     if (totalPlinths > 0) {
       items.push({
         description: 'Concrete plinths',
-        quantity: totalPlinths,
+        quantity: Math.round(totalPlinths),
         unit: 'ea',
         unit_price: 0,
       })
     }
 
-    // Retaining sleepers
-    if (totalSleepers > 0) {
+    // Patio tubes
+    if (totalPatioTubes > 0) {
       items.push({
-        description: 'Retaining sleepers',
-        quantity: totalSleepers,
+        description: 'Patio tube supports',
+        quantity: totalPatioTubes,
         unit: 'ea',
         unit_price: 0,
       })
     }
 
-    // Patio tubes (if 3+ plinths per section, need patio tube support)
-    for (const sec of sections) {
-      if (sec.retaining && (sec.panels || []).length >= 3) {
-        items.push({
-          description: `Patio tube support — Section (${sec.length || 0}m)`,
-          quantity: Math.ceil((sec.panels || []).length / 3),
-          unit: 'ea',
-          unit_price: 0,
-        })
-      }
-    }
-
-    // Gates
-    const gates = scope.gates || []
+    // Gates - full BOM breakdown
+    const gates = jobData.gates || scope.gates || []
+    let gatePosts = 0
     for (const gate of gates) {
       const gateType = gate.type || 'pedestrian'
       const gateWidth = gate.width || 900
+      const gateHeight = gate.height || defaultSheetHeight
+      const isDouble = gateType === 'double'
+      const label = isDouble ? `Double gate ${gateWidth}mm` : `Pedestrian gate ${gateWidth}mm`
+
+      // Gate posts
+      const gpCount = isDouble ? 4 : 2
+      gatePosts += gpCount
+      items.push({ description: `Gate posts - ${label}`, quantity: gpCount, unit: 'ea', unit_price: 0 })
+
+      // Gate stiles
+      const stileCount = isDouble ? 2 : 1
+      items.push({ description: `Gate stiles (pair) - ${label}`, quantity: stileCount, unit: 'pair', unit_price: 0 })
+
+      // Infill sheets
+      const infillCount = isDouble ? 4 : 2
       items.push({
-        description: `${gateType.charAt(0).toUpperCase() + gateType.slice(1)} gate — ${gateWidth}mm`,
-        quantity: 1,
-        unit: 'ea',
+        description: `Colorbond infill sheets${colour ? ' (' + colour + ')' : ''} ${gateHeight}mm - ${label}`,
+        quantity: infillCount,
+        unit: 'sheets',
         unit_price: 0,
       })
+
+      // Lokklatch kit
+      const lockDesc = isDouble ? 'Lokklatch kit + drop bolt' : 'Lokklatch kit'
+      items.push({ description: `${lockDesc} - ${label}`, quantity: 1, unit: 'ea', unit_price: 0 })
+
+      // Rails
+      const railCount = isDouble ? 2 : (gateWidth >= 1500 ? 2 : 1)
+      items.push({ description: `Long rail - ${label}`, quantity: railCount, unit: 'ea', unit_price: 0 })
     }
 
-    // Concrete bags (1 per post, 60kg bags)
-    if (totalPosts > 0) {
+    // Concrete bags (allPosts * 2 * 1.1 rounded to even - matches work order generator)
+    const allPosts = totalPosts + gatePosts
+    if (allPosts > 0) {
+      const concreteBags = Math.ceil(allPosts * 2 * 1.1 / 2) * 2
       items.push({
         description: 'Concrete bags (20kg)',
-        quantity: totalPosts * 3, // ~3 bags per post
+        quantity: concreteBags,
         unit: 'bags',
         unit_price: 0,
       })
     }
 
-    // Tek screws (4 per panel)
-    const totalPanels = Object.values(panelsByHeight).reduce((s, n) => s + n, 0)
+    // Tek screws (1 box per 4 panels, min 1)
     if (totalPanels > 0) {
+      const tekBoxes = Math.max(1, Math.ceil(totalPanels / 4))
       items.push({
-        description: 'Tek screws (12-14 x 20)',
-        quantity: totalPanels * 4,
-        unit: 'ea',
+        description: 'Tek screws (12-14 x 20) - box',
+        quantity: tekBoxes,
+        unit: 'box',
         unit_price: 0,
       })
     }
 
     // Removal line items
-    const removal = scope.removal
+    const removal = jobData.removal || scope.removal
     if (removal && (removal.totalMetres > 0 || removal.length > 0)) {
       items.push({
         description: 'Old fence removal',
@@ -13536,5 +13595,53 @@ async function sendOpsNoteToTrade(client: any, body: any) {
 
   // Mark as sent
   await client.from('ops_notes').update({ sent_to_trade: true, updated_at: new Date().toISOString() }).eq('id', note_id)
+  return { ok: true }
+}
+
+// ── Org Events (holidays, company days) ──
+
+async function getOrgEvents(client: any, params: URLSearchParams) {
+  const from = params.get('from') || new Date().toISOString().slice(0, 10)
+  const to = params.get('to') || (() => {
+    const d = new Date(from); d.setMonth(d.getMonth() + 3); return d.toISOString().slice(0, 10)
+  })()
+
+  const { data, error } = await client
+    .from('org_events')
+    .select('*')
+    .eq('org_id', DEFAULT_ORG_ID)
+    .gte('event_date', from)
+    .lte('event_date', to)
+    .order('event_date', { ascending: true })
+
+  if (error) throw error
+  return data || []
+}
+
+async function createOrgEvent(client: any, body: any) {
+  const { title, event_date, event_end, event_type, description, visible_to_trades } = body
+  if (!title || !event_date || !event_type) throw new Error('title, event_date, and event_type required')
+  if (!['public_holiday', 'company_day'].includes(event_type)) throw new Error('event_type must be public_holiday or company_day')
+
+  const { data, error } = await client.from('org_events').insert({
+    org_id: DEFAULT_ORG_ID,
+    title,
+    event_date,
+    event_end: event_end || null,
+    event_type,
+    description: description || null,
+    visible_to_trades: visible_to_trades !== false,
+  }).select().single()
+
+  if (error) throw error
+  return data
+}
+
+async function deleteOrgEvent(client: any, body: any) {
+  const id = body.id || body.event_id
+  if (!id) throw new Error('id required')
+
+  const { error } = await client.from('org_events').delete().eq('id', id).eq('org_id', DEFAULT_ORG_ID)
+  if (error) throw error
   return { ok: true }
 }
