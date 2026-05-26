@@ -12158,7 +12158,8 @@ function renderFilesView(data) {
         council_plans: '#8B5CF6', engineering: '#3B82F6', work_order: '#F59E0B',
         supplier_quote: '#EF4444', site_photo: '#10B981', approval: '#6366F1',
         quote: '#F97316', general: '#6B7280', client_reference: '#0EA5E9',
-        asbestos: '#DC2626', other: '#9CA3AF'
+        asbestos: '#DC2626', material_order: '#F472B6', quote_reference: '#A78BFA',
+        other: '#9CA3AF'
       };
       var badgeColor = typeColors[doc.type] || '#6B7280';
 
@@ -12286,7 +12287,7 @@ window.handleDocFiles = function(files) {
     var rowHtml = '<div id="' + rowId + '" style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--sw-border);font-size:12px">';
     rowHtml += '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(file.name) + '</span>';
     rowHtml += '<select id="' + rowId + '_type" style="font-size:11px;padding:2px 4px;border:1px solid var(--sw-border);border-radius:4px">';
-    ['site_photo','council_plans','engineering','supplier_quote','supplier_work_order','work_order','approval','client_reference','asbestos','general','other'].forEach(function(t) {
+    ['site_photo','council_plans','engineering','supplier_quote','supplier_work_order','work_order','approval','client_reference','asbestos','material_order','quote_reference','general','other'].forEach(function(t) {
       rowHtml += '<option value="' + t + '"' + (t === docType ? ' selected' : '') + '>' + t.replace(/_/g, ' ') + '</option>';
     });
     rowHtml += '</select>';
