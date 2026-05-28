@@ -121,8 +121,8 @@
     .view { display: none; }
     .view.active { display: block; }
     #viewCalendar.active {
-      display: flex !important; flex-direction: row; height: calc(100vh - 56px); overflow: hidden;
-      position: fixed; top: 56px; left: 0; right: 0; bottom: 0; z-index: 50;
+      display: flex !important; flex-direction: row; overflow: hidden;
+      position: fixed; top: 56px; left: 0; right: 0; bottom: 48px; z-index: 50;
     }
 
     /* ── Calendar Left Sidebar ── */
@@ -568,7 +568,6 @@
       display: grid; gap: 1px; background: var(--sw-border);
       border-radius: 8px; overflow: hidden;
       border: 2px solid var(--sw-border); box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-      min-height: calc(100vh - 140px);
     }
     .cal-swimlane-corner {
       background: var(--sw-dark); color: #fff; padding: 10px; font-size: 11px;
@@ -2750,7 +2749,7 @@
         </div>
 
         <!-- Swimlane -->
-        <div class="cal-swimlane-wrap" id="calSwimWrap" style="flex:1;overflow:hidden;">
+        <div class="cal-swimlane-wrap" id="calSwimWrap" style="flex:1;overflow-y:auto;overflow-x:hidden;">
           <div id="calendarBody"></div>
         </div>
       </div>
@@ -5720,6 +5719,21 @@ function renderCalendar() {
   }
   renderCalSummary(range);
   renderCalUnschedSidebar();
+  clampCalendarScroll();
+}
+
+function clampCalendarScroll() {
+  var wrap = document.getElementById('calSwimWrap');
+  var jarvis = document.getElementById('jarvisBar');
+  if (!wrap || !jarvis) return;
+  wrap.style.maxHeight = '';
+  wrap.style.overflowY = '';
+  var wrapRect = wrap.getBoundingClientRect();
+  var jarvisTop = jarvis.getBoundingClientRect().top;
+  if (wrapRect.bottom > jarvisTop) {
+    wrap.style.maxHeight = (jarvisTop - wrapRect.top) + 'px';
+    wrap.style.overflowY = 'auto';
+  }
 }
 
 // ── Swimlane View (replaces crew/week/month — unified 3-layer calendar) ──
@@ -5868,7 +5882,7 @@ function renderSwimlaneView(container, range) {
   // Pre-check delivery row for row count
   var hasDeliveriesEarly = dates.some(function(ds) { return deliveryMap[ds] && deliveryMap[ds].length > 0; });
   var dataRows = crewNames.length + (hasDeliveriesEarly ? 2 : 0);
-  var rowTemplate = 'auto repeat(' + dataRows + ', minmax(48px, 1fr))';
+  var rowTemplate = 'auto repeat(' + dataRows + ', minmax(48px, auto))';
 
   var html = '<div class="cal-swimlane-grid' + (isMonthMode ? ' month-mode' : '') + '" style="grid-template-columns: 140px repeat(' + numDays + ', 1fr); grid-template-rows: ' + rowTemplate + ';">';
 
@@ -7771,6 +7785,7 @@ function copyJobInfo(jobId) {
   var lines = [];
   if (j.job_number) lines.push(j.job_number);
   if (j.client_name) lines.push(j.client_name);
+  if (j.site_address) lines.push(j.site_address);
   if (j.client_phone) lines.push(j.client_phone);
   if (j.client_email) lines.push(j.client_email);
   navigator.clipboard.writeText(lines.join('\n')).then(function() {
