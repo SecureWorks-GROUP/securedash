@@ -12288,6 +12288,7 @@ window.handleDocFiles = function(files) {
     var fname = file.name.toLowerCase();
     var fmime = (file.type || '').toLowerCase();
     if (/\.(jpg|jpeg|png|gif|webp|heic)$/i.test(fname) || fmime.startsWith('image/')) docType = 'site_photo';
+    else if (/\.(mp4|mov|webm|avi|mkv|3gp)$/i.test(fname) || fmime.startsWith('video/')) docType = 'site_photo';
     else if (/council|permit|approval/i.test(fname)) docType = 'council_plans';
     else if (/engineer|structural|cert/i.test(fname)) docType = 'engineering';
     else if (/supplier.*work.?order|work.?order.*supplier|randr|r.?r.*wo|stratco.*wo|bondor.*wo|metroll.*wo/i.test(fname)) docType = 'supplier_work_order';

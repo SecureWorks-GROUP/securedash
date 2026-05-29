@@ -2536,6 +2536,7 @@
   <button class="lightbox-close">&times;</button>
   <button class="lightbox-nav lightbox-prev" onclick="event.stopPropagation();lightboxNav(-1)">&#8249;</button>
   <img id="lightboxImg" src="" alt="" onclick="event.stopPropagation()">
+  <video id="lightboxVideo" controls playsinline onclick="event.stopPropagation()" style="display:none;max-width:90vw;max-height:85vh"></video>
   <button class="lightbox-nav lightbox-next" onclick="event.stopPropagation();lightboxNav(1)">&#8250;</button>
   <div class="lightbox-counter" id="lightboxCounter"></div>
 </div>
@@ -4841,6 +4842,20 @@
     }
   };
 
+  function isVideoUrl(url) {
+    return /\.(mp4|mov|webm|avi|mkv|3gp)(\?|$)/i.test(url || '');
+  }
+
+  function renderMediaThumb(src, fullUrl, alt, gallerySelector) {
+    if (isVideoUrl(fullUrl)) {
+      return '<div style="position:relative;width:80px;height:80px;flex-shrink:0;cursor:pointer;border-radius:6px;overflow:hidden" onclick="openLightbox(\'' + esc(fullUrl) + '\'' + (gallerySelector ? ', \'' + gallerySelector + '\'' : '') + ')">'
+        + '<video src="' + esc(src) + '" muted preload="metadata" style="width:100%;height:100%;object-fit:cover"></video>'
+        + '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.3)"><svg width="28" height="28" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div>'
+        + '</div>';
+    }
+    return '<img src="' + esc(src) + '" alt="' + esc(alt) + '" onclick="openLightbox(\'' + esc(fullUrl) + '\'' + (gallerySelector ? ', \'' + gallerySelector + '\'' : '') + ')" style="width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer">';
+  }
+
   function renderScopeGallery(data, phase) {
     var media = data.media || [];
     var scopePhotos = media.filter(function(m) { return m.phase === 'scope'; });
@@ -4857,11 +4872,11 @@
     h += '<div class="scope-gallery">';
     scopePhotos.forEach(function(p) {
       var src = p.thumbnail_url || p.storage_url;
-      h += '<img src="' + esc(src) + '" alt="' + esc(p.label || 'Scope') + '" onclick="openLightbox(\'' + esc(p.storage_url) + '\', \'.scope-gallery\')">';
+      h += renderMediaThumb(src, p.storage_url, p.label || 'Scope', '.scope-gallery');
     });
     // Also include uploaded site photos from documents
     docPhotos.forEach(function(d) {
-      h += '<img src="' + esc(d.storage_url) + '" alt="' + esc(d.file_name || 'Site') + '" onclick="openLightbox(\'' + esc(d.storage_url) + '\')">';
+      h += renderMediaThumb(d.storage_url, d.storage_url, d.file_name || 'Site');
     });
     h += '</div>';
     h += '</div>';
@@ -6628,10 +6643,10 @@
       h += '<div class="scope-gallery">';
       scopePhotos.forEach(function(p) {
         var src = p.thumbnail_url || p.storage_url;
-        h += '<img src="' + esc(src) + '" alt="' + esc(p.label || 'Scope') + '" onclick="openLightbox(\'' + esc(p.storage_url) + '\', \'.scope-gallery\')" style="width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer">';
+        h += renderMediaThumb(src, p.storage_url, p.label || 'Scope', '.scope-gallery');
       });
       docPhotos.forEach(function(d) {
-        h += '<img src="' + esc(d.storage_url) + '" alt="' + esc(d.file_name || 'Site') + '" onclick="openLightbox(\'' + esc(d.storage_url) + '\')" style="width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer">';
+        h += renderMediaThumb(d.storage_url, d.storage_url, d.file_name || 'Site');
       });
       h += '</div>';
       h += '</div>';
@@ -14686,7 +14701,16 @@
   };
 
   function showLightboxPhoto() {
-    document.getElementById('lightboxImg').src = _lightboxPhotos[_lightboxIndex];
+    var url = _lightboxPhotos[_lightboxIndex];
+    var img = document.getElementById('lightboxImg');
+    var vid = document.getElementById('lightboxVideo');
+    if (isVideoUrl(url)) {
+      img.style.display = 'none'; img.src = '';
+      vid.style.display = ''; vid.src = url; vid.play();
+    } else {
+      vid.style.display = 'none'; vid.pause(); vid.src = '';
+      img.style.display = ''; img.src = url;
+    }
     var counter = document.getElementById('lightboxCounter');
     if (_lightboxPhotos.length > 1) {
       counter.textContent = (_lightboxIndex + 1) + ' / ' + _lightboxPhotos.length;
@@ -14703,6 +14727,8 @@
   window.closeLightbox = function() {
     document.getElementById('lightbox').classList.remove('active');
     document.getElementById('lightboxImg').src = '';
+    var vid = document.getElementById('lightboxVideo');
+    vid.pause(); vid.src = ''; vid.style.display = 'none';
   };
 
   // Lightbox swipe gesture
