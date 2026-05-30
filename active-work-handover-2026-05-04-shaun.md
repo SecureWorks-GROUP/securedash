@@ -485,7 +485,7 @@ Production boundary as of 2026-04-30: GitHub main was ahead of production. (Now 
 | Browser mirror of state machine | `securedash/modules/sw-state-machine.js` |
 | Browser stage-gate engine | `securedash/modules/ops-stage-gate-engine.js` |
 | Browser fixtures (Cap 1B 25 fixtures) | `securedash/modules/ops-stage-gate-fixtures.js` |
-| Browser test harness | `securedash/modules/ops-stage-gate-engine.test.html` (live at `https://marninms98-dotcom.github.io/securedash/modules/ops-stage-gate-engine.test.html`) |
+| Browser test harness | `securedash/modules/ops-stage-gate-engine.test.html` (live at `https://secureworks-group.github.io/securedash/modules/ops-stage-gate-engine.test.html`) |
 | **Cap 1 evidence packets** | |
 | Cap 1A audit | `secureworks-docs/cio/evidence/cap1-stage-engine-audit-2026-05-01/` (6 files: README, writer-inventory, hardcoded-list-inventory, before-after-diffs, manual-qa-checklist, prod-verification-sql) |
 | Cap 1B engine evidence | `secureworks-docs/cio/evidence/cap1b-stage-gate-engine-2026-05-02/` |
@@ -556,7 +556,7 @@ mcp__supabase__list_edge_functions
 # Look for: ops-api version >= 349, daily-digest version >= 30
 
 # 2. Verify GH Pages has frontend fix
-curl -s https://marninms98-dotcom.github.io/securedash/ops.html | grep -c "'processing', 'deposit'"
+curl -s https://secureworks-group.github.io/securedash/ops.html | grep -c "'processing', 'deposit'"
 # Should output: 1
 
 # 3. Visual: open ops.html, click Fencing tab, scroll to Final Payment column.
@@ -565,11 +565,11 @@ curl -s https://marninms98-dotcom.github.io/securedash/ops.html | grep -c "'proc
 # 4. Visual: open browser console on ops.html. No "Digest API error: 401".
 
 # 5. Verify Cap 1B harness still passes
-# Open: https://marninms98-dotcom.github.io/securedash/modules/ops-stage-gate-engine.test.html
+# Open: https://secureworks-group.github.io/securedash/modules/ops-stage-gate-engine.test.html
 # Expect: 25/25 ✓ green banner
 
 # 6. Verify Cap 1A canonical state machine harness
-# Open: https://marninms98-dotcom.github.io/securedash/modules/sw-state-machine.test.html
+# Open: https://secureworks-group.github.io/securedash/modules/sw-state-machine.test.html
 # Expect: all green
 ```
 

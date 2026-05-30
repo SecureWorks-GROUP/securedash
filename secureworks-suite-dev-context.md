@@ -17,10 +17,10 @@ SecureWorks WA is a Perth construction company (patios, fencing, decking). $1.4M
 
 | Repo | GitHub | What | URL |
 |------|--------|------|-----|
-| **securedash** | `marninms98-dotcom/securedash` | CEO, Ops, Trade dashboards | `marninms98-dotcom.github.io/securedash/` |
-| **secureworks-sale** | `marninms98-dotcom/secureworks-sale` | Sale dashboard | `marninms98-dotcom.github.io/secureworks-sale/` |
-| **patio-tool** | `marninms98-dotcom/patio` | Patio + decking scoping tool | `marninms98-dotcom.github.io/patio/` |
-| **fence-designer** | `marninms98-dotcom/fence-designer` | Fencing scoping tool | `marninms98-dotcom.github.io/fence-designer/` |
+| **securedash** | `SecureWorks-GROUP/securedash` | CEO, Ops, Trade dashboards | `secureworks-group.github.io/securedash/` |
+| **secureworks-sale** | `SecureWorks-GROUP/secureworks-sale` | Sale dashboard | `secureworks-group.github.io/secureworks-sale/` |
+| **patio-tool** | `SecureWorks-GROUP/patio` | Patio + decking scoping tool | `secureworks-group.github.io/patio/` |
+| **fence-designer** | `SecureWorks-GROUP/fence-designer` | Fencing scoping tool | `secureworks-group.github.io/fence-designer/` |
 
 ### Local Paths
 
