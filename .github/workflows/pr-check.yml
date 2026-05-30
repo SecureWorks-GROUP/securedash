@@ -33,8 +33,9 @@ jobs:
           for file in ${{ steps.changed.outputs.html }}; do
             echo "Checking HTML: $file"
             # tidy exit codes: 0 = clean, 1 = warnings only, 2+ = errors
-            tidy -q --show-warnings no "$file" > /dev/null 2>&1
-            exit_code=$?
+            # Use || to prevent set -e from exiting on tidy warnings (exit 1)
+            exit_code=0
+            tidy -q --show-warnings no "$file" > /dev/null 2>&1 || exit_code=$?
             if [ "$exit_code" -ge 2 ]; then
               echo "::error file=$file::$file has HTML syntax errors (tidy exit $exit_code)"
               tidy -q --show-warnings no "$file" 2>&1 | head -20
