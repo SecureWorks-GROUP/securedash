@@ -214,7 +214,7 @@ You need access to all of these. Check each one and flag any you can't get into.
 | System | URL/Access | What You Use It For |
 |--------|-----------|-------------------|
 | Supabase | Dashboard (ask Marnin for invite) | Database, edge functions, logs |
-| GitHub | github.com/marninms98-dotcom | All code repos (securedash, patio-tool, fence-designer, secureworks-sale, secureworks-agent) |
+| GitHub | github.com/SecureWorks-GROUP | All code repos (securedash, patio-tool, fence-designer, secureworks-sale, secureworks-agent) |
 | GHL | app.gohighlevel.com | CRM, pipelines, contacts, SMS, conversations |
 | Xero | xero.com (read access) | Invoices, bills, P&L, contacts, POs |
 | MS365/Outlook | outlook.office365.com | Email (marnin@, admin@, patios@, fencing@, shaun@) |

@@ -17,8 +17,8 @@ jobs:
         run: |
           HTML_FILES=$(git diff --name-only --diff-filter=ACM origin/main...HEAD -- '*.html' || true)
           JS_FILES=$(git diff --name-only --diff-filter=ACM origin/main...HEAD -- '*.js' || true)
-          echo "html=$HTML_FILES" >> "$GITHUB_OUTPUT"
-          echo "js=$JS_FILES" >> "$GITHUB_OUTPUT"
+          echo "html=$(echo "$HTML_FILES" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+          echo "js=$(echo "$JS_FILES" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
           echo "has_html=$([ -n "$HTML_FILES" ] && echo 'true' || echo 'false')" >> "$GITHUB_OUTPUT"
           echo "has_js=$([ -n "$JS_FILES" ] && echo 'true' || echo 'false')" >> "$GITHUB_OUTPUT"
 
