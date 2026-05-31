@@ -257,6 +257,20 @@
     .today-card-btn.amber { background: #D97706; color: #fff; border-color: #D97706; }
     .today-card-btn.green { background: var(--sw-green); color: #fff; border-color: var(--sw-green); }
     .today-card-btn.outline { background: var(--sw-card); color: var(--sw-text); }
+    .actions-group-header { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 0 4px 2px; }
+    .action-card { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--sw-card); border: 1px solid var(--sw-border); border-radius: 8px; margin-bottom: 6px; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
+    .action-card:hover { transform: translateX(3px); box-shadow: var(--sw-shadow-hover); }
+    .action-card.priority-urgent { border-left: 3px solid var(--sw-red); }
+    .action-card.priority-high { border-left: 3px solid #D97706; }
+    .action-card.priority-normal { border-left: 3px solid var(--sw-mid); }
+    .action-card.priority-low { border-left: 3px solid #94a3b8; }
+    .action-source { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--sw-bg); color: var(--sw-text-sec); white-space: nowrap; }
+    .action-done-btn { background: none; border: 1.5px solid var(--sw-green); color: var(--sw-green); border-radius: 50%; width: 18px; height: 18px; cursor: pointer; font-size: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
+    .action-done-btn:hover { background: var(--sw-green); color: #fff; }
+    .action-snooze-btn { background: none; border: 1.5px solid #D97706; color: #D97706; border-radius: 50%; width: 18px; height: 18px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; font-weight: 700; }
+    .action-snooze-btn:hover { background: #D97706; color: #fff; }
+    .action-dismiss-btn { background: none; border: 1.5px solid var(--sw-red); color: var(--sw-red); border-radius: 50%; width: 18px; height: 18px; cursor: pointer; font-size: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
+    .action-dismiss-btn:hover { background: var(--sw-red); color: #fff; }
 
     /* AI Alerts Panel */
     .ai-alerts-panel { margin-bottom: 20px; }
@@ -716,7 +730,16 @@
     .cal-schedule-cell.outside { background: var(--sw-warm-200); opacity: 0.5; }
     .cal-schedule-cell.today { outline: 2.5px solid rgba(241,90,41,0.5); outline-offset: -2px; background: rgba(241,90,41,0.04); }
     .cal-schedule-cell.weekend { background: var(--sw-bg); }
+    .cal-schedule-cell.holiday-col { background: rgba(239,68,68,0.04); }
     .cal-schedule-cell:hover { outline: 2px solid rgba(241,90,41,0.3); outline-offset: -2px; }
+    .cal-schedule-holiday-badge {
+      position: absolute; top: 2px; right: 3px; font-size: 7px; font-weight: 700;
+      color: #DC2626; background: rgba(239,68,68,0.10); padding: 1px 3px; border-radius: 3px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%;
+    }
+    .cal-recurrence-icon { display: inline-block; width: 12px; height: 12px; vertical-align: middle; margin-left: 2px; opacity: 0.6; }
+    .cal-day-check { display:flex;align-items:center;gap:2px;font-size:11px;font-weight:600;color:var(--sw-text-sec);cursor:pointer;padding:4px 6px;border-radius:4px;border:1px solid var(--sw-border); }
+    .cal-day-check input:checked + span, .cal-day-check:has(input:checked) { background:var(--sw-orange);color:#fff;border-color:var(--sw-orange); }
     .cal-schedule-day-num {
       position: absolute; top: 3px; left: 5px; font-size: 11px; font-weight: 600;
       color: var(--sw-text-sec);
@@ -2587,17 +2610,8 @@
         <div id="aiAmberAlerts" style="display:none;"></div>
       </div>
 
-      <!-- Smart Nudges Panel -->
-      <div id="nudgesPanel" class="panel" style="display:none;margin-bottom:16px;">
-        <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between;">
-          <span>Smart Nudges</span>
-          <span id="nudgeCount" class="badge" style="background:#F15A29;color:#fff;padding:2px 8px;border-radius:10px;font-size:12px;">0</span>
-        </div>
-        <div id="nudgesList" style="max-height:300px;overflow-y:auto;"></div>
-      </div>
-
-      <!-- Weather Banner -->
-      <div id="weatherBanner" style="display:none;margin-bottom:12px;"></div>
+      <!-- My Actions Panel -->
+      <div id="myActionsPanel" class="today-section" style="display:none;"></div>
 
       <div class="stat-grid" id="todayStats">
         <div class="stat-card" id="statJobsWeek">
@@ -2641,10 +2655,6 @@
           </div>
         </div>
       </div>
-
-      <!-- Actionable attention items (generated client-side from pipeline data) -->
-      <div id="todayUrgent" class="today-section"></div>
-      <div id="todayAction" class="today-section"></div>
 
       <!-- Pending SMS Actions -->
       <div id="todayPendingSms" class="today-section" style="display:none;">
@@ -3105,6 +3115,44 @@
   </div>
 </div>
 
+<!-- Add Action Modal -->
+<div class="modal-overlay" id="addActionModal" onclick="if(event.target===this)closeModal('addActionModal')">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-title">Add Action</div>
+    <div class="form-group">
+      <label class="form-label">Title *</label>
+      <input type="text" class="form-input" id="addActionTitle" placeholder="e.g. Chase deposit on SWF-26200" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Job Number (optional)</label>
+      <input type="text" class="form-input" id="addActionJob" placeholder="e.g. SWF-26200" />
+    </div>
+    <div style="display:flex;gap:10px;">
+      <div class="form-group" style="flex:1;">
+        <label class="form-label">Due Date</label>
+        <input type="date" class="form-input" id="addActionDue" />
+      </div>
+      <div class="form-group" style="flex:1;">
+        <label class="form-label">Priority</label>
+        <select class="form-input" id="addActionPriority">
+          <option value="normal">Normal</option>
+          <option value="high">High</option>
+          <option value="urgent">Urgent</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description (optional)</label>
+      <textarea class="form-input" id="addActionDesc" rows="2" placeholder="Extra detail..." style="resize:vertical;"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('addActionModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitAddAction()">Add</button>
+    </div>
+  </div>
+</div>
+
 <!-- Assignment Modal -->
 <div class="modal-overlay" id="assignmentModal">
   <div class="modal">
@@ -3200,12 +3248,64 @@
       </select>
     </div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-input" id="eventDate"></div>
+      <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-input" id="eventDate" onchange="updateRecurrenceLabel()"></div>
       <div class="form-group"><label class="form-label">End Date <span style="font-weight:400;color:var(--sw-text-sec);font-size:11px;">(optional)</span></label><input type="date" class="form-input" id="eventEndDate"></div>
     </div>
     <div class="form-row" id="eventTimeRow">
       <div class="form-group"><label class="form-label">Start Time</label><input type="time" class="form-input" id="eventStartTime"></div>
       <div class="form-group"><label class="form-label">End Time</label><input type="time" class="form-input" id="eventEndTime"></div>
+    </div>
+    <div class="form-group" id="eventRecurrenceGroup">
+      <label class="form-label">Repeat</label>
+      <select class="form-select" id="eventRecurrence" onchange="onRecurrenceChange()">
+        <option value="none">Does not repeat</option>
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+        <option value="yearly">Annually</option>
+        <option value="weekdays">Every weekday (Mon-Fri)</option>
+        <option value="custom">Custom...</option>
+      </select>
+    </div>
+    <div id="eventRecurrenceEnds" style="display:none;">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Ends</label>
+          <select class="form-select" id="eventRecEndType" onchange="onRecEndTypeChange()">
+            <option value="never">Never (ongoing)</option>
+            <option value="count">After N occurrences</option>
+            <option value="date">On date</option>
+          </select>
+        </div>
+        <div class="form-group" id="eventRecCountGroup" style="display:none;">
+          <label class="form-label">Occurrences</label>
+          <input type="number" class="form-input" id="eventRecCount" value="52" min="2" max="365">
+        </div>
+        <div class="form-group" id="eventRecDateGroup" style="display:none;">
+          <label class="form-label">End date</label>
+          <input type="date" class="form-input" id="eventRecEndDate">
+        </div>
+      </div>
+    </div>
+    <div id="eventCustomRecurrence" style="display:none;">
+      <div class="form-row" style="align-items:end;">
+        <div class="form-group" style="flex:0 0 80px;"><label class="form-label">Every</label><input type="number" class="form-input" id="eventRecInterval" value="1" min="1" max="52"></div>
+        <div class="form-group" style="flex:1;"><label class="form-label">Period</label>
+          <select class="form-select" id="eventRecPeriod" onchange="onRecPeriodChange()">
+            <option value="days">days</option>
+            <option value="weeks" selected>weeks</option>
+          </select>
+        </div>
+      </div>
+      <div id="eventRecDaysRow" style="display:flex;gap:4px;margin-top:6px;">
+        <label class="cal-day-check"><input type="checkbox" value="0"> M</label>
+        <label class="cal-day-check"><input type="checkbox" value="1"> T</label>
+        <label class="cal-day-check"><input type="checkbox" value="2"> W</label>
+        <label class="cal-day-check"><input type="checkbox" value="3"> T</label>
+        <label class="cal-day-check"><input type="checkbox" value="4"> F</label>
+        <label class="cal-day-check"><input type="checkbox" value="5"> S</label>
+        <label class="cal-day-check"><input type="checkbox" value="6"> S</label>
+      </div>
     </div>
     <div class="form-group" id="eventPersonGroup">
       <label class="form-label">Person <span style="font-weight:400;color:var(--sw-text-sec);font-size:11px;">(optional for reminders)</span></label>
@@ -4779,7 +4879,7 @@ function showView(view) {
   if (history.replaceState) history.replaceState(null, '', '#' + view);
   localStorage.setItem('sw_ops_tab', view);
 
-  if (view === 'today') { loadToday(); loadNudges(); }
+  if (view === 'today') { loadToday(); }
   if (view === 'calendar') loadCalendar();
   if (view === 'jobs') loadJobs();
   if (view === 'financials') loadFinancials();
@@ -4959,6 +5059,10 @@ function dismissAlert(btn, alertId) {
 }
 
 async function loadNudges() {
+  // DISABLED: Smart nudges turned off by Shaun 2026-05-31
+  var panel = document.getElementById('nudgesPanel');
+  if (panel) panel.style.display = 'none';
+  return;
   try {
     var result = await opsFetch('list_nudges', { status: 'pending' });
     var nudges = result.nudges || [];
@@ -5004,7 +5108,6 @@ async function loadToday() {
 
     renderTodayStats(data.stat_cards, data.kpis);
     renderTodaySchedule(data.today_schedule, data.deliveries_today);
-    renderActionableItems(pipelineData, data);
     renderPipelineOverview(data.stat_cards.pipeline);
     // Feature 2: Trigger morning brief (non-blocking)
     loadMorningBrief();
@@ -5014,6 +5117,8 @@ async function loadToday() {
     refreshInboxBadge();
     // Pending SMS actions (non-blocking)
     loadPendingSms();
+    // Job Actions (non-blocking)
+    loadMyActions();
   } catch (e) {
     console.error('loadToday error:', e);
     showToast('Failed to load dashboard data', 'warning', [
@@ -5062,8 +5167,6 @@ function renderTodaySchedule(schedule, deliveries) {
     html += '<div class="today-card-detail">' + (ev.site_address || ev.site_suburb || '') + (ev.crew_name ? ' &middot; ' + cleanCrewName(ev.crew_name) : '') + '</div>';
     html += '</div>';
     html += '<span class="type-badge ' + (ev.job_type || '') + '">' + typeBadgeLabel(ev.job_type) + '</span>';
-    var schedDate = ev.scheduled_date || new Date().toISOString().slice(0, 10);
-    html += weatherBadgeHtml(schedDate, true);
     if (ev.start_time) html += '<span style="font-size:11px;color:var(--sw-mid);font-family:var(--sw-font-num);">' + fmtTime(ev.start_time) + '</span>';
     html += '</div>';
   });
@@ -5148,7 +5251,192 @@ function checkPendingSmsEmpty() {
   }
 }
 
-// ── Actionable Attention Items (client-side from pipeline data) ──
+// ── My Actions Panel (from job_actions API) ──
+
+var ACTION_CATEGORIES = {
+  fencing:     { label: 'Fencing',     icon: '&#9638;',  color: '#4C6A7C' },
+  patio:       { label: 'Patio',       icon: '&#9636;',  color: '#2563eb' },
+  makesafes:   { label: 'MakeSafes',   icon: '&#9888;',  color: '#D97706' },
+  code:        { label: 'Code',        icon: '&#9881;',  color: '#7c3aed' },
+  general_ops: { label: 'General Ops', icon: '&#9733;',  color: '#F15A29' },
+};
+
+var ACTION_SUB_CATS = {
+  invoices: '$ Invoices', materials: 'Materials', scheduling: 'Scheduling',
+  docs: 'Docs', tasks: 'Tasks',
+};
+
+async function loadMyActions() {
+  var panel = document.getElementById('myActionsPanel');
+  if (!panel) return;
+  try {
+    var data = await opsFetch('my_actions');
+    var allItems = (data.overdue || []).concat(data.due_today || []).concat(data.upcoming || []).concat(data.no_date || []);
+    var today = new Date().toISOString().slice(0, 10);
+
+    if (allItems.length === 0) {
+      panel.style.display = 'none';
+      return;
+    }
+
+    // Group by main category
+    var catGroups = {};
+    var catOrder = ['fencing', 'patio', 'makesafes', 'code', 'general_ops'];
+    allItems.forEach(function(a) {
+      var cat = a.category || 'general_ops';
+      if (!catGroups[cat]) catGroups[cat] = [];
+      catGroups[cat].push(a);
+    });
+
+    var html = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
+    html += '<div class="today-section-header" style="margin:0;padding:0;">My Actions <span style="font-size:11px;font-weight:400;color:var(--sw-text-sec);">(' + allItems.length + ')</span></div>';
+    html += '<button class="btn btn-secondary btn-sm" onclick="openAddActionModal()" style="font-size:11px;">+ Add Action</button>';
+    html += '</div>';
+
+    catOrder.forEach(function(catKey) {
+      var items = catGroups[catKey];
+      if (!items || !items.length) return;
+      var catDef = ACTION_CATEGORIES[catKey] || ACTION_CATEGORIES.general_ops;
+
+      // Group by sub-category within this main category
+      var subGroups = {};
+      items.forEach(function(a) {
+        var sub = a.sub_category || 'tasks';
+        if (!subGroups[sub]) subGroups[sub] = [];
+        subGroups[sub].push(a);
+      });
+
+      html += '<div style="margin-bottom:14px;">';
+      html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">';
+      html += '<span style="color:' + catDef.color + ';font-size:14px;">' + catDef.icon + '</span>';
+      html += '<span style="font-size:13px;font-weight:700;color:' + catDef.color + ';text-transform:uppercase;letter-spacing:0.5px;">' + catDef.label + '</span>';
+      html += '<span style="font-size:11px;color:var(--sw-text-sec);">(' + items.length + ')</span>';
+      html += '</div>';
+
+      var subOrder = ['invoices', 'materials', 'scheduling', 'docs', 'tasks'];
+      subOrder.forEach(function(subKey) {
+        var subItems = subGroups[subKey];
+        if (!subItems || !subItems.length) return;
+        var subLabel = ACTION_SUB_CATS[subKey] || subKey;
+
+        html += '<div style="margin-left:4px;margin-bottom:8px;">';
+        html += '<div style="font-size:10px;font-weight:600;color:var(--sw-text-sec);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;">' + subLabel + '</div>';
+
+        subItems.forEach(function(a) {
+          var isOverdue = a.due_date && a.due_date < today;
+          var isDueToday = a.due_date === today;
+          var borderColor = isOverdue ? 'var(--sw-red)' : isDueToday ? '#D97706' : a.priority === 'urgent' ? 'var(--sw-red)' : a.priority === 'high' ? '#D97706' : 'var(--sw-mid)';
+          html += '<div class="action-card" style="border-left:3px solid ' + borderColor + ';"' + (a.job_id ? ' onclick="openJobQuickView(\'' + a.job_id + '\')" onmouseenter="hoverJobCard(event,\'' + a.job_id + '\')" onmouseleave="hideJobHover()"' : '') + '>';
+          html += '<div style="flex:1;min-width:0;">';
+          html += '<div style="font-size:13px;font-weight:600;color:var(--sw-dark);">' + escapeHtml(a.title) + '</div>';
+          var detail = [];
+          if (a.job_number) detail.push(a.job_number + (a.client_name ? ' - ' + a.client_name : ''));
+          if (a.due_date) {
+            var dateLabel = formatDateShort(a.due_date);
+            if (isOverdue) dateLabel = '<span style="color:var(--sw-red);font-weight:600;">OVERDUE ' + dateLabel + '</span>';
+            else if (isDueToday) dateLabel = '<span style="color:#D97706;font-weight:600;">TODAY</span>';
+            detail.push(dateLabel);
+          }
+          if (detail.length) html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:1px;">' + detail.join(' &middot; ') + '</div>';
+          html += '</div>';
+          html += '<div style="display:flex;gap:5px;align-items:center;flex-shrink:0;">';
+          html += '<button class="action-done-btn" onclick="event.stopPropagation();completeAction(\'' + a.id + '\')" title="Done">&#10003;</button>';
+          html += '<button class="action-snooze-btn" onclick="event.stopPropagation();snoozeAction(\'' + a.id + '\')" title="Remind tomorrow">&#8212;</button>';
+          html += '<button class="action-dismiss-btn" onclick="event.stopPropagation();confirmDismissAction(\'' + a.id + '\')" title="Dismiss permanently">&#10005;</button>';
+          html += '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      });
+      html += '</div>';
+    });
+
+    panel.innerHTML = html;
+    panel.style.display = 'block';
+  } catch (e) {
+    console.warn('[ops] loadMyActions failed:', e.message);
+    panel.style.display = 'none';
+  }
+}
+
+function formatDateShort(dateStr) {
+  if (!dateStr) return '';
+  var d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+async function completeAction(actionId) {
+  try {
+    await opsPost('update_job_action', { action_id: actionId, status: 'done' });
+    showToast('Action completed', 'success');
+    loadMyActions();
+  } catch (e) {
+    showToast('Failed: ' + e.message, 'warning');
+  }
+}
+
+async function snoozeAction(actionId) {
+  var tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  var tomorrowStr = tomorrow.toISOString().slice(0, 10);
+  try {
+    await opsPost('update_job_action', { action_id: actionId, due_date: tomorrowStr });
+    showToast('Snoozed to tomorrow', 'success');
+    loadMyActions();
+  } catch (e) {
+    showToast('Failed: ' + e.message, 'warning');
+  }
+}
+
+function confirmDismissAction(actionId) {
+  showToast('Are you sure? This action will be permanently dismissed.', 'warning', [
+    { label: 'Dismiss', primary: true, onclick: 'dismissActionConfirmed(\'' + actionId + '\')' },
+    { label: 'Cancel' },
+  ]);
+}
+
+async function dismissActionConfirmed(actionId) {
+  try {
+    await opsPost('update_job_action', { action_id: actionId, status: 'dismissed' });
+    showToast('Action dismissed', 'success');
+    loadMyActions();
+  } catch (e) {
+    showToast('Failed: ' + e.message, 'warning');
+  }
+}
+
+function openAddActionModal(preJobNumber) {
+  document.getElementById('addActionModal').classList.add('active');
+  document.getElementById('addActionTitle').value = '';
+  document.getElementById('addActionJob').value = preJobNumber || '';
+  document.getElementById('addActionDue').value = '';
+  document.getElementById('addActionPriority').value = 'normal';
+  document.getElementById('addActionDesc').value = '';
+  setTimeout(function() { document.getElementById('addActionTitle').focus(); }, 100);
+}
+
+async function submitAddAction() {
+  var title = (document.getElementById('addActionTitle') || {}).value || '';
+  if (!title.trim()) { showToast('Title is required', 'warning'); return; }
+  var payload = {
+    title: title.trim(),
+    job_number: (document.getElementById('addActionJob') || {}).value || undefined,
+    due_date: (document.getElementById('addActionDue') || {}).value || undefined,
+    priority: (document.getElementById('addActionPriority') || {}).value || 'normal',
+    description: (document.getElementById('addActionDesc') || {}).value || undefined,
+    source: 'manual',
+  };
+  try {
+    await opsPost('create_job_action', payload);
+    closeModal('addActionModal');
+    showToast('Action added', 'success');
+    loadMyActions();
+  } catch (e) {
+    showToast('Failed: ' + e.message, 'warning');
+  }
+}
+
+// ── Legacy Actionable Items (disabled -- replaced by My Actions) ──
 function renderActionableItems(pipelineData, summaryData) {
   var cols = pipelineData.columns || {};
   var allJobs = [];
@@ -5482,7 +5770,14 @@ function openAddEventModal() {
   document.getElementById('eventVisibleToTrades').checked = false;
   document.getElementById('eventJobSearch').value = '';
   document.getElementById('eventJobSelect').value = '';
+  document.getElementById('eventRecurrence').value = 'none';
+  document.getElementById('eventRecurrenceEnds').style.display = 'none';
+  document.getElementById('eventCustomRecurrence').style.display = 'none';
+  document.getElementById('eventRecEndType').value = 'never';
+  document.getElementById('eventRecCountGroup').style.display = 'none';
+  document.getElementById('eventRecCount').value = '52';
   onEventTypeChange();
+  updateRecurrenceLabel();
   var crewHtml = '<select class="form-select" id="eventCrew"><option value="">-- None --</option>';
   _crewList.forEach(function(u) { crewHtml += '<option value="' + u.id + '">' + escapeHtml(u.name) + '</option>'; });
   crewHtml += '</select>';
@@ -5498,6 +5793,117 @@ function onEventTypeChange() {
   document.getElementById('eventVisibleGroup').style.display = isHoliday ? 'none' : 'block';
 }
 
+function onRecurrenceChange() {
+  var val = document.getElementById('eventRecurrence').value;
+  var showEnds = val !== 'none';
+  document.getElementById('eventRecurrenceEnds').style.display = showEnds ? 'block' : 'none';
+  document.getElementById('eventCustomRecurrence').style.display = val === 'custom' ? 'block' : 'none';
+  if (showEnds) onRecEndTypeChange();
+  updateRecurrenceLabel();
+}
+
+function onRecEndTypeChange() {
+  var val = document.getElementById('eventRecEndType').value;
+  document.getElementById('eventRecCountGroup').style.display = val === 'count' ? 'block' : 'none';
+  document.getElementById('eventRecDateGroup').style.display = val === 'date' ? 'block' : 'none';
+}
+
+function onRecPeriodChange() {
+  var val = document.getElementById('eventRecPeriod').value;
+  document.getElementById('eventRecDaysRow').style.display = val === 'weeks' ? 'flex' : 'none';
+}
+
+function updateRecurrenceLabel() {
+  var sel = document.getElementById('eventRecurrence');
+  var dateVal = document.getElementById('eventDate').value;
+  if (!dateVal) return;
+  var d = new Date(dateVal + 'T00:00:00');
+  var dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  // Update option text dynamically
+  var opts = sel.options;
+  for (var i = 0; i < opts.length; i++) {
+    if (opts[i].value === 'weekly') opts[i].text = 'Weekly on ' + dayNames[d.getDay()];
+    if (opts[i].value === 'monthly') opts[i].text = 'Monthly on day ' + d.getDate();
+    if (opts[i].value === 'yearly') opts[i].text = 'Annually on ' + d.getDate() + ' ' + monthNames[d.getMonth()];
+  }
+}
+
+function buildRecurrenceRule() {
+  var freq = document.getElementById('eventRecurrence').value;
+  if (freq === 'none') return null;
+
+  var endType = document.getElementById('eventRecEndType').value;
+  var rule = { freq: freq, interval: 1, endType: endType };
+
+  if (endType === 'count') {
+    rule.endCount = parseInt(document.getElementById('eventRecCount').value) || 12;
+  } else if (endType === 'date') {
+    rule.endDate = document.getElementById('eventRecEndDate').value || null;
+  }
+  // 'never' uses default 1-year cap
+
+  if (freq === 'custom') {
+    rule.freq = 'custom';
+    rule.interval = parseInt(document.getElementById('eventRecInterval').value) || 1;
+    var period = document.getElementById('eventRecPeriod').value;
+    if (period === 'days') {
+      rule.freq = 'daily';
+    } else {
+      // Weekly with specific days
+      var days = [];
+      document.querySelectorAll('#eventRecDaysRow input:checked').forEach(function(cb) {
+        days.push(parseInt(cb.value));
+      });
+      rule.days = days;
+    }
+  }
+
+  return rule;
+}
+
+// ── Recurring event scope dialog (delete/edit "this", "this and future", "all") ──
+function showRecurrenceScopeDialog(action, eventId, eventType, recurrenceGroupId, updates) {
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay active';
+  overlay.id = 'recurrenceScopeModal';
+  overlay.innerHTML = '<div class="modal" style="max-width:380px;">' +
+    '<div class="modal-title">' + (action === 'delete' ? 'Delete Recurring Event' : 'Edit Recurring Event') + '</div>' +
+    '<p style="font-size:13px;color:var(--sw-text-sec);margin-bottom:16px;">This event is part of a recurring series. What would you like to ' + action + '?</p>' +
+    '<div style="display:flex;flex-direction:column;gap:8px;">' +
+      '<button class="btn btn-secondary" onclick="handleRecurrenceScope(\'' + action + '\',\'this\',\'' + eventId + '\',\'' + eventType + '\',\'' + recurrenceGroupId + '\')">This event only</button>' +
+      '<button class="btn btn-secondary" onclick="handleRecurrenceScope(\'' + action + '\',\'this_and_future\',\'' + eventId + '\',\'' + eventType + '\',\'' + recurrenceGroupId + '\')">This and all future events</button>' +
+      '<button class="btn btn-' + (action === 'delete' ? 'danger' : 'primary') + '" onclick="handleRecurrenceScope(\'' + action + '\',\'all\',\'' + eventId + '\',\'' + eventType + '\',\'' + recurrenceGroupId + '\')">All events in this series</button>' +
+    '</div>' +
+    '<div class="modal-actions" style="margin-top:12px;"><button class="btn btn-secondary" onclick="closeModal(\'recurrenceScopeModal\')">Cancel</button></div>' +
+  '</div>';
+  // Store updates for edit action
+  if (updates) overlay.dataset.updates = JSON.stringify(updates);
+  document.body.appendChild(overlay);
+}
+
+async function handleRecurrenceScope(action, scope, eventId, eventType, recurrenceGroupId) {
+  try {
+    if (action === 'delete') {
+      await opsPost('delete_recurring_events', {
+        recurrence_group_id: recurrenceGroupId, scope: scope,
+        event_id: eventId, event_type: eventType
+      });
+      showToast('Deleted' + (scope === 'this' ? '' : ' series'), 'success');
+    } else {
+      var modal = document.getElementById('recurrenceScopeModal');
+      var updates = modal && modal.dataset.updates ? JSON.parse(modal.dataset.updates) : {};
+      await opsPost('update_recurring_events', {
+        recurrence_group_id: recurrenceGroupId, scope: scope,
+        event_id: eventId, event_type: eventType, updates: updates
+      });
+      showToast('Updated' + (scope === 'this' ? '' : ' series'), 'success');
+    }
+    closeModal('recurrenceScopeModal');
+    loadCalendar();
+  } catch (e) { showToast('Failed: ' + (e.message || e), 'error'); }
+}
+
 async function submitAddEvent() {
   var title = document.getElementById('eventTitle').value.trim();
   if (!title) { showToast('Title is required', 'warning'); return; }
@@ -5508,12 +5914,14 @@ async function submitAddEvent() {
   var notes = document.getElementById('eventNotes').value.trim() || null;
   try {
     if (eventType === 'public_holiday') {
-      await opsPost('create_org_event', { title: title, event_date: eventDate, event_end: eventEnd, event_type: 'company_day', description: notes, visible_to_trades: true });
+      var recRule = buildRecurrenceRule();
+      await opsPost('create_org_event', { title: title, event_date: eventDate, event_end: eventEnd, event_type: 'public_holiday', description: notes, visible_to_trades: true, recurrence_rule: recRule });
     } else {
       var userId = document.getElementById('eventCrew').value || null;
       var crewName = null;
       if (userId) { var u = _crewList.find(function(c) { return c.id === userId; }); crewName = u ? u.name : null; }
       var jobId = document.getElementById('eventJobSelect').value || null;
+      var recRule2 = buildRecurrenceRule();
       await opsPost('create_assignment', {
         jobId: jobId, scheduledDate: eventDate, scheduledEnd: eventEnd,
         startTime: document.getElementById('eventStartTime').value || null,
@@ -5521,6 +5929,7 @@ async function submitAddEvent() {
         assignmentType: eventType, crewName: crewName, userId: userId,
         role: 'lead_installer', notes: notes, label: jobId ? null : title,
         visible_to_trades: document.getElementById('eventVisibleToTrades').checked,
+        recurrence_rule: recRule2,
       });
     }
     closeModal('addEventModal');
@@ -5970,7 +6379,10 @@ function renderSwimlaneView(container, range) {
       }
 
       // Layer 2 & 3: Job blocks + meetings/reminders
-      var entries = crewData.events[dateStr] || [];
+      var entries = (crewData.events[dateStr] || []).slice().sort(function(a, b) {
+        var ta = a.ev.start_time || '99:99', tb = b.ev.start_time || '99:99';
+        return ta.localeCompare(tb);
+      });
       entries.forEach(function(entry) {
         var ev = entry.ev;
         var aType = ev.assignment_type || 'install';
@@ -5978,8 +6390,8 @@ function renderSwimlaneView(container, range) {
         // Reminder pill
         if (aType === 'reminder') {
           html += '<div class="cal-reminder-pill" onclick="event.stopPropagation();openCalJobPopup(event,\'' + ev.assignment_id + '\')" title="' + escapeHtml(ev.label || 'Reminder') + '">';
+          if (ev.start_time) html += '<span style="font-weight:700;font-size:9px;font-family:var(--sw-font-num);margin-right:3px;">' + ev.start_time.slice(0,5) + '</span>';
           html += escapeHtml(ev.label || 'Reminder');
-          if (ev.start_time) html += ' ' + ev.start_time.slice(0,5);
           html += '</div>';
           return;
         }
@@ -6011,17 +6423,20 @@ function renderSwimlaneView(container, range) {
         html += '>';
 
         if (aType === 'meeting') {
+          if (ev.start_time) html += '<span style="font-weight:700;font-size:9px;font-family:var(--sw-font-num);margin-right:3px;">' + ev.start_time.slice(0,5) + '</span>';
           html += escapeHtml(ev.label || ev.client_name || 'Meeting');
-          if (ev.start_time) html += ' ' + ev.start_time.slice(0,5);
         } else if (!ev.job_id) {
+          if (ev.start_time) html += '<span style="font-weight:700;font-size:9px;font-family:var(--sw-font-num);margin-right:3px;">' + ev.start_time.slice(0,5) + '</span>';
           var lblDotColor = ev.job_type === 'fencing' ? '#F15A29' : ev.job_type === 'decking' ? '#8B5CF6' : ev.job_type === 'patio' ? '#3B82F6' : '#9CA3AF';
           html += '<span style="display:inline-block;width:8px;height:8px;background:' + lblDotColor + ';border-radius:50%;margin-right:4px;"></span>';
           html += '<em>' + escapeHtml(ev.label || 'Internal') + '</em>';
         } else {
+          if (ev.start_time && !isMonthMode) html += '<span style="font-weight:700;font-size:9px;font-family:var(--sw-font-num);margin-right:3px;">' + ev.start_time.slice(0,5) + '</span>';
           if (!isMonthMode && ev.job_number) html += '<strong>' + ev.job_number + '</strong> ';
           html += escapeHtml(ev.client_name || 'Unknown');
         }
         if (confStatus === 'confirmed') html += '<span class="cal-lock-icon">&#128274;</span>';
+        if (ev.recurrence_group_id) html += '<svg class="cal-recurrence-icon" viewBox="0 0 16 16"><path d="M2 8a6 6 0 0110.5-4M14 8a6 6 0 01-10.5 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M12.5 1v3h-3M3.5 15v-3h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
         // Type icon (inline SVG, week view only)
         if (!isMonthMode) {
           var divType = ev.job_type || 'patio';
@@ -6156,6 +6571,7 @@ function renderScheduleView(container, range) {
   var todayStr = localDateStr(new Date());
   var dates = getCalDays(range);
   var DAYS_SHORT = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  var holidayMap = _calEventFilters.holidays ? getHolidayMap() : {};
 
   // Pad to full weeks (Mon-Sun)
   var firstDate = new Date(dates[0] + 'T00:00:00');
@@ -6207,7 +6623,8 @@ function renderScheduleView(container, range) {
           start: ev.scheduled_date,
           end: ev.scheduled_end || ev.scheduled_date,
           crew: crew,
-          isLabel: true
+          isLabel: true,
+          recurrence_group_id: ev.recurrence_group_id || null
         };
       } else {
         // expand span + add crew
@@ -6246,7 +6663,8 @@ function renderScheduleView(container, range) {
         end: ev.scheduled_end || ev.scheduled_date,
         crew: {},
         assignmentId: ev.assignment_id || '',
-        activeDates: {}
+        activeDates: {},
+        recurrence_group_id: ev.recurrence_group_id || null
       };
     }
     // Track actual assignment dates (each date the crew is on site)
@@ -6311,6 +6729,8 @@ function renderScheduleView(container, range) {
   });
   jobs.sort(function(a, b) {
     if (a.start !== b.start) return a.start.localeCompare(b.start);
+    var ta = a.start_time || '99:99', tb = b.start_time || '99:99';
+    if (ta !== tb) return ta.localeCompare(tb);
     return (a.job_number || a.label || '').localeCompare(b.job_number || b.label || '');
   });
 
@@ -6391,14 +6811,17 @@ function renderScheduleView(container, range) {
       var inRange = ds >= dates[0] && ds <= dates[dates.length - 1];
       var isWeekend = dow >= 5;
 
+      var isHoliday = !!holidayMap[ds];
       var cellClass = 'cal-schedule-cell';
       if (!inRange) cellClass += ' outside';
       if (isToday) cellClass += ' today';
       if (isWeekend) cellClass += ' weekend';
+      if (isHoliday) cellClass += ' holiday-col';
 
       html += '<div class="' + cellClass + '" style="min-height:' + cellMinHeight + 'px;"';
       html += ' onclick="openAssignmentModal(null,\'' + ds + '\')">';
       html += '<span class="cal-schedule-day-num">' + dd.getDate() + '</span>';
+      if (isHoliday) html += '<span class="cal-schedule-holiday-badge">' + escapeHtml(holidayMap[ds]) + '</span>';
       html += '</div>';
     });
     html += '</div>';
@@ -6432,7 +6855,9 @@ function renderScheduleView(container, range) {
         html += ' onclick="event.stopPropagation();openCalJobPopup(event,\'' + job.assignmentId + '\')"';
         html += '>';
         html += '<span class="bar-dot" style="background:' + (job.job_type ? '' : '#9CA3AF') + ';"></span>';
+        if (job.start_time) html += '<span style="font-weight:700;font-size:8px;margin-right:2px;">' + job.start_time.slice(0,5) + '</span>';
         html += '<em style="overflow:hidden;text-overflow:ellipsis;font-style:italic;">' + escapeHtml(job.label) + '</em>';
+        if (job.recurrence_group_id) html += '<svg class="cal-recurrence-icon" viewBox="0 0 16 16"><path d="M2 8a6 6 0 0110.5-4M14 8a6 6 0 01-10.5 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M12.5 1v3h-3M3.5 15v-3h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
         if (job.crewNames.length > 0) {
           html += '<span class="bar-crew">';
           job.crewNames.forEach(function(c) {
@@ -6463,7 +6888,8 @@ function renderScheduleView(container, range) {
           html += '<span class="bar-dot" style="background:' + (dotColors[readiness.status] || '#999') + ';"></span>';
         }
 
-        // Job number + client
+        // Time + Job number + client
+        if (job.start_time) html += '<span style="font-weight:700;font-size:8px;margin-right:2px;">' + job.start_time.slice(0,5) + '</span>';
         if (job.job_number) html += '<strong style="font-size:9px;">' + job.job_number + '</strong> ';
         html += '<span style="overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(job.client_name) + '</span>';
 
@@ -7010,7 +7436,7 @@ function _buildCalActions(ev, assignmentId, confStatus, isLocked, isReady, readi
   html += '<div class="cal-job-popup-actions" style="margin-top:10px;">';
   if (!ev.job_id) {
     html += '<button class="btn-secondary-action" onclick="closeCalJobPopup();openEditAssignmentModal(\'' + assignmentId + '\')">Edit</button>';
-    html += '<button class="btn-secondary-action" style="color:#EF4444;" onclick="deleteAssignment(\'' + assignmentId + '\')">Delete</button>';
+    html += '<button class="btn-secondary-action" style="color:#EF4444;" onclick="handleCalEventDelete(\'' + assignmentId + '\')">Delete</button>';
   } else if (!isLocked) {
     html += '<button class="btn-primary-action" onclick="confirmAssignment(\'' + assignmentId + '\',true)">Confirm &amp; Notify Client</button>';
     html += '<button class="btn-secondary-action" onclick="confirmAssignment(\'' + assignmentId + '\',false)">Confirm Date</button>';
@@ -7214,6 +7640,23 @@ function removeAssignment(assignmentId) {
     },
     { danger: true }
   );
+}
+
+function handleCalEventDelete(assignmentId) {
+  var ev = _calEvents.find(function(e) { return e.assignment_id === assignmentId; });
+  if (!ev) return;
+  closeCalJobPopup();
+  if (ev.recurrence_group_id) {
+    showRecurrenceScopeDialog('delete', assignmentId, 'assignment', ev.recurrence_group_id);
+  } else {
+    showConfirmModal('Delete Event', 'Delete this event?', 'Delete', async function() {
+      try {
+        await opsPost('delete_assignment', { assignmentId: assignmentId });
+        showToast('Event deleted', 'success');
+        loadCalendar();
+      } catch (e) { showToast('Error: ' + e.message, 'warning'); }
+    }, { danger: true });
+  }
 }
 
 // ── Bulk Confirm ──
@@ -10699,6 +11142,15 @@ function renderOverviewView(data) {
   });
   html += '</div>';
 
+  // Section 4.5: Job Actions
+  html += '<div id="jdJobActions" style="background:var(--sw-card);padding:14px;margin-bottom:12px;box-shadow:var(--sw-shadow);">';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+  html += '<div style="font-size:11px;font-weight:700;color:var(--sw-mid);text-transform:uppercase;letter-spacing:0.5px;">Actions</div>';
+  html += '<button class="btn btn-secondary btn-sm" onclick="openAddActionModal(\'' + escapeHtml(j.job_number || '') + '\')" style="font-size:10px;padding:2px 8px;">+ Add</button>';
+  html += '</div>';
+  html += '<div id="jdJobActionsList" style="font-size:12px;color:var(--sw-text-sec);">Loading...</div>';
+  html += '</div>';
+
   // Section 5: Recent Activity
   html += '<div style="background:var(--sw-card);padding:14px;box-shadow:var(--sw-shadow);">';
   html += '<div style="font-size:11px;font-weight:700;color:var(--sw-mid);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Recent Activity</div>';
@@ -10717,6 +11169,63 @@ function renderOverviewView(data) {
   if (evts.length > 5) html += '<div style="margin-top:6px;"><a href="#" onclick="event.preventDefault();showJobSubView(\x27history\x27)" style="font-size:11px;color:var(--sw-mid);">View full history &#8594;</a></div>';
   html += '</div>';
   document.getElementById('jdOverview').innerHTML = html;
+
+  // Load job actions async
+  loadJobActions(j.id);
+}
+
+async function loadJobActions(jobId) {
+  var container = document.getElementById('jdJobActionsList');
+  if (!container) return;
+  try {
+    var actions = await opsFetch('list_job_actions', { job_id: jobId, status: 'all' });
+    var pending = actions.filter(function(a) { return a.status === 'pending'; });
+    var done = actions.filter(function(a) { return a.status === 'done' || a.status === 'dismissed'; });
+
+    if (actions.length === 0) {
+      container.innerHTML = '<div style="color:var(--sw-text-sec);font-size:12px;">No actions</div>';
+      return;
+    }
+
+    var html = '';
+    pending.forEach(function(a) {
+      var prioColor = a.priority === 'urgent' ? 'var(--sw-red)' : a.priority === 'high' ? '#D97706' : 'var(--sw-mid)';
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--sw-border);">';
+      html += '<button class="action-done-btn" onclick="completeJobAction(\'' + a.id + '\',\'' + jobId + '\')" title="Done">&#10003;</button>';
+      html += '<div style="flex:1;min-width:0;">';
+      html += '<div style="font-size:13px;font-weight:500;color:var(--sw-dark);">' + escapeHtml(a.title) + '</div>';
+      var meta = [];
+      if (a.due_date) meta.push(formatDateShort(a.due_date));
+      if (a.source && a.source !== 'manual') meta.push(a.source);
+      if (meta.length) html += '<div style="font-size:10px;color:var(--sw-text-sec);">' + meta.join(' &middot; ') + '</div>';
+      html += '</div>';
+      html += '<span style="width:6px;height:6px;border-radius:50%;background:' + prioColor + ';flex-shrink:0;" title="' + (a.priority || 'normal') + '"></span>';
+      html += '</div>';
+    });
+
+    if (done.length > 0) {
+      html += '<div style="margin-top:6px;font-size:10px;color:var(--sw-text-sec);cursor:pointer;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\'">' + done.length + ' completed/dismissed &#9662;</div>';
+      html += '<div style="display:none;opacity:0.5;">';
+      done.forEach(function(a) {
+        html += '<div style="padding:2px 0;font-size:12px;text-decoration:line-through;color:var(--sw-text-sec);">' + escapeHtml(a.title) + '</div>';
+      });
+      html += '</div>';
+    }
+
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = '<div style="color:var(--sw-text-sec);font-size:11px;">Failed to load actions</div>';
+  }
+}
+
+async function completeJobAction(actionId, jobId) {
+  try {
+    await opsPost('update_job_action', { action_id: actionId, status: 'done' });
+    loadJobActions(jobId);
+    loadMyActions(); // Refresh Today tab count too
+  } catch (e) {
+    showToast('Failed: ' + e.message, 'warning');
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -14747,7 +15256,7 @@ setInterval(function() { updateJarvisSummary(); }, 30000);
 // Auto-refresh active tab data every 5 minutes (keeps dashboard live all day)
 setInterval(function() {
   var view = localStorage.getItem('sw_ops_tab') || 'today';
-  if (view === 'today') { loadToday(); loadNudges(); }
+  if (view === 'today') { loadToday(); }
   else if (view === 'calendar') loadCalendar();
   else if (view === 'jobs') loadJobs();
   else if (view === 'financials') loadFinancials();
@@ -14939,7 +15448,10 @@ var _briefCacheKey = 'sw_morning_brief';
 var _briefCacheTTL = 30 * 60 * 1000; // 30 minutes
 
 async function loadMorningBrief() {
+  // DISABLED: Morning brief turned off by Shaun 2026-05-31
   var briefEl = document.getElementById('morningBrief');
+  if (briefEl) briefEl.style.display = 'none';
+  return;
   var contentEl = document.getElementById('briefContent');
 
   // Check cache
@@ -16935,7 +17447,6 @@ function togglePOEmailThread(poId, toggleEl) {
 function initApp() {
   cloud = window.SECUREWORKS_CLOUD;
   loadCrewList(); // Pre-cache crew list for dropdowns
-  loadWeather(); // Non-blocking weather fetch
   restoreTab();
   // Initialize Jarvis bar summary after data loads
   setTimeout(updateJarvisSummary, 2000);
