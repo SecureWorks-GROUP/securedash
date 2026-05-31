@@ -5225,7 +5225,7 @@
       var p = job.scope_json.pricing;
       h += '<div style="padding:10px;background:#E8F4FD;border-radius:8px;margin-bottom:12px">';
       h += '<div style="font-weight:700;margin-bottom:6px">Budget</div>';
-      if (p.totalIncGST || p.total) h += '<div>Quoted: <strong>$' + Math.round(p.totalIncGST || p.total).toLocaleString() + '</strong> inc GST</div>';
+      if (p.totalIncGST || p.total) h += '<div>Quoted: <strong>$' + Math.round(p.totalIncGST || p.total).toLocaleString() + '</strong></div>';
       if (p.labour) {
         var lab = p.labour;
         if (lab.days && lab.dayRate) h += '<div>Labour: ' + lab.days + ' days × $' + lab.dayRate + '/day = $' + (lab.days * lab.dayRate).toLocaleString() + '</div>';
@@ -6403,8 +6403,7 @@
         if (match.subtotal != null) {
           ch += '<div style="margin-top:10px;text-align:right;font-size:13px">';
           ch += '<div style="color:var(--sw-text-sec)">Subtotal: $' + Number(match.subtotal).toFixed(2) + '</div>';
-          ch += '<div style="color:var(--sw-text-sec)">GST: $' + Number(match.gst || 0).toFixed(2) + '</div>';
-          ch += '<div style="font-size:18px;font-weight:700;color:var(--sw-dark);margin-top:2px">Total: $' + Number(match.total || 0).toFixed(2) + '</div>';
+          ch += '<div style="font-size:18px;font-weight:700;color:var(--sw-dark);margin-top:2px">Total: $' + Number(match.total || match.subtotal || 0).toFixed(2) + '</div>';
           ch += '</div>';
         }
 
@@ -7499,7 +7498,7 @@
         '    <input type="text" id="qeDesc" placeholder="e.g. Bunnings screws, concrete bags" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px">' +
         '  </div>' +
         '  <div style="margin-bottom:12px">' +
-        '    <label style="font-size:13px;color:var(--sw-text-sec);margin-bottom:4px;display:block">Amount (ex GST)</label>' +
+        '    <label style="font-size:13px;color:var(--sw-text-sec);margin-bottom:4px;display:block">Amount</label>' +
         '    <input type="number" id="qeAmount" placeholder="0.00" step="0.01" max="200" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px">' +
         '  </div>' +
         '  <div style="margin-bottom:16px">' +
@@ -9636,7 +9635,7 @@
       var draft = JSON.parse(sessionStorage.getItem('sw_inv_draft') || 'null');
       if (draft && draft.rows && draft.rows.length > 0) {
         _invRows = draft.rows;
-        _invGst = draft.gst === true;
+        _invGst = false;
         _invNotes = draft.notes || '';
         _invoiceBuilderMode = draft.mode || 'weekly';
         _hoursWeekStart = draft.weekStart || _hoursWeekStart;
@@ -9926,26 +9925,18 @@
     var rate = parseFloat(input ? input.value : 0) || 0;
 
     var subtotal = rate * _hoursData.total_hours;
-    var details = loadTradeDetails();
-    var gst = details.gstRegistered === true ? Math.round(subtotal * 0.1 * 100) / 100 : 0;
-    var total = Math.round((subtotal + gst) * 100) / 100;
+    var total = Math.round(subtotal * 100) / 100;
 
     // Update cached data so submit uses correct figures
     _hoursData.rate = rate;
     _hoursData.subtotal = subtotal;
-    _hoursData.gst = gst;
+    _hoursData.gst = 0;
     _hoursData.total = total;
 
-    var subEl = document.getElementById('hoursSubtotalRow');
-    var gstEl = document.getElementById('hoursGstRow');
     var totEl = document.getElementById('hoursTotalRow');
     if (rate > 0) {
-      if (subEl) subEl.innerHTML = '<span>Subtotal</span><span>$' + subtotal.toFixed(2) + '</span>';
-      if (gstEl) gstEl.innerHTML = '<span>GST (10%)</span><span>$' + gst.toFixed(2) + '</span>';
       if (totEl) totEl.innerHTML = '<span>Total</span><span>$' + total.toFixed(2) + '</span>';
     } else {
-      if (subEl) subEl.innerHTML = '<span>Subtotal</span><span>&mdash;</span>';
-      if (gstEl) gstEl.innerHTML = '<span>GST (10%)</span><span>&mdash;</span>';
       if (totEl) totEl.innerHTML = '<span>Total</span><span>&mdash;</span>';
     }
 
@@ -10058,11 +10049,8 @@
     });
 
     // Grand total
-    var gst = grandTotal * 0.1;
     html += '<div style="padding:16px;background:var(--sw-card);border-radius:12px;box-shadow:var(--sw-shadow);margin-top:8px">';
-    html += '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px"><span>Subtotal</span><span id="pmSubtotal">$' + grandTotal.toFixed(2) + '</span></div>';
-    html += '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px"><span>GST (10%)</span><span id="pmGst">$' + gst.toFixed(2) + '</span></div>';
-    html += '<div style="display:flex;justify-content:space-between;font-size:18px;font-weight:800;border-top:1.5px solid var(--sw-border);padding-top:8px"><span>Total</span><span id="pmGrandTotal">$' + (grandTotal + gst).toFixed(2) + '</span></div>';
+    html += '<div style="display:flex;justify-content:space-between;font-size:18px;font-weight:800"><span>Total</span><span id="pmGrandTotal">$' + grandTotal.toFixed(2) + '</span></div>';
     html += '</div>';
 
     // Submit button
@@ -10111,13 +10099,8 @@
       var totalEl = document.getElementById('pmTotal_' + jobId);
       if (totalEl) totalEl.textContent = '$' + total.toFixed(2);
     });
-    var gst = grandTotal * 0.1;
-    var sub = document.getElementById('pmSubtotal');
-    var gstEl = document.getElementById('pmGst');
     var grand = document.getElementById('pmGrandTotal');
-    if (sub) sub.textContent = '$' + grandTotal.toFixed(2);
-    if (gstEl) gstEl.textContent = '$' + gst.toFixed(2);
-    if (grand) grand.textContent = '$' + (grandTotal + gst).toFixed(2);
+    if (grand) grand.textContent = '$' + grandTotal.toFixed(2);
   };
 
   window.submitPerMetreInvoice = function() {
@@ -10133,8 +10116,6 @@
       grandTotal += metres * rate;
     });
 
-    var gst = grandTotal * 0.1;
-    var totalInc = grandTotal + gst;
     var summary = '';
     items.forEach(function(it) {
       if (it.metres > 0) {
@@ -10144,7 +10125,7 @@
         summary += jobName + ': ' + it.metres.toFixed(1) + 'm = $' + it.total.toFixed(2) + '\n';
       }
     });
-    summary += '\nSubtotal: $' + grandTotal.toFixed(2) + '\nGST: $' + gst.toFixed(2) + '\nTotal: $' + totalInc.toFixed(2);
+    summary += '\nTotal: $' + grandTotal.toFixed(2);
     showConfirm('Submit Invoice', summary, 'Submit').then(function(ok) {
       if (!ok) return;
       api('submit_trade_invoice', null, {
@@ -10180,11 +10161,11 @@
     // Recalc with latest rate
     _hoursData.rate = editedRate;
     _hoursData.subtotal = editedRate * _hoursData.total_hours;
-    _hoursData.gst = _hoursData.subtotal * 0.1;
-    _hoursData.total = _hoursData.subtotal + _hoursData.gst;
+    _hoursData.gst = 0;
+    _hoursData.total = _hoursData.subtotal;
 
     var totalStr = '$' + _hoursData.total.toFixed(2);
-    showConfirm('Submit Invoice', 'Submit ' + totalStr + ' (inc GST) for week ending ' + _hoursData.week_ending + ' to Xero?', 'Submit').then(function(ok) {
+    showConfirm('Submit Invoice', 'Submit ' + totalStr + ' for week ending ' + _hoursData.week_ending + ' to Xero?', 'Submit').then(function(ok) {
       if (!ok) return;
 
       var btn = document.getElementById('btnSubmitHours');
@@ -10227,8 +10208,7 @@
     _invNotes = '';
     _draftInvoiceId = null;
     _invoiceBuilderMode = opts.expenseOnly ? 'expense' : 'weekly';
-    var details = loadTradeDetails();
-    _invGst = details.gstRegistered === true;
+    _invGst = false;
 
     if (!opts.expenseOnly) {
       autoPopulateFromHours();
@@ -10253,8 +10233,7 @@
       _invRows = [];
       _invExtraLines = [];
       _invoiceBuilderMode = inv.week_start ? 'weekly' : 'expense';
-      var details = loadTradeDetails();
-      _invGst = details.gstRegistered === true;
+      _invGst = false;
       // Restore all lines into _invRows
       (inv.lines || []).forEach(function(l) {
         _invRows.push({
@@ -10314,7 +10293,7 @@
 
     // Header
     html += '<div class="inv-header">';
-    html += '<div class="inv-header-row title">' + (inv.invoice_number || 'Tax Invoice') + '</div>';
+    html += '<div class="inv-header-row title">' + (inv.invoice_number || 'Invoice') + '</div>';
     html += '<div class="inv-header-row"><span>From</span><span style="color:#fff;font-weight:600">' + esc(tradeName) + '</span></div>';
     html += '<div class="inv-header-row"><span>To</span><span style="color:#fff;font-weight:600">SecureWorks Group Pty Ltd</span></div>';
     if (inv.week_start) html += '<div class="inv-header-row"><span>Period</span><span>' + formatDateShort(inv.week_start) + ' – ' + formatDateShort(inv.week_end) + '</span></div>';
@@ -10352,9 +10331,7 @@
 
     // Totals
     html += '<div class="inv-totals">';
-    html += '<div class="inv-totals-row"><span>Subtotal</span><span>$' + Number(inv.subtotal_ex || 0).toFixed(2) + '</span></div>';
-    html += '<div class="inv-totals-row"><span>GST (10%)</span><span>$' + Number(inv.gst || 0).toFixed(2) + '</span></div>';
-    html += '<div class="inv-totals-row grand"><span>Total</span><span>$' + Number(inv.total_inc || 0).toFixed(2) + '</span></div>';
+    html += '<div class="inv-totals-row grand"><span>Total</span><span>$' + Number(inv.total_inc || inv.subtotal_ex || 0).toFixed(2) + '</span></div>';
     html += '</div>';
 
     // Notes
@@ -10421,7 +10398,7 @@
   // ── Invoice row data ──
   var _invRows = []; // { date, job_id, job_text, description, division, hours, rate, amount, client_name, site_address }
   var _knownJobNumbers = []; // populated from search_all_jobs
-  var _invGst = false; // GST toggle state — default OFF (most trades not GST registered)
+  var _invGst = false; // GST removed — always false
 
   // Persist invoice draft to sessionStorage (survives background kill)
   function _saveInvDraft() {
@@ -10463,24 +10440,17 @@
     });
     var n = document.getElementById('invNotes');
     if (n) _invNotes = n.value;
-    var g = document.getElementById('invGstToggle');
-    if (g) _invGst = g.checked;
   }
 
   function _calcInvTotals() {
     var subtotal = _invRows.reduce(function(s, r) { return s + (r.amount || 0); }, 0);
-    var gst = _invGst ? Math.round(subtotal * 0.1 * 100) / 100 : 0;
-    return { subtotal: subtotal, gst: gst, total: Math.round((subtotal + gst) * 100) / 100 };
+    return { subtotal: subtotal, gst: 0, total: Math.round(subtotal * 100) / 100 };
   }
 
   function _updateInvTotals() {
     var t = _calcInvTotals();
-    var se = document.getElementById('invSubtotal');
-    var ge = document.getElementById('invGstAmt');
     var te = document.getElementById('invTotal');
     var be = document.getElementById('invSubmitBtn');
-    if (se) se.textContent = '$' + t.subtotal.toFixed(2);
-    if (ge) ge.textContent = _invGst ? '$' + t.gst.toFixed(2) : 'N/A';
     if (te) te.textContent = '$' + t.total.toFixed(2);
     if (be) be.textContent = 'Submit Invoice — $' + t.total.toFixed(2);
     _saveInvDraft();
@@ -10501,8 +10471,6 @@
   };
 
   window.invGstChanged = function() {
-    var g = document.getElementById('invGstToggle');
-    _invGst = g ? g.checked : true;
     _updateInvTotals();
   };
 
@@ -10679,7 +10647,7 @@
     html += '<div class="inv-header">';
     html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
     html += '<div>';
-    html += '<div style="font-size:18px;font-weight:700;color:#fff;margin-bottom:2px">TAX INVOICE</div>';
+    html += '<div style="font-size:18px;font-weight:700;color:#fff;margin-bottom:2px">INVOICE</div>';
     html += '<div style="font-size:13px;color:rgba(255,255,255,0.7)">From: <strong style="color:#fff">' + esc(tradeName) + '</strong></div>';
     if (tradeAbn) html += '<div style="font-size:13px;color:rgba(255,255,255,0.7)">ABN: <strong style="color:#fff">' + esc(tradeAbn) + '</strong></div>';
     html += '</div>';
@@ -10688,12 +10656,6 @@
     html += '<div style="font-size:13px;color:#fff;font-weight:600">SecureWorks Group</div>';
     html += '<div style="font-size:11px;color:rgba(255,255,255,0.5)">Pty Ltd</div>';
     html += '</div>';
-    html += '</div>';
-
-    // GST toggle
-    html += '<div style="margin-top:10px;display:flex;align-items:center;gap:8px">';
-    html += '<input type="checkbox" id="invGstToggle" ' + (_invGst ? 'checked' : '') + ' onchange="invGstChanged()" style="accent-color:var(--sw-orange);width:16px;height:16px">';
-    html += '<label for="invGstToggle" style="font-size:12px;color:rgba(255,255,255,0.8);cursor:pointer">GST Registered (add 10%)</label>';
     html += '</div>';
 
     if (!details.abn) {
@@ -10787,8 +10749,6 @@
     // ── Totals (dark card) ──
     var t = _calcInvTotals();
     html += '<div class="inv-totals">';
-    html += '<div class="inv-totals-row"><span>Subtotal (ex GST)</span><span id="invSubtotal">$' + t.subtotal.toFixed(2) + '</span></div>';
-    html += '<div class="inv-totals-row"><span>GST (10%)</span><span id="invGstAmt">' + (_invGst ? '$' + t.gst.toFixed(2) : 'N/A') + '</span></div>';
     html += '<div class="inv-totals-row grand"><span>Total</span><span id="invTotal">$' + t.total.toFixed(2) + '</span></div>';
     html += '</div>';
 
@@ -10882,7 +10842,7 @@
   };
 
   window.reviewCrewChargeAdjust = function(lineId, currentAmount) {
-    var newAmt = prompt('Adjust amount to (ex GST):', currentAmount);
+    var newAmt = prompt('Adjust amount to:', currentAmount);
     if (newAmt === null) return;
     var val = parseFloat(newAmt);
     if (isNaN(val) || val < 0) { toast('Invalid amount', true); return; }
@@ -10935,7 +10895,7 @@
 
     showConfirm(
       'Submit Invoice',
-      'Submit invoice for $' + t.total.toFixed(2) + (_invGst ? ' (inc GST)' : ' (no GST)') + '?\n\n' + validRows.length + ' line item' + (validRows.length > 1 ? 's' : ''),
+      'Submit invoice for $' + t.total.toFixed(2) + '?\n\n' + validRows.length + ' line item' + (validRows.length > 1 ? 's' : ''),
       'Submit'
     ).then(function(ok) {
       if (!ok) return;
@@ -10954,12 +10914,12 @@
         week_start: isExpense ? undefined : (_hoursWeekStart || undefined),
         extra_items: extraItems,
         notes: _invNotes,
-        gst_registered: _invGst
+        gst_registered: false
       }).then(function(result) {
         if (result.error) { toast(result.error, true); loadHoursView(); return; }
 
         // Generate PDF for the trade's records
-        var pdfData = { invoiceNumber: result.invoice_number, rows: validRows, notes: _invNotes, gst: _invGst, total: t };
+        var pdfData = { invoiceNumber: result.invoice_number, rows: validRows, notes: _invNotes, gst: false, total: t };
         _lastInvoicePdfData = pdfData;
 
         // Attach PDF to Xero bill (non-blocking)
@@ -11011,7 +10971,7 @@
         if (!navigator.onLine) {
           queueOfflineAction('generate_trade_invoice', {
             week_start: isExpense ? undefined : (_hoursWeekStart || undefined),
-            extra_items: extraItems, notes: _invNotes, gst_registered: _invGst
+            extra_items: extraItems, notes: _invNotes, gst_registered: false
           });
           toast('Offline — invoice queued, will submit when back online');
         } else {
@@ -11118,11 +11078,11 @@
     doc.setFillColor(41, 60, 70);
     doc.rect(0, 0, w, 48, 'F');
 
-    // Left: TAX INVOICE + number + date
+    // Left: INVOICE + number + date
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(22);
     doc.setFont('helvetica', 'bold');
-    doc.text('TAX INVOICE', margin, 18);
+    doc.text('INVOICE', margin, 18);
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(200, 210, 215);
@@ -11222,17 +11182,10 @@
     y += 6;
     doc.setFontSize(9);
     doc.setTextColor(80, 90, 100);
-    doc.text('Subtotal (ex GST)', margin + 105, y);
+    doc.text('Subtotal', margin + 105, y);
     doc.setTextColor(41, 60, 70);
     doc.text('$' + data.total.subtotal.toFixed(2), colAmt, y, { align: 'right' });
     y += 5;
-    if (data.gst) {
-      doc.setTextColor(80, 90, 100);
-      doc.text('GST (10%)', margin + 105, y);
-      doc.setTextColor(41, 60, 70);
-      doc.text('$' + data.total.gst.toFixed(2), colAmt, y, { align: 'right' });
-      y += 5;
-    }
     // Total with orange accent
     doc.setFillColor(41, 60, 70);
     doc.rect(margin + 105, y - 1, cw - 105, 8, 'F');
@@ -11488,12 +11441,6 @@
       html += '</div>';
     });
 
-    // GST registered toggle
-    html += '<div style="margin-bottom:12px;display:flex;align-items:center;gap:8px">';
-    html += '  <input type="checkbox" id="tdGstRegistered" style="accent-color:var(--sw-orange);width:18px;height:18px"' + (saved.gstRegistered ? ' checked' : '') + '>';
-    html += '  <label for="tdGstRegistered" style="font-size:14px;color:var(--sw-dark)">Registered for GST</label>';
-    html += '</div>';
-
     html += '<button onclick="saveTradeDetails()" style="width:100%;padding:12px;background:var(--sw-orange);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--sw-font)">Save Details</button>';
     html += '<div id="tdSaveStatus" style="font-size:12px;color:var(--sw-text-sec);margin-top:6px;text-align:center"></div>';
     html += '</div>';
@@ -11624,8 +11571,7 @@
       if (wo.subtotal != null) {
         html += '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--sw-border);text-align:right;font-size:13px">';
         html += '  <div style="color:var(--sw-text-sec)">Subtotal: $' + Number(wo.subtotal).toFixed(2) + '</div>';
-        html += '  <div style="color:var(--sw-text-sec)">GST: $' + Number(wo.gst || 0).toFixed(2) + '</div>';
-        html += '  <div style="font-size:15px;font-weight:700;color:var(--sw-dark);margin-top:2px">Total: $' + Number(wo.total || 0).toFixed(2) + '</div>';
+        html += '  <div style="font-size:15px;font-weight:700;color:var(--sw-dark);margin-top:2px">Total: $' + Number(wo.total || wo.subtotal || 0).toFixed(2) + '</div>';
         html += '</div>';
       }
 
@@ -13456,7 +13402,7 @@
       accountNo:     (document.getElementById('tdAccountNo') || {}).value || '',
       accountName:   (document.getElementById('tdAccountName') || {}).value || '',
       licence:       (document.getElementById('tdLicence') || {}).value || '',
-      gstRegistered: !!(document.getElementById('tdGstRegistered') || {}).checked,
+      gstRegistered: false,
     };
 
     // Save to localStorage immediately
@@ -14602,7 +14548,7 @@
         var p = scopeJson.pricing;
         html += '<div style="margin-top:12px;padding:10px;background:#E8F4FD;border-radius:8px">';
         html += '<div style="font-weight:700;margin-bottom:6px">Budget</div>';
-        if (p.totalIncGST || p.total) html += '<div>Quoted: <strong>$' + Math.round(p.totalIncGST || p.total).toLocaleString() + '</strong> inc GST</div>';
+        if (p.totalIncGST || p.total) html += '<div>Quoted: <strong>$' + Math.round(p.totalIncGST || p.total).toLocaleString() + '</strong></div>';
         if (p.labour) {
           var lab = p.labour;
           if (lab.days && lab.dayRate) html += '<div>Labour: ' + lab.days + ' days × $' + lab.dayRate + '/day = $' + (lab.days * lab.dayRate).toLocaleString() + '</div>';
@@ -15398,7 +15344,7 @@
       h += '<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec)">Supplier</label>';
       h += '<input type="text" id="expVendor" value="' + esc(ext.vendor_name || '') + '" placeholder="e.g. Bunnings" style="width:100%;padding:10px;border:1.5px solid var(--sw-border);border-radius:8px;font-size:15px;font-family:var(--sw-font);box-sizing:border-box"></div>';
 
-      h += '<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec)">Amount (inc GST)</label>';
+      h += '<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec)">Amount</label>';
       h += '<input type="number" id="expAmount" value="' + (ext.total_amount || '') + '" step="0.01" placeholder="0.00" style="width:100%;padding:10px;border:1.5px solid var(--sw-border);border-radius:8px;font-size:15px;font-family:var(--sw-font);box-sizing:border-box"></div>';
 
       h += '<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec)">Description</label>';
@@ -15438,14 +15384,8 @@
       h += '<option value="supplier_invoice">Supplier sent us an invoice</option>';
       h += '</select></div>';
 
-      // ── GST status — many small suppliers are non-GST ──
-      h += '<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec)">GST</label>';
-      h += '<select id="expGstStatus" style="width:100%;padding:10px;border:1.5px solid var(--sw-border);border-radius:8px;font-size:15px;font-family:var(--sw-font);box-sizing:border-box;background:#fff">';
-      h += '<option value="unknown">— select —</option>';
-      h += '<option value="included" selected>GST included in total</option>';
-      h += '<option value="excluded">GST shown separately</option>';
-      h += '<option value="non_gst_supplier">Supplier is not GST-registered</option>';
-      h += '</select></div>';
+      // GST status hidden — removed from trade app
+      h += '<input type="hidden" id="expGstStatus" value="non_gst_supplier">';
 
       // ── Job picker with JARVIS suggestions ──
       h += '<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec)">Link to job</label>';
