@@ -2783,6 +2783,7 @@
         <button class="pipeline-tab active" onclick="setPipelineTab('fencing')" data-pipeline="fencing">Fencing</button>
         <button class="pipeline-tab" onclick="setPipelineTab('patio')" data-pipeline="patio">Patio</button>
         <button class="pipeline-tab" onclick="setPipelineTab('decking')" data-pipeline="decking">Decking</button>
+        <button class="pipeline-tab" onclick="setPipelineTab('makesafes')" data-pipeline="makesafes">Make Safes</button>
         <button class="pipeline-tab" onclick="setPipelineTab('misc')" data-pipeline="misc">Misc</button>
         <input type="text" class="filter-search" placeholder="Search jobs..." oninput="searchJobs(this.value)">
         <button class="btn btn-sm" onclick="openQuickQuote()" style="background:#8E44AD;color:#fff;font-weight:600;font-size:11px;padding:4px 12px;border:none;border-radius:4px;cursor:pointer;">+ Quick Quote</button>
@@ -7750,7 +7751,7 @@ async function loadJobs() {
 
 function setPipelineTab(tab) {
   _pipelineTab = tab;
-  var typeMap = { fencing: 'fencing', patio: 'patio', decking: 'decking', misc: 'miscellaneous' };
+  var typeMap = { fencing: 'fencing', patio: 'patio', decking: 'decking', makesafes: 'makesafe', misc: 'miscellaneous' };
   _jobFilter = typeMap[tab] || '';
   document.querySelectorAll('[data-pipeline]').forEach(function(el) {
     el.classList.toggle('active', el.dataset.pipeline === tab);
@@ -7868,6 +7869,7 @@ function __renderedStagesFor(typeKey) {
 var FENCING_STAGES = __renderedStagesFor('fencing');
 var PATIO_STAGES = __renderedStagesFor('patio');
 var DECKING_STAGES = __renderedStagesFor('decking');
+var MAKESAFES_STAGES = ['new', 'assigned', 'in_progress', 'done'];
 
 // Status Mapping Gap diagnostic column key — synthetic, not a real jobs.status value.
 // Pipeline Visibility Guard requires this column to render even when empty so an operator
@@ -7897,6 +7899,8 @@ function renderJobs(data) {
       renderFencingKanban(container, data.columns);
     } else if (_pipelineTab === 'patio' || _pipelineTab === 'decking') {
       renderPatioKanban(container, data.columns);
+    } else if (_pipelineTab === 'makesafes') {
+      renderMakesafeKanban(container, data.columns);
     } else {
       renderKanban(container, data.columns);
     }
@@ -8147,7 +8151,7 @@ function renderKanban(container, columns) {
   // status — terminals (cancelled/lost/archived) and the drafts panel are excluded as before.
   // Status Mapping Gap diagnostic column appended after.
   var order = (window.SW_STATE_MACHINE && window.SW_STATE_MACHINE.ACTIVE_STATUSES)
-    ? window.SW_STATE_MACHINE.ACTIVE_STATUSES.filter(function (s) { return s !== 'draft'; })
+    ? window.SW_STATE_MACHINE.ACTIVE_STATUSES.filter(function (s) { return s !== 'draft' && (!window.SW_STATE_MACHINE.STATUS_MAP[s] || window.SW_STATE_MACHINE.STATUS_MAP[s].bucket !== 'makesafe'); })
     : ['draft', 'quoted', 'accepted', 'approvals', 'processing', 'in_progress', 'complete', 'invoiced'];
   var parts = __partitionStages(order);
   var html = '<div style="display:flex;gap:8px;height:100%;">';
@@ -8215,6 +8219,30 @@ function renderKanban(container, columns) {
   setupKanbanHorizontalScroll();
 }
 
+function renderMakesafeKanban(container, columns) {
+  var html = '<div style="display:flex;gap:8px;height:100%;">';
+  html += '<div class="kanban-container" style="flex:1;">';
+
+  MAKESAFES_STAGES.forEach(function(status) {
+    var jobs = columns[status] || [];
+    html += '<div class="kanban-col" data-status="' + status + '" ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
+    html += '<div class="kanban-col-header">' + (STATUS_LABELS[status] || status) + '<span class="count">' + jobs.length + '</span></div>';
+    html += '<div class="kanban-body">';
+
+    if (jobs.length === 0) {
+      html += '<div style="text-align:center; padding:20px; color:var(--sw-text-sec); font-size:12px;">No jobs</div>';
+    } else {
+      jobs.forEach(function(j) { html += renderKanbanCard(j, status); });
+    }
+
+    html += '</div></div>';
+  });
+
+  html += '</div></div>';
+  container.innerHTML = html;
+  setupKanbanHorizontalScroll();
+}
+
 function copyJobInfo(jobId) {
   var j = null;
   if (_pipelineData && _pipelineData.columns) {
@@ -8263,7 +8291,7 @@ function renderKanbanCard(j, status) {
     } catch (e) { /* fail-safe: never break the kanban */ }
   }
 
-  if ((j.type === 'patio' || j.type === 'decking') && j.site_suburb) {
+  if ((j.type === 'patio' || j.type === 'decking' || j.type === 'makesafe') && j.site_suburb) {
     html += '<div class="kanban-suburb">' + j.site_suburb + '</div>';
   }
   html += '<div class="kanban-meta">';
@@ -8360,6 +8388,9 @@ function kanbanDragAllowed(fromStatus, toStatus) {
   if (_pipelineTab === 'patio' || _pipelineTab === 'decking') {
     var allPatio = PATIO_STAGES.concat(['archived']);
     return allPatio.indexOf(fromStatus) !== -1 && allPatio.indexOf(toStatus) !== -1;
+  }
+  if (_pipelineTab === 'makesafes') {
+    return MAKESAFES_STAGES.indexOf(fromStatus) !== -1 && MAKESAFES_STAGES.indexOf(toStatus) !== -1;
   }
   var allowed = {
     'draft': ['quoted'],
