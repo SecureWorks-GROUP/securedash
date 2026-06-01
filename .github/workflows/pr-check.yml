@@ -12,6 +12,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check ops-api source boundary
+        run: bash scripts/check-ops-api-boundary.sh
+
       - name: Get changed files
         id: changed
         run: |
