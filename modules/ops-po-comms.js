@@ -1907,7 +1907,7 @@ async function loadPOEmails(poId, jobId) {
     return emails;
   } catch (e) {
     try {
-      var data2 = await opsFetch('read_po_emails', { po_id: poId });
+      var data2 = await opsFetch('list_po_communications', { po_id: poId });
       var emails2 = data2.emails || data2 || [];
       if (!Array.isArray(emails2)) emails2 = [];
       _poEmailCache[poId] = emails2;

@@ -13062,10 +13062,11 @@ async function submitSheetNote() {
   var text = ta ? ta.value.trim() : '';
   if (!text || !_currentJobId) return;
   try {
-    await opsPost('add_event', {
+    await opsPost('add_note', {
       job_id: _currentJobId,
-      event_type: 'note_added',
-      detail_json: { note: text }
+      text: text,
+      visibility: 'internal_only',
+      sync_to_ghl: false
     });
     showToast('Note added', 'success');
     closeActionSheet();
@@ -15930,7 +15931,7 @@ async function openXeroInvoiceModal(jobId) {
   }
   if (!job) {
     try {
-      var d = await opsFetch('job_by_id', { id: jobId });
+      var d = await opsFetch('job_detail', { jobId: jobId, slim: 'true' });
       job = d.job || d;
     } catch(e) {}
   }
@@ -17401,7 +17402,7 @@ async function sendPOEmail() {
 async function loadPOEmails(poId) {
   if (_poEmailCache[poId]) return _poEmailCache[poId];
   try {
-    var data = await opsFetch('read_po_emails', { po_id: poId });
+    var data = await opsFetch('list_po_communications', { po_id: poId });
     var emails = data.emails || data || [];
     if (!Array.isArray(emails)) emails = [];
     _poEmailCache[poId] = emails;
