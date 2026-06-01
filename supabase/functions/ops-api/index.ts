@@ -1219,6 +1219,12 @@ serve(async (req: Request) => {
       case 'add_po_event': return json(await addPOEvent(client, body))
       case 'delete_po': return json(await deletePO(client, body))
 
+      // ── Job Actions ──
+      case 'my_actions': return json(await myActions(client))
+      case 'create_job_action': return json(await createJobAction(client, body))
+      case 'update_job_action': return json(await updateJobAction(client, body))
+      case 'list_job_actions': return json(await listJobActions(client, url.searchParams))
+
       // ── AI / Automation ──
       case 'morning_brief': return json(await morningBrief(client))
       case 'scope_to_po': return json(await scopeToPO(client, url.searchParams))
@@ -13708,7 +13714,7 @@ async function createMakesafeJob(client: any, body: any) {
   const { data: job, error: jobErr } = await client.from('jobs').insert({
     org_id: DEFAULT_ORG_ID,
     type: 'makesafe',
-    status: 'new',
+    status: 'accepted',
     client_name,
     client_phone: phone || mobile || null,
     site_address,
@@ -13771,4 +13777,147 @@ async function createMakesafeJob(client: any, body: any) {
   }
 
   return { ok: true, job }
+}
+
+// ── Job Actions ──
+
+async function myActions(client: any) {
+  const today = new Date().toISOString().slice(0, 10)
+  const { data, error } = await client
+    .from('job_actions')
+    .select('*')
+    .eq('org_id', DEFAULT_ORG_ID)
+    .eq('status', 'pending')
+    .order('due_date', { ascending: true, nullsFirst: false })
+
+  if (error) throw error
+  const items = data || []
+
+  const overdue: any[] = []
+  const due_today: any[] = []
+  const upcoming: any[] = []
+  const no_date: any[] = []
+
+  for (const a of items) {
+    if (!a.due_date) no_date.push(a)
+    else if (a.due_date < today) overdue.push(a)
+    else if (a.due_date === today) due_today.push(a)
+    else upcoming.push(a)
+  }
+
+  return { overdue, due_today, upcoming, no_date }
+}
+
+async function createJobAction(client: any, body: any) {
+  const { title, description, job_number, job_id, due_date, due_time, priority, source, category, sub_category } = body
+  if (!title) throw new Error('title required')
+
+  // If job_number provided but no job_id, look up the job
+  let resolvedJobId = job_id || null
+  let resolvedJobNumber = job_number || null
+  let clientName: string | null = null
+
+  if (job_number && !job_id) {
+    const { data: job } = await client.from('jobs')
+      .select('id, job_number, client_name, type')
+      .eq('org_id', DEFAULT_ORG_ID)
+      .eq('job_number', job_number)
+      .maybeSingle()
+    if (job) {
+      resolvedJobId = job.id
+      resolvedJobNumber = job.job_number
+      clientName = job.client_name
+    }
+  } else if (job_id) {
+    const { data: job } = await client.from('jobs')
+      .select('job_number, client_name, type')
+      .eq('id', job_id)
+      .maybeSingle()
+    if (job) {
+      resolvedJobNumber = job.job_number
+      clientName = job.client_name
+    }
+  }
+
+  // Infer category from job type + title if not provided
+  let cat = category || 'general_ops'
+  let subCat = sub_category || 'tasks'
+  if (!category && resolvedJobNumber) {
+    if (resolvedJobNumber.startsWith('SWF-')) cat = 'fencing'
+    else if (resolvedJobNumber.startsWith('SWP-')) cat = 'patio'
+    else if (resolvedJobNumber.startsWith('SWMS-')) cat = 'makesafes'
+  }
+  if (!sub_category && title) {
+    const t = title.toLowerCase()
+    if (t.includes('invoice') || t.includes('payment') || t.includes('chase') || t.includes('deposit')) subCat = 'invoices'
+    else if (t.includes('material') || t.includes('order') || t.includes('supplier') || t.includes('ampelite') || t.includes('steel')) subCat = 'materials'
+    else if (t.includes('schedule') || t.includes('reschedule') || t.includes('assign')) subCat = 'scheduling'
+    else if (t.includes('doc') || t.includes('work order') || t.includes('wo ') || t.includes('council')) subCat = 'docs'
+  }
+
+  const row = {
+    org_id: DEFAULT_ORG_ID,
+    job_id: resolvedJobId,
+    job_number: resolvedJobNumber,
+    client_name: clientName || body.client_name || null,
+    title,
+    description: description || null,
+    due_date: due_date || null,
+    due_time: due_time || null,
+    priority: priority || 'normal',
+    source: source || 'manual',
+    category: cat,
+    sub_category: subCat,
+  }
+
+  const { data, error } = await client.from('job_actions').insert(row).select().single()
+  if (error) throw error
+  return data
+}
+
+async function updateJobAction(client: any, body: any) {
+  const actionId = body.action_id || body.id
+  if (!actionId) throw new Error('action_id required')
+
+  const updates: any = { updated_at: new Date().toISOString() }
+  if (body.status === 'done') {
+    updates.status = 'done'
+    updates.completed_at = new Date().toISOString()
+  } else if (body.status === 'dismissed') {
+    updates.status = 'dismissed'
+    updates.dismissed_at = new Date().toISOString()
+  } else if (body.status) {
+    updates.status = body.status
+  }
+  if (body.due_date !== undefined) updates.due_date = body.due_date
+  if (body.due_time !== undefined) updates.due_time = body.due_time
+  if (body.priority) updates.priority = body.priority
+  if (body.title) updates.title = body.title
+
+  const { data, error } = await client.from('job_actions')
+    .update(updates)
+    .eq('id', actionId)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+async function listJobActions(client: any, params: URLSearchParams) {
+  const jobId = params.get('job_id')
+  if (!jobId) throw new Error('job_id required')
+
+  const statusFilter = params.get('status')
+  let query = client.from('job_actions')
+    .select('*')
+    .eq('org_id', DEFAULT_ORG_ID)
+    .eq('job_id', jobId)
+
+  if (statusFilter && statusFilter !== 'all') {
+    query = query.eq('status', statusFilter)
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false })
+  if (error) throw error
+  return data || []
 }
