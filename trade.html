@@ -4049,6 +4049,7 @@
     patio: '#F15A29',
     fencing: '#3498DB',
     decking: '#27AE60',
+    makesafe: '#E74C3C',
     insurance: '#E74C3C',
     renovation: '#8E44AD'
   };
@@ -4293,6 +4294,18 @@
 
     // Compact mode for travelling/on_site — skip scope summary and meta row
     if (phase === 'travelling' || phase === 'on_site') {
+      h += '</div>';
+      return h;
+    }
+
+    // Make-safe: show requesting company instead of scope
+    if (type === 'makesafe') {
+      if (job.metadata && job.metadata.requesting_company) {
+        h += '<div class="job-hero-scope" style="color:var(--sw-red);">' + esc(job.metadata.requesting_company.name) + (job.metadata.external_ref ? ' - Ref: ' + esc(job.metadata.external_ref) : '') + '</div>';
+      }
+      if (job.notes) {
+        h += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:4px;white-space:pre-wrap;">' + esc(job.notes.substring(0, 150)) + '</div>';
+      }
       h += '</div>';
       return h;
     }
@@ -5795,6 +5808,26 @@
 
     // ── Acknowledge Banner (between action bar and tabs) ──
     html += renderAcknowledgeBanner(data, phase);
+
+    // ── Make-Safe Info Panel (for makesafe jobs) ──
+    if (type === 'makesafe' && job.metadata) {
+      var ms = job.metadata;
+      html += '<div class="detail-section" style="margin:0 16px 12px;padding:14px;background:var(--sw-light);border-radius:12px;border-left:4px solid var(--sw-red);">';
+      html += '<div style="font-size:13px;font-weight:700;color:var(--sw-dark);margin-bottom:8px">Make-Safe Details</div>';
+      if (ms.requesting_company) html += '<div style="font-size:13px;margin-bottom:4px;"><strong>From:</strong> ' + esc(ms.requesting_company.name || '') + '</div>';
+      if (ms.external_ref) html += '<div style="font-size:13px;margin-bottom:4px;"><strong>Ref:</strong> ' + esc(ms.external_ref) + '</div>';
+      if (ms.special_instructions) html += '<div style="font-size:13px;margin-bottom:4px;"><strong>Instructions:</strong> ' + esc(ms.special_instructions) + '</div>';
+      if (ms.safety_requirements) html += '<div style="font-size:13px;margin-bottom:4px;color:var(--sw-red);"><strong>Safety:</strong> ' + esc(ms.safety_requirements) + '</div>';
+      if (ms.external_links) {
+        var links = ms.external_links;
+        html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">';
+        Object.keys(links).forEach(function(label) {
+          html += '<a href="' + esc(links[label]) + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:var(--sw-mid);color:#fff;border-radius:8px;font-size:12px;font-weight:600;text-decoration:none;min-height:36px;">' + esc(label) + ' &#8599;</a>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    }
 
     // ── Tab Bar ──
     var mediaCount = (data.media || []).length;

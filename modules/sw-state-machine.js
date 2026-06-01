@@ -44,6 +44,9 @@
     final_payment:       { bucket: 'done',           stage_order: 15, human: 'Final Payment',         color: '#F39C12', owner: 'office', jarvis_posture: 'suggest', derived_view: true },
     invoiced:            { bucket: 'done',           stage_order: 16, human: 'Invoiced',              color: '#7F8C8D', owner: 'system', jarvis_posture: 'read_only' },
     get_review:          { bucket: 'done',           stage_order: 17, human: 'Get Review',            color: '#9B59B6', owner: 'sales',  jarvis_posture: 'suggest', derived_view: true },
+    new:                 { bucket: 'makesafe',        stage_order: 1,  human: 'New',                   color: '#3498DB', owner: 'shaun',  jarvis_posture: 'read_only' },
+    assigned:            { bucket: 'makesafe',        stage_order: 2,  human: 'Assigned',              color: '#E67E22', owner: 'shaun',  jarvis_posture: 'read_only' },
+    done:                { bucket: 'makesafe',        stage_order: 14, human: 'Done',                  color: '#27AE60', owner: 'shaun',  jarvis_posture: 'read_only' },
     cancelled:           { bucket: 'terminal',       stage_order: 98, human: 'Cancelled',             color: '#E74C3C', owner: 'sales',  jarvis_posture: 'read_only' },
     lost:                { bucket: 'terminal',       stage_order: 99, human: 'Lost',                  color: '#95A5A6', owner: 'sales',  jarvis_posture: 'read_only', legacy: true },
     archived:            { bucket: 'terminal',       stage_order: 99, human: 'Archived',              color: '#7F8C8D', owner: 'system', jarvis_posture: 'read_only' }
@@ -74,6 +77,8 @@
 
   var QUICK_QUOTE_STAGES = ['draft', 'quoted', 'accepted', 'cancelled', 'archived'];
 
+  var MAKESAFE_STAGES = ['new', 'assigned', 'in_progress', 'done'];
+
   function isLegalForType(status, type) {
     var arr = getStagesForType(type);
     return arr.indexOf(status) !== -1;
@@ -85,6 +90,7 @@
       case 'patio':       return PATIO_STAGES;
       case 'decking':     return DECKING_STAGES;
       case 'quick_quote': return QUICK_QUOTE_STAGES;
+      case 'makesafe':    return MAKESAFE_STAGES;
       default:            return PATIO_STAGES;
     }
   }
@@ -150,6 +156,7 @@
     PATIO_STAGES: PATIO_STAGES,
     DECKING_STAGES: DECKING_STAGES,
     QUICK_QUOTE_STAGES: QUICK_QUOTE_STAGES,
+    MAKESAFE_STAGES: MAKESAFE_STAGES,
     ALL_CANONICAL_STATUSES: ALL_CANONICAL_STATUSES,
     ACTIVE_STATUSES: ACTIVE_STATUSES,
     isLegalForType: isLegalForType,

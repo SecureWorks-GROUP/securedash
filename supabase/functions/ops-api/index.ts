@@ -632,6 +632,7 @@ serve(async (req: Request) => {
       case 'generate_work_order_doc': return json(await generateWorkOrderDoc(client, body))
       case 'update_work_order': return json(await updateWorkOrder(client, body))
       case 'send_work_order': return json(await sendWorkOrder(client, body))
+      case 'create_makesafe_job': return json(await createMakesafeJob(client, body))
       case 'add_note': {
         // Dual auth: API key callers (MCP/Cowork) pass as admin, JWT callers pass their userId
         const noteUserId = authMode === 'jwt' ? authUser!.id : (body.userId || body.user_id || null)
@@ -5204,12 +5205,23 @@ async function createInvoice(client: any, body: any) {
   let resolvedContactId = xero_contact_id
   if (!resolvedContactId && contact) {
     try {
-      // Fetch job data for email/phone (needed for search + contact creation)
+      // Fetch contact data for email/phone (needed for search + contact creation)
+      // For neighbours, use job_contacts table; for primary client, use jobs table
       const jId = job_id || jobId
-      const { data: jobData } = jId ? await client.from('jobs')
-        .select('client_email, client_phone')
-        .eq('id', jId)
-        .maybeSingle() : { data: null }
+      let jobData: any = null
+      if (job_contact_id) {
+        const { data: jcData } = await client.from('job_contacts')
+          .select('client_email, client_phone')
+          .eq('id', job_contact_id)
+          .maybeSingle()
+        jobData = jcData
+      } else if (jId) {
+        const { data: jData } = await client.from('jobs')
+          .select('client_email, client_phone')
+          .eq('id', jId)
+          .maybeSingle()
+        jobData = jData
+      }
 
       // 1. Search by EMAIL first (most reliable dedup — avoids name variation duplicates)
       let existing: any = null
@@ -6382,7 +6394,7 @@ async function createDepositInvoice(client: any, body: any) {
   const jId = body.job_id || body.jobId
   if (!jId) throw new Error('job_id required')
 
-  const depositPercent = body.deposit_percent ?? 50
+  let depositPercent = body.deposit_percent ?? 50
 
   // Fetch the job
   const { data: job, error: jobErr } = await client
@@ -6442,6 +6454,11 @@ async function createDepositInvoice(client: any, body: any) {
   // Allow override from body
   const depositAmountOverride = body.deposit_amount
   const depositAmountIncGst = depositAmountOverride || Math.round(quotedTotal * (depositPercent / 100) * 100) / 100
+
+  // If amount was overridden but no explicit percent, calculate the real percentage
+  if (depositAmountOverride && !body.deposit_percent && quotedTotal > 0) {
+    depositPercent = Math.round((depositAmountOverride / quotedTotal) * 100)
+  }
 
   if (depositAmountIncGst <= 0) {
     throw new Error('Cannot create a $0 deposit invoice. Set pricing_json on the job first.')
@@ -7368,7 +7385,7 @@ async function tradeJobDetail(client: any, params: URLSearchParams, userId: stri
 
   const [jobRes, docsRes, mediaRes, eventsRes, reportRes, woRes, crewRes, posRes] = await Promise.all([
     client.from('jobs')
-      .select('id, type, status, client_name, client_phone, client_email, site_address, site_suburb, site_lat, site_lng, notes, job_number, scope_json, ghl_opportunity_id, ghl_contact_id')
+      .select('id, type, status, client_name, client_phone, client_email, site_address, site_suburb, site_lat, site_lng, notes, job_number, scope_json, metadata, ghl_opportunity_id, ghl_contact_id')
       .eq('id', jobId).single(),
     client.from('job_documents')
       .select('id, type, pdf_url, storage_url, file_name, visible_to_trades, version, quote_number, created_at')
@@ -13644,4 +13661,114 @@ async function deleteOrgEvent(client: any, body: any) {
   const { error } = await client.from('org_events').delete().eq('id', id).eq('org_id', DEFAULT_ORG_ID)
   if (error) throw error
   return { ok: true }
+}
+
+async function createMakesafeJob(client: any, body: any) {
+  const {
+    client_name, site_address, suburb, phone, mobile,
+    requesting_company_slug, external_ref, description,
+    pdf_base64, external_links
+  } = body
+
+  if (!client_name || !site_address) throw new Error('client_name and site_address required')
+
+  // Look up requesting company
+  let companyData: any = null
+  if (requesting_company_slug) {
+    const { data: co } = await client.from('makesafe_companies')
+      .select('*').eq('slug', requesting_company_slug).maybeSingle()
+    companyData = co
+  }
+
+  // Generate job number: SWMS-XXXXX
+  const { data: lastJob } = await client.from('jobs')
+    .select('job_number')
+    .ilike('job_number', 'SWMS-%')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  let nextNum = 26001
+  if (lastJob?.job_number) {
+    const num = parseInt(lastJob.job_number.replace('SWMS-', ''), 10)
+    if (!isNaN(num)) nextNum = num + 1
+  }
+  const jobNumber = `SWMS-${nextNum}`
+
+  // Build metadata
+  const metadata: any = {
+    requesting_company: companyData ? { slug: companyData.slug, name: companyData.name } : null,
+    external_ref: external_ref || null,
+    invoice_email: companyData?.invoice_email || null,
+    special_instructions: companyData?.special_instructions || null,
+    safety_requirements: companyData?.safety_requirements || null,
+    external_links: external_links || null,
+  }
+
+  // Create the job
+  const { data: job, error: jobErr } = await client.from('jobs').insert({
+    org_id: DEFAULT_ORG_ID,
+    type: 'makesafe',
+    status: 'new',
+    client_name,
+    client_phone: phone || mobile || null,
+    site_address,
+    site_suburb: suburb || null,
+    job_number: jobNumber,
+    notes: description || null,
+    metadata,
+  }).select().single()
+
+  if (jobErr) throw jobErr
+
+  // If PDF provided, upload to storage and create job_documents record
+  if (pdf_base64) {
+    try {
+      const pdfBuffer = Uint8Array.from(atob(pdf_base64), c => c.charCodeAt(0))
+      const pdfPath = `${job.id}/work-order-${jobNumber}.pdf`
+      const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+      const { error: upErr } = await adminClient.storage
+        .from('job-documents')
+        .upload(pdfPath, pdfBuffer, { contentType: 'application/pdf', upsert: true })
+      if (!upErr) {
+        const { data: urlData } = adminClient.storage.from('job-documents').getPublicUrl(pdfPath)
+        await client.from('job_documents').insert({
+          job_id: job.id,
+          type: 'work_order',
+          file_name: `work-order-${jobNumber}.pdf`,
+          storage_url: pdfPath,
+          pdf_url: urlData?.publicUrl || null,
+          visible_to_trades: true,
+        })
+      }
+    } catch (e: any) {
+      console.log('[ops-api] PDF upload failed for makesafe:', e?.message)
+    }
+  }
+
+  // Log job event
+  await client.from('job_events').insert({
+    job_id: job.id,
+    event_type: 'makesafe_created',
+    detail_json: { job_number: jobNumber, requesting_company: companyData?.name || null, external_ref },
+  })
+
+  // Telegram notification to Shaun
+  const TELEGRAM_BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') || ''
+  if (TELEGRAM_BOT_TOKEN) {
+    try {
+      const { data: shaun } = await client.from('users')
+        .select('telegram_id').ilike('email', '%shaun%')
+        .not('telegram_id', 'is', null).limit(1).maybeSingle()
+      if (shaun?.telegram_id) {
+        const msg = `New Make-Safe: ${jobNumber}\n${client_name}\n${site_address}${companyData ? '\nFrom: ' + companyData.name : ''}${external_ref ? '\nRef: ' + external_ref : ''}`
+        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: shaun.telegram_id, text: msg }),
+        })
+      }
+    } catch (_) { /* non-critical */ }
+  }
+
+  return { ok: true, job }
 }
