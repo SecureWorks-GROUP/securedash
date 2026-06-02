@@ -8513,6 +8513,17 @@ async function rejectIntakeDraft(draftId) {
   }
 }
 
+async function updateMakesafeSubstatus(jobId, substatus) {
+  try {
+    await opsPost('update_makesafe_substatus', { job_id: jobId, substatus: substatus });
+    showToast('Substatus updated', 'success');
+    if (_hoverPopover) { _hoverPopover.remove(); _hoverPopover = null; }
+    loadJobs();
+  } catch (e) {
+    showToast('Failed: ' + (e.message || e), 'error');
+  }
+}
+
 // ── Make-Safe Map View ──
 var _makesafeMapInstance = null;
 function toggleMakesafeMap() {
@@ -13588,6 +13599,39 @@ async function showHoverPopover(anchor, jobId) {
     if (j.site_address) html += '<div class="jd-qv-row"><span class="jd-qv-label">Address</span><span style="font-size:12px">' + escapeHtml(j.site_address) + '</span></div>';
     if (j.client_phone) html += '<div class="jd-qv-row"><span class="jd-qv-label">Phone</span><a href="tel:' + j.client_phone + '">' + j.client_phone + '</a></div>';
     if (j.client_email) html += '<div class="jd-qv-row"><span class="jd-qv-label">Email</span><a href="mailto:' + escapeHtml(j.client_email) + '" style="font-size:12px" onclick="event.stopPropagation()">' + escapeHtml(j.client_email) + '</a></div>';
+
+    // Make-safe details in hover popover
+    if (j.type === 'makesafe') {
+      var msd = data.makesafe_details || {};
+      var msCompany = msd.requesting_company_name || (j.metadata && j.metadata.requesting_company && j.metadata.requesting_company.name) || '';
+      var msRef = msd.external_ref || (j.metadata && j.metadata.external_ref) || '';
+      if (msCompany) html += '<div class="jd-qv-row"><span class="jd-qv-label">Company</span><span style="font-size:12px;color:#D97706;font-weight:600;">' + escapeHtml(msCompany) + '</span></div>';
+      if (msRef) html += '<div class="jd-qv-row"><span class="jd-qv-label">Ref</span><span style="font-size:12px;font-weight:600;">' + escapeHtml(msRef) + '</span></div>';
+      var msSubLabels = { company_contact_required: 'Contact Required', company_contact_done: 'Contacted', waiting_on_trade_report: 'Waiting Report', admin_to_send_report: 'Admin Send', ready_to_invoice: 'Ready to Invoice', complete: 'Done' };
+      if (msd.substatus && msSubLabels[msd.substatus]) {
+        var msBadgeColor = msd.substatus === 'company_contact_required' ? '#E74C3C' : msd.substatus === 'waiting_on_trade_report' ? '#F39C12' : msd.substatus === 'ready_to_invoice' ? '#27AE60' : '#8FA4B2';
+        html += '<div class="jd-qv-row"><span class="jd-qv-label">Substatus</span><span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + msBadgeColor + ';color:#fff;font-weight:600;">' + msSubLabels[msd.substatus] + '</span></div>';
+      }
+      if (msd.safety_requirements) html += '<div class="jd-qv-row"><span class="jd-qv-label">Safety</span><span style="font-size:12px;color:#E74C3C;">' + escapeHtml(msd.safety_requirements) + '</span></div>';
+      if (msd.special_instructions) html += '<div class="jd-qv-row"><span class="jd-qv-label">Instructions</span><span style="font-size:12px;">' + escapeHtml(msd.special_instructions) + '</span></div>';
+      // Work order PDF link
+      var woDocs = (data.documents || []).filter(function(d) { return d.type === 'work_order'; });
+      if (woDocs.length > 0) {
+        html += '<div class="jd-qv-row"><span class="jd-qv-label">Work Order</span><a href="' + (woDocs[0].pdf_url || woDocs[0].url || '#') + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:12px;color:var(--sw-blue);font-weight:600;">&#128196; ' + escapeHtml(woDocs[0].file_name || 'View PDF') + '</a></div>';
+      }
+      // Substatus quick actions
+      html += '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">';
+      if (!msd.substatus || msd.substatus === 'company_contact_required') {
+        html += '<button onclick="event.stopPropagation();updateMakesafeSubstatus(\'' + j.id + '\',\'company_contact_done\')" style="padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;background:#27AE60;color:#fff;border:none;">Mark Contacted</button>';
+      }
+      if (msd.substatus === 'waiting_on_trade_report' || msd.substatus === 'admin_to_send_report') {
+        html += '<button onclick="event.stopPropagation();updateMakesafeSubstatus(\'' + j.id + '\',\'ready_to_invoice\')" style="padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;background:#9B59B6;color:#fff;border:none;">Report Sent</button>';
+      }
+      if (msd.substatus === 'ready_to_invoice') {
+        html += '<button onclick="event.stopPropagation();updateMakesafeSubstatus(\'' + j.id + '\',\'complete\')" style="padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;background:#27AE60;color:#fff;border:none;">Mark Complete</button>';
+      }
+      html += '</div>';
+    }
 
     // Council toggle for patio jobs
     if (j.type === 'patio') {
