@@ -8426,6 +8426,7 @@ async function doCreateMakesafe(payload) {
 // ── Make-Safe Intake Panel ──
 async function loadMakesafeIntake() {
   var container = document.getElementById('jobsBody');
+  container.style.overflow = 'auto';
   container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--sw-text-sec);">Loading intake drafts...</div>';
   try {
     var data = await opsFetch('list_intake_drafts', { status: 'draft,needs_review' });
