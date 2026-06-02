@@ -7741,7 +7741,9 @@ async function loadJobs() {
     if (_jobFilter) params.type = _jobFilter;
     if (_jobSearch) params.search = _jobSearch;
 
-    var data = await opsFetch('pipeline', params);
+    // Make-safe tab uses dedicated enriched pipeline endpoint
+    var endpoint = (_pipelineTab === 'makesafes') ? 'makesafe_pipeline' : 'pipeline';
+    var data = await opsFetch(endpoint, params);
     _pipelineData = data;
     renderJobs(data);
   } catch (e) {
@@ -11362,8 +11364,8 @@ function evaluateJobAlerts(data) {
     }
   });
 
-  // 4. AMBER: accepted/scheduled + 0 POs + has scope
-  if ((['accepted','scheduled'].indexOf(j.status) >= 0) && (data.purchase_orders || []).length === 0 && j.scope_json) {
+  // 4. AMBER: accepted/scheduled + 0 POs + has scope (skip make-safes — van stock)
+  if ((['accepted','scheduled'].indexOf(j.status) >= 0) && (data.purchase_orders || []).length === 0 && j.scope_json && j.type !== 'makesafe') {
     alerts.push({ level: 'amber', icon: '&#9888;', message: 'Materials not ordered', target: 'build' });
   }
 
