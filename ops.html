@@ -8290,20 +8290,20 @@ function renderMakesafeCard(j, status, substatusLabels) {
   html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:4px;">';
   html += '<span style="font-weight:600;font-size:13px;color:var(--sw-dark);flex:1;">' + (j.client_name || 'Unknown') + '</span>';
   if (j.external_ref) {
-    html += '<span style="font-size:10px;background:#E8E4DF;padding:1px 6px;border-radius:3px;font-weight:600;white-space:nowrap;">' + esc(j.external_ref) + '</span>';
+    html += '<span style="font-size:10px;background:#E8E4DF;padding:1px 6px;border-radius:3px;font-weight:600;white-space:nowrap;">' + escapeHtml(j.external_ref) + '</span>';
   }
   html += '</div>';
   // Job number
   if (j.job_number) {
-    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:2px;">' + esc(j.job_number) + '</div>';
+    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:2px;">' + escapeHtml(j.job_number) + '</div>';
   }
   // Requesting company
   if (j.requesting_company) {
-    html += '<div style="font-size:11px;color:#D97706;font-weight:600;margin-top:3px;">' + esc(j.requesting_company) + '</div>';
+    html += '<div style="font-size:11px;color:#D97706;font-weight:600;margin-top:3px;">' + escapeHtml(j.requesting_company) + '</div>';
   }
   // Suburb
   if (j.site_suburb) {
-    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:2px;">' + esc(j.site_suburb) + '</div>';
+    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:2px;">' + escapeHtml(j.site_suburb) + '</div>';
   }
   // Substatus badge
   var sub = j.substatus || (j.makesafe_details && j.makesafe_details.substatus);
@@ -8317,7 +8317,7 @@ function renderMakesafeCard(j, status, substatusLabels) {
   }
   // Assigned trade
   if (j.assigned_trade) {
-    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:4px;">&#128100; ' + esc(j.assigned_trade) + '</div>';
+    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:4px;">&#128100; ' + escapeHtml(j.assigned_trade) + '</div>';
   }
   // Age indicator
   if (j.age_hours !== undefined) {
@@ -8341,7 +8341,7 @@ async function openNewMakesafeModal() {
   }
   var companyOptions = '<option value="">-- Select --</option>';
   _makesafeCompanies.forEach(function(c) {
-    companyOptions += '<option value="' + esc(c.slug) + '">' + esc(c.name) + '</option>';
+    companyOptions += '<option value="' + escapeHtml(c.slug) + '">' + escapeHtml(c.name) + '</option>';
   });
 
   var overlay = document.createElement('div');
@@ -8451,15 +8451,15 @@ async function loadMakesafeIntake() {
       html += '<div style="background:#fff;border:1px solid var(--sw-border);border-radius:8px;padding:14px;margin-bottom:10px;border-left:4px solid ' + confColor + ';">';
       html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;">';
       html += '<div style="flex:1;">';
-      html += '<div style="font-weight:600;font-size:14px;color:var(--sw-dark);">' + esc(d.subject || '(no subject)') + '</div>';
-      html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:3px;">From: ' + esc(d.from_name || d.from_email || '') + '</div>';
-      if (d.external_ref) html += '<div style="font-size:12px;margin-top:3px;"><strong>Ref:</strong> ' + esc(d.external_ref) + '</div>';
-      if (d.client_name) html += '<div style="font-size:12px;margin-top:2px;"><strong>Client:</strong> ' + esc(d.client_name) + '</div>';
-      if (d.site_address) html += '<div style="font-size:12px;margin-top:2px;"><strong>Address:</strong> ' + esc(d.site_address) + '</div>';
-      if (d.requesting_company_name) html += '<div style="font-size:12px;color:#D97706;margin-top:2px;">' + esc(d.requesting_company_name) + '</div>';
-      if (d.description) html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:4px;white-space:pre-wrap;">' + esc(d.description.substring(0, 200)) + '</div>';
+      html += '<div style="font-weight:600;font-size:14px;color:var(--sw-dark);">' + escapeHtml(d.subject || '(no subject)') + '</div>';
+      html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:3px;">From: ' + escapeHtml(d.from_name || d.from_email || '') + '</div>';
+      if (d.external_ref) html += '<div style="font-size:12px;margin-top:3px;"><strong>Ref:</strong> ' + escapeHtml(d.external_ref) + '</div>';
+      if (d.client_name) html += '<div style="font-size:12px;margin-top:2px;"><strong>Client:</strong> ' + escapeHtml(d.client_name) + '</div>';
+      if (d.site_address) html += '<div style="font-size:12px;margin-top:2px;"><strong>Address:</strong> ' + escapeHtml(d.site_address) + '</div>';
+      if (d.requesting_company_name) html += '<div style="font-size:12px;color:#D97706;margin-top:2px;">' + escapeHtml(d.requesting_company_name) + '</div>';
+      if (d.description) html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:4px;white-space:pre-wrap;">' + escapeHtml(d.description.substring(0, 200)) + '</div>';
       if (d.missing_fields && d.missing_fields.length > 0) {
-        html += '<div style="font-size:11px;color:#E74C3C;margin-top:4px;">Missing: ' + esc(d.missing_fields.join(', ')) + '</div>';
+        html += '<div style="font-size:11px;color:#E74C3C;margin-top:4px;">Missing: ' + escapeHtml(d.missing_fields.join(', ')) + '</div>';
       }
       if (d.attachments_json && d.attachments_json.length > 0) {
         html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:4px;">&#128206; ' + d.attachments_json.length + ' PDF(s) attached</div>';
@@ -8595,12 +8595,12 @@ async function loadMakesafeMapData(filter) {
       }).addTo(_makesafeMapInstance);
 
       var popup = '<div style="min-width:200px;">'
-        + '<strong>' + esc(j.client_name || 'Unknown') + '</strong><br>'
-        + '<span style="font-size:12px;">' + esc(j.job_number || '') + '</span><br>'
-        + '<span style="font-size:12px;">' + esc(j.site_address || '') + '</span><br>';
-      if (j.requesting_company) popup += '<span style="font-size:12px;color:#D97706;">' + esc(j.requesting_company) + '</span><br>';
-      if (j.external_ref) popup += '<span style="font-size:12px;">Ref: ' + esc(j.external_ref) + '</span><br>';
-      if (j.assigned_trade) popup += '<span style="font-size:12px;">Trade: ' + esc(j.assigned_trade) + '</span><br>';
+        + '<strong>' + escapeHtml(j.client_name || 'Unknown') + '</strong><br>'
+        + '<span style="font-size:12px;">' + escapeHtml(j.job_number || '') + '</span><br>'
+        + '<span style="font-size:12px;">' + escapeHtml(j.site_address || '') + '</span><br>';
+      if (j.requesting_company) popup += '<span style="font-size:12px;color:#D97706;">' + escapeHtml(j.requesting_company) + '</span><br>';
+      if (j.external_ref) popup += '<span style="font-size:12px;">Ref: ' + escapeHtml(j.external_ref) + '</span><br>';
+      if (j.assigned_trade) popup += '<span style="font-size:12px;">Trade: ' + escapeHtml(j.assigned_trade) + '</span><br>';
       if (j.on_road) popup += '<span style="font-size:12px;color:#E74C3C;font-weight:600;">ON ROAD</span><br>';
       popup += '<button onclick="openJobDetail(\'' + j.id + '\');toggleMakesafeMap();" style="margin-top:6px;background:#293C46;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;">Open Job</button>';
       popup += '</div>';
@@ -8613,7 +8613,7 @@ async function loadMakesafeMapData(filter) {
       noLocDiv.style.display = '';
       noLocDiv.innerHTML = '<strong style="color:#E74C3C;">No Location (' + data.no_location.length + '):</strong> '
         + data.no_location.map(function(j) {
-          return '<span style="cursor:pointer;text-decoration:underline;" onclick="openJobDetail(\'' + j.id + '\');toggleMakesafeMap();">' + esc(j.job_number || j.client_name) + '</span>';
+          return '<span style="cursor:pointer;text-decoration:underline;" onclick="openJobDetail(\'' + j.id + '\');toggleMakesafeMap();">' + escapeHtml(j.job_number || j.client_name) + '</span>';
         }).join(', ');
     } else {
       noLocDiv.style.display = 'none';
