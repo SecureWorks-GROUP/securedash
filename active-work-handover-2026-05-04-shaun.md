@@ -130,7 +130,7 @@ These come from the controlling roadmap at `~/.claude/plans/graceful-growing-pup
 **Files likely touched:**
 - `secureworks-site/supabase/functions/ops-api/index.ts` (`transition_state` handler — soft-block branch)
 - `securedash/ops.html` job detail + kanban card (force-proceed button + modal + lock-icon override badge)
-- `securedash/modules/sw-overrides.js` (NEW — modal logic)
+- `secureworks-ux/modules/sw-overrides.js` (NEW — modal logic)
 - `secureworks-site/supabase/functions/daily-digest/index.ts` (engine-discordant section)
 - `secureworks-agent/src/mcp-server.ts` (`sw_list_pending_overrides` new tool)
 
@@ -482,10 +482,10 @@ Production boundary as of 2026-04-30: GitHub main was ahead of production. (Now 
 | Stage-gate engine (TS, Deno) | `secureworks-site/supabase/functions/_shared/stage-gate/engine.ts` (1132 lines) |
 | Canonical state machine (TS) | `secureworks-site/supabase/functions/_shared/stage-gate/job-state-machine.ts` |
 | Engine Deno tests | `secureworks-site/supabase/functions/_shared/stage-gate/engine_test.ts` (16 tests, run via `deno test --no-check --allow-env --allow-read`) |
-| Browser mirror of state machine | `securedash/modules/sw-state-machine.js` |
-| Browser stage-gate engine | `securedash/modules/ops-stage-gate-engine.js` |
-| Browser fixtures (Cap 1B 25 fixtures) | `securedash/modules/ops-stage-gate-fixtures.js` |
-| Browser test harness | `securedash/modules/ops-stage-gate-engine.test.html` (live at `https://secureworks-group.github.io/securedash/modules/ops-stage-gate-engine.test.html`) |
+| Browser mirror of state machine | `secureworks-ux/modules/sw-state-machine.js` |
+| Browser stage-gate engine | `secureworks-ux/modules/ops-stage-gate-engine.js` |
+| Browser fixtures (Cap 1B 25 fixtures) | `secureworks-ux/modules/ops-stage-gate-fixtures.js` |
+| Browser test harness | `secureworks-ux/modules/ops-stage-gate-engine.test.html` (live at `https://secureworks-group.github.io/secureworks-ux/modules/ops-stage-gate-engine.test.html`) |
 | **Cap 1 evidence packets** | |
 | Cap 1A audit | `secureworks-docs/cio/evidence/cap1-stage-engine-audit-2026-05-01/` (6 files: README, writer-inventory, hardcoded-list-inventory, before-after-diffs, manual-qa-checklist, prod-verification-sql) |
 | Cap 1B engine evidence | `secureworks-docs/cio/evidence/cap1b-stage-gate-engine-2026-05-02/` |
@@ -556,7 +556,7 @@ mcp__supabase__list_edge_functions
 # Look for: ops-api version >= 349, daily-digest version >= 30
 
 # 2. Verify GH Pages has frontend fix
-curl -s https://secureworks-group.github.io/securedash/ops.html | grep -c "'processing', 'deposit'"
+curl -s https://secureworks-group.github.io/secureworks-ux/ops.html | grep -c "'processing', 'deposit'"
 # Should output: 1
 
 # 3. Visual: open ops.html, click Fencing tab, scroll to Final Payment column.
@@ -565,11 +565,11 @@ curl -s https://secureworks-group.github.io/securedash/ops.html | grep -c "'proc
 # 4. Visual: open browser console on ops.html. No "Digest API error: 401".
 
 # 5. Verify Cap 1B harness still passes
-# Open: https://secureworks-group.github.io/securedash/modules/ops-stage-gate-engine.test.html
+# Open: https://secureworks-group.github.io/secureworks-ux/modules/ops-stage-gate-engine.test.html
 # Expect: 25/25 ✓ green banner
 
 # 6. Verify Cap 1A canonical state machine harness
-# Open: https://secureworks-group.github.io/securedash/modules/sw-state-machine.test.html
+# Open: https://secureworks-group.github.io/secureworks-ux/modules/sw-state-machine.test.html
 # Expect: all green
 ```
 

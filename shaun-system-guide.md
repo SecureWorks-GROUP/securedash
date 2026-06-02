@@ -263,12 +263,12 @@ You need access to all of these. Check each one and flag any you can't get into.
 
 | Repo | Path | Live On | What |
 |------|------|---------|------|
-| securedash | ~/Projects/securedash/ | GitHub Pages | CEO, Ops, Trade dashboards |
+| secureworks-ux | ~/Projects/securedash/ | GitHub Pages | CEO, Ops, Trade dashboards |
 | patio-tool | ~/Projects/patio-tool/ | GitHub Pages | Patio + decking scoping tools |
 | fence-designer | ~/Projects/fence-designer/ | GitHub Pages | Fencing scoping tool |
 | secureworks-sale | ~/Projects/secureworks-sale/ | GitHub Pages | Sales dashboard |
 | secureworks-website | ~/Projects/secureworks-website/ | Cloudflare Pages | New Astro website |
-| secureworks-agent | ~/Projects/secureworks-agent/ | Railway | JARVIS AI agent |
+| secureworks-jarvis | ~/Projects/secureworks-agent/ | Railway | JARVIS AI agent |
 | Edge functions | ~/Projects/secureworks-site/supabase/functions/ | Supabase | API layer |
 | secureworks-docs | ~/Projects/secureworks-docs/ | GitHub | Wiki/knowledge base |
 
