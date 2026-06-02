@@ -8252,8 +8252,7 @@ function renderMakesafeKanban(container, columns) {
     invoiced: '#7F8C8D',
   };
   var SUBSTATUS_LABELS = {
-    company_contact_required: 'Contact Required',
-    company_contact_done: 'Contacted',
+    pending_allocation: 'Needs Allocation',
     waiting_on_trade_report: 'Waiting Report',
     admin_to_send_report: 'Admin Send',
     ready_to_invoice: 'Ready to Invoice',
@@ -8310,7 +8309,7 @@ function renderMakesafeCard(j, status, substatusLabels) {
   // Substatus badge
   var sub = j.substatus || (j.makesafe_details && j.makesafe_details.substatus);
   if (sub && substatusLabels[sub]) {
-    var badgeColor = sub === 'company_contact_required' ? '#E74C3C'
+    var badgeColor = sub === 'pending_allocation' ? '#3498DB'
       : sub === 'waiting_on_trade_report' ? '#F39C12'
       : sub === 'admin_to_send_report' ? '#9B59B6'
       : sub === 'ready_to_invoice' ? '#27AE60'
