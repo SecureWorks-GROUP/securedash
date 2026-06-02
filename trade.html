@@ -5821,7 +5821,7 @@
       if (ms.special_instructions) html += '<div style="font-size:13px;margin-bottom:4px;"><strong>Instructions:</strong> ' + esc(ms.special_instructions) + '</div>';
       if (ms.safety_requirements) html += '<div style="font-size:13px;margin-bottom:4px;color:var(--sw-red);"><strong>Safety:</strong> ' + esc(ms.safety_requirements) + '</div>';
       // Substatus indicator
-      var subLabels = { company_contact_required: 'Contact Required', company_contact_done: 'Contacted', waiting_on_trade_report: 'Waiting Report', admin_to_send_report: 'Admin Sending', ready_to_invoice: 'Ready to Invoice', complete: 'Complete' };
+      var subLabels = { pending_allocation: 'Needs Allocation', waiting_on_trade_report: 'Waiting Report', admin_to_send_report: 'Admin Sending', ready_to_invoice: 'Ready to Invoice', complete: 'Complete' };
       if (ms.substatus && subLabels[ms.substatus]) {
         html += '<div style="font-size:12px;margin-top:6px;"><span style="padding:2px 8px;border-radius:10px;background:var(--sw-orange);color:#fff;font-weight:600;">' + subLabels[ms.substatus] + '</span></div>';
       }
