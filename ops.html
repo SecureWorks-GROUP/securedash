@@ -8412,7 +8412,7 @@ async function submitNewMakesafe() {
 
 async function doCreateMakesafe(payload) {
   try {
-    var result = await opsFetch('create_makesafe_job', {}, payload);
+    var result = await opsPost('create_makesafe_job', payload);
     showToast('Make-safe created: ' + (result.job && result.job.job_number || ''), 'success');
     closeMakesafeModal();
     loadJobs();
@@ -8481,7 +8481,7 @@ async function loadMakesafeIntake() {
 async function scanSesInbox() {
   showToast('Scanning SES inbox...', 'info');
   try {
-    var data = await opsFetch('scan_ses_makesafes', {}, {});
+    var data = await opsPost('scan_ses_makesafes', {});
     showToast('Scanned ' + data.scanned + ' emails, found ' + data.new_count + ' new make-safe drafts', 'success');
     loadMakesafeIntake();
   } catch (e) {
@@ -8492,7 +8492,7 @@ async function scanSesInbox() {
 async function approveIntakeDraft(draftId) {
   if (!confirm('Create a make-safe job from this draft?')) return;
   try {
-    var result = await opsFetch('approve_intake_draft', {}, { draft_id: draftId, approved_by: 'ops_dashboard' });
+    var result = await opsPost('approve_intake_draft', { draft_id: draftId, approved_by: 'ops_dashboard' });
     showToast('Job created: ' + (result.job && result.job.job_number || ''), 'success');
     loadMakesafeIntake();
   } catch (e) {
@@ -8503,7 +8503,7 @@ async function approveIntakeDraft(draftId) {
 async function rejectIntakeDraft(draftId) {
   var notes = prompt('Rejection reason (optional):');
   try {
-    await opsFetch('reject_intake_draft', {}, { draft_id: draftId, rejected_by: 'ops_dashboard', review_notes: notes || null });
+    await opsPost('reject_intake_draft', { draft_id: draftId, rejected_by: 'ops_dashboard', review_notes: notes || null });
     showToast('Draft rejected', 'success');
     loadMakesafeIntake();
   } catch (e) {
