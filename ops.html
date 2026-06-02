@@ -2787,6 +2787,9 @@
         <button class="pipeline-tab" onclick="setPipelineTab('misc')" data-pipeline="misc">Misc</button>
         <input type="text" class="filter-search" placeholder="Search jobs..." oninput="searchJobs(this.value)">
         <button class="btn btn-sm" onclick="openQuickQuote()" style="background:#8E44AD;color:#fff;font-weight:600;font-size:11px;padding:4px 12px;border:none;border-radius:4px;cursor:pointer;">+ Quick Quote</button>
+        <button class="btn btn-sm" id="btnNewMakesafe" onclick="openNewMakesafeModal()" style="display:none;background:#D97706;color:#fff;font-weight:600;font-size:11px;padding:4px 12px;border:none;border-radius:4px;cursor:pointer;">+ New Make-Safe</button>
+        <button class="btn btn-sm" id="btnMakesafeIntake" onclick="loadMakesafeIntake()" style="display:none;background:#4C6A7C;color:#fff;font-weight:600;font-size:11px;padding:4px 12px;border:none;border-radius:4px;cursor:pointer;">Intake</button>
+        <button class="btn btn-sm" id="btnMakesafeMap" onclick="toggleMakesafeMap()" style="display:none;background:#293C46;color:#fff;font-weight:600;font-size:11px;padding:4px 12px;border:none;border-radius:4px;cursor:pointer;">Map</button>
         <div style="flex:1;"></div>
         <div id="jobsDateDisplay" style="font-size:12px;font-weight:600;color:var(--sw-text-sec);letter-spacing:0.3px;white-space:nowrap;"></div>
         <button class="btn btn-secondary btn-sm" id="btnKanban" onclick="setJobView('kanban')" style="font-weight:600;">Kanban</button>
@@ -7756,6 +7759,18 @@ function setPipelineTab(tab) {
   document.querySelectorAll('[data-pipeline]').forEach(function(el) {
     el.classList.toggle('active', el.dataset.pipeline === tab);
   });
+  // Show/hide make-safe specific buttons
+  var isMakesafe = tab === 'makesafes';
+  var btnNew = document.getElementById('btnNewMakesafe');
+  var btnIntake = document.getElementById('btnMakesafeIntake');
+  var btnMap = document.getElementById('btnMakesafeMap');
+  if (btnNew) btnNew.style.display = isMakesafe ? '' : 'none';
+  if (btnIntake) btnIntake.style.display = isMakesafe ? '' : 'none';
+  if (btnMap) btnMap.style.display = isMakesafe ? '' : 'none';
+  // Close map if switching away from makesafes
+  if (!isMakesafe && document.getElementById('makesafeMapContainer')) {
+    document.getElementById('makesafeMapContainer').remove();
+  }
   loadJobs();
 }
 
@@ -8220,19 +8235,45 @@ function renderKanban(container, columns) {
 }
 
 function renderMakesafeKanban(container, columns) {
+  var STAGE_LABELS = {
+    accepted: 'New',
+    scheduled: 'Allocated',
+    in_progress: 'In Progress',
+    complete: 'Works Complete',
+    invoiced: 'Invoiced',
+  };
+  var STAGE_COLORS = {
+    accepted: '#3498DB',
+    scheduled: '#E67E22',
+    in_progress: '#F15A29',
+    complete: '#27AE60',
+    invoiced: '#7F8C8D',
+  };
+  var SUBSTATUS_LABELS = {
+    company_contact_required: 'Contact Required',
+    company_contact_done: 'Contacted',
+    waiting_on_trade_report: 'Waiting Report',
+    admin_to_send_report: 'Admin Send',
+    ready_to_invoice: 'Ready to Invoice',
+    complete: 'Done',
+  };
+
   var html = '<div style="display:flex;gap:8px;height:100%;">';
   html += '<div class="kanban-container" style="flex:1;">';
 
   MAKESAFES_STAGES.forEach(function(status) {
     var jobs = columns[status] || [];
+    var stageColor = STAGE_COLORS[status] || '#8FA4B2';
     html += '<div class="kanban-col" data-status="' + status + '" ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
-    html += '<div class="kanban-col-header">' + (STATUS_LABELS[status] || status) + '<span class="count">' + jobs.length + '</span></div>';
+    html += '<div class="kanban-col-header" style="border-bottom:3px solid ' + stageColor + ';">' + (STAGE_LABELS[status] || status) + '<span class="count">' + jobs.length + '</span></div>';
     html += '<div class="kanban-body">';
 
     if (jobs.length === 0) {
       html += '<div style="text-align:center; padding:20px; color:var(--sw-text-sec); font-size:12px;">No jobs</div>';
     } else {
-      jobs.forEach(function(j) { html += renderKanbanCard(j, status); });
+      jobs.forEach(function(j) {
+        html += renderMakesafeCard(j, status, SUBSTATUS_LABELS);
+      });
     }
 
     html += '</div></div>';
@@ -8241,6 +8282,345 @@ function renderMakesafeKanban(container, columns) {
   html += '</div></div>';
   container.innerHTML = html;
   setupKanbanHorizontalScroll();
+}
+
+function renderMakesafeCard(j, status, substatusLabels) {
+  var html = '<div class="kanban-card" draggable="true" data-job-id="' + j.id + '" data-status="' + status + '" onclick="openJobDetail(\'' + j.id + '\')" onmouseenter="hoverJobCard(event,\'' + j.id + '\')" onmouseleave="hideJobHover()" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)">';
+  // Header: client name + company ref
+  html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:4px;">';
+  html += '<span style="font-weight:600;font-size:13px;color:var(--sw-dark);flex:1;">' + (j.client_name || 'Unknown') + '</span>';
+  if (j.external_ref) {
+    html += '<span style="font-size:10px;background:#E8E4DF;padding:1px 6px;border-radius:3px;font-weight:600;white-space:nowrap;">' + esc(j.external_ref) + '</span>';
+  }
+  html += '</div>';
+  // Job number
+  if (j.job_number) {
+    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:2px;">' + esc(j.job_number) + '</div>';
+  }
+  // Requesting company
+  if (j.requesting_company) {
+    html += '<div style="font-size:11px;color:#D97706;font-weight:600;margin-top:3px;">' + esc(j.requesting_company) + '</div>';
+  }
+  // Suburb
+  if (j.site_suburb) {
+    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:2px;">' + esc(j.site_suburb) + '</div>';
+  }
+  // Substatus badge
+  var sub = j.substatus || (j.makesafe_details && j.makesafe_details.substatus);
+  if (sub && substatusLabels[sub]) {
+    var badgeColor = sub === 'company_contact_required' ? '#E74C3C'
+      : sub === 'waiting_on_trade_report' ? '#F39C12'
+      : sub === 'admin_to_send_report' ? '#9B59B6'
+      : sub === 'ready_to_invoice' ? '#27AE60'
+      : '#8FA4B2';
+    html += '<div style="margin-top:5px;"><span style="font-size:10px;padding:2px 8px;border-radius:10px;background:' + badgeColor + ';color:#fff;font-weight:600;">' + substatusLabels[sub] + '</span></div>';
+  }
+  // Assigned trade
+  if (j.assigned_trade) {
+    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:4px;">&#128100; ' + esc(j.assigned_trade) + '</div>';
+  }
+  // Age indicator
+  if (j.age_hours !== undefined) {
+    var ageLabel = j.age_hours < 24 ? j.age_hours + 'h' : Math.floor(j.age_hours / 24) + 'd';
+    var ageColor = j.age_hours > 72 ? '#E74C3C' : j.age_hours > 24 ? '#F39C12' : 'var(--sw-text-sec)';
+    html += '<div style="font-size:10px;color:' + ageColor + ';margin-top:3px;">' + ageLabel + ' ago</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+// ── New Make-Safe Modal ──
+var _makesafeCompanies = [];
+async function openNewMakesafeModal() {
+  // Load companies if not cached
+  if (_makesafeCompanies.length === 0) {
+    try {
+      var data = await opsFetch('list_makesafe_companies');
+      _makesafeCompanies = data.companies || [];
+    } catch (e) { console.log('Failed to load companies:', e); }
+  }
+  var companyOptions = '<option value="">-- Select --</option>';
+  _makesafeCompanies.forEach(function(c) {
+    companyOptions += '<option value="' + esc(c.slug) + '">' + esc(c.name) + '</option>';
+  });
+
+  var overlay = document.createElement('div');
+  overlay.id = 'makesafeModal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML = '<div style="background:#fff;border-radius:12px;padding:24px;width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.15);">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
+    + '<h3 style="margin:0;color:var(--sw-dark);">New Make-Safe Job</h3>'
+    + '<button onclick="closeMakesafeModal()" style="background:none;border:none;font-size:24px;cursor:pointer;color:var(--sw-text-sec);">&times;</button>'
+    + '</div>'
+    + '<div style="display:flex;flex-direction:column;gap:12px;">'
+    + '<div><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec);">Requesting Company</label>'
+    + '<select id="msCompanySlug" style="width:100%;padding:8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px;">' + companyOptions + '</select></div>'
+    + '<div><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec);">External Reference (e.g. AJBR 66897)</label>'
+    + '<input id="msExternalRef" type="text" style="width:100%;padding:8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px;" placeholder="AJBR 66897"></div>'
+    + '<div><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec);">Client / Homeowner Name *</label>'
+    + '<input id="msClientName" type="text" style="width:100%;padding:8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px;" placeholder="John Smith" required></div>'
+    + '<div><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec);">Site Address *</label>'
+    + '<input id="msSiteAddress" type="text" style="width:100%;padding:8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px;" placeholder="123 Example St" required></div>'
+    + '<div><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec);">Suburb</label>'
+    + '<input id="msSuburb" type="text" style="width:100%;padding:8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px;" placeholder="Joondalup"></div>'
+    + '<div><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec);">Phone</label>'
+    + '<input id="msPhone" type="text" style="width:100%;padding:8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px;" placeholder="0400 000 000"></div>'
+    + '<div><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec);">Description / Scope</label>'
+    + '<textarea id="msDescription" rows="3" style="width:100%;padding:8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px;resize:vertical;" placeholder="Storm damage to Colorbond fence, 3 panels down..."></textarea></div>'
+    + '<div><label style="font-size:12px;font-weight:600;color:var(--sw-text-sec);">Work Order PDF</label>'
+    + '<input id="msPdfFile" type="file" accept=".pdf" style="width:100%;font-size:13px;"></div>'
+    + '<button onclick="submitNewMakesafe()" style="background:#D97706;color:#fff;border:none;padding:10px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px;">Create Make-Safe Job</button>'
+    + '</div></div>';
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) closeMakesafeModal(); });
+}
+
+function closeMakesafeModal() {
+  var m = document.getElementById('makesafeModal');
+  if (m) m.remove();
+}
+
+async function submitNewMakesafe() {
+  var clientName = document.getElementById('msClientName').value.trim();
+  var siteAddress = document.getElementById('msSiteAddress').value.trim();
+  if (!clientName || !siteAddress) { showToast('Client name and site address are required', 'warning'); return; }
+
+  var payload = {
+    client_name: clientName,
+    site_address: siteAddress,
+    suburb: document.getElementById('msSuburb').value.trim() || null,
+    phone: document.getElementById('msPhone').value.trim() || null,
+    requesting_company_slug: document.getElementById('msCompanySlug').value || null,
+    external_ref: document.getElementById('msExternalRef').value.trim() || null,
+    description: document.getElementById('msDescription').value.trim() || null,
+  };
+
+  // Handle PDF upload
+  var pdfInput = document.getElementById('msPdfFile');
+  if (pdfInput && pdfInput.files && pdfInput.files[0]) {
+    var reader = new FileReader();
+    reader.onload = async function(e) {
+      var base64 = e.target.result.split(',')[1];
+      payload.pdf_base64 = base64;
+      await doCreateMakesafe(payload);
+    };
+    reader.readAsDataURL(pdfInput.files[0]);
+  } else {
+    await doCreateMakesafe(payload);
+  }
+}
+
+async function doCreateMakesafe(payload) {
+  try {
+    var result = await opsFetch('create_makesafe_job', {}, payload);
+    showToast('Make-safe created: ' + (result.job && result.job.job_number || ''), 'success');
+    closeMakesafeModal();
+    loadJobs();
+  } catch (e) {
+    showToast('Failed: ' + (e.message || e), 'error');
+  }
+}
+
+// ── Make-Safe Intake Panel ──
+async function loadMakesafeIntake() {
+  var container = document.getElementById('jobsBody');
+  container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--sw-text-sec);">Loading intake drafts...</div>';
+  try {
+    var data = await opsFetch('list_intake_drafts', { status: 'draft,needs_review' });
+    var drafts = data.drafts || [];
+    if (drafts.length === 0) {
+      container.innerHTML = '<div style="padding:40px;text-align:center;">'
+        + '<div style="font-size:48px;margin-bottom:12px;">&#9993;</div>'
+        + '<div style="font-size:16px;font-weight:600;color:var(--sw-dark);">No pending intake drafts</div>'
+        + '<div style="font-size:13px;color:var(--sw-text-sec);margin-top:8px;">Run "make safes from email" in your terminal to scan the SES inbox</div>'
+        + '<button onclick="scanSesInbox()" style="margin-top:16px;background:#D97706;color:#fff;border:none;padding:8px 20px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Scan Now</button>'
+        + '</div>';
+      return;
+    }
+
+    var html = '<div style="padding:12px;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">';
+    html += '<h3 style="margin:0;color:var(--sw-dark);">Email Intake Drafts (' + drafts.length + ')</h3>';
+    html += '<div style="display:flex;gap:8px;">';
+    html += '<button onclick="scanSesInbox()" style="background:#D97706;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Re-Scan Inbox</button>';
+    html += '<button onclick="loadJobs()" style="background:var(--sw-mid);color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Back to Kanban</button>';
+    html += '</div></div>';
+
+    drafts.forEach(function(d) {
+      var confColor = d.confidence === 'high' ? '#27AE60' : d.confidence === 'medium' ? '#F39C12' : '#E74C3C';
+      html += '<div style="background:#fff;border:1px solid var(--sw-border);border-radius:8px;padding:14px;margin-bottom:10px;border-left:4px solid ' + confColor + ';">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;">';
+      html += '<div style="flex:1;">';
+      html += '<div style="font-weight:600;font-size:14px;color:var(--sw-dark);">' + esc(d.subject || '(no subject)') + '</div>';
+      html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:3px;">From: ' + esc(d.from_name || d.from_email || '') + '</div>';
+      if (d.external_ref) html += '<div style="font-size:12px;margin-top:3px;"><strong>Ref:</strong> ' + esc(d.external_ref) + '</div>';
+      if (d.client_name) html += '<div style="font-size:12px;margin-top:2px;"><strong>Client:</strong> ' + esc(d.client_name) + '</div>';
+      if (d.site_address) html += '<div style="font-size:12px;margin-top:2px;"><strong>Address:</strong> ' + esc(d.site_address) + '</div>';
+      if (d.requesting_company_name) html += '<div style="font-size:12px;color:#D97706;margin-top:2px;">' + esc(d.requesting_company_name) + '</div>';
+      if (d.description) html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:4px;white-space:pre-wrap;">' + esc(d.description.substring(0, 200)) + '</div>';
+      if (d.missing_fields && d.missing_fields.length > 0) {
+        html += '<div style="font-size:11px;color:#E74C3C;margin-top:4px;">Missing: ' + esc(d.missing_fields.join(', ')) + '</div>';
+      }
+      if (d.attachments_json && d.attachments_json.length > 0) {
+        html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:4px;">&#128206; ' + d.attachments_json.length + ' PDF(s) attached</div>';
+      }
+      html += '</div>';
+      html += '<div style="display:flex;flex-direction:column;gap:6px;margin-left:12px;">';
+      html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:' + confColor + ';color:#fff;font-weight:600;text-align:center;">' + (d.confidence || 'low') + '</span>';
+      html += '<button onclick="approveIntakeDraft(\'' + d.id + '\')" style="background:#27AE60;color:#fff;border:none;padding:6px 12px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;">Approve</button>';
+      html += '<button onclick="rejectIntakeDraft(\'' + d.id + '\')" style="background:#E74C3C;color:#fff;border:none;padding:6px 12px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;">Reject</button>';
+      html += '</div></div></div>';
+    });
+    html += '</div>';
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = '<div style="padding:20px;text-align:center;color:#E74C3C;">Failed to load intake drafts: ' + (e.message || e) + '</div>';
+  }
+}
+
+async function scanSesInbox() {
+  showToast('Scanning SES inbox...', 'info');
+  try {
+    var data = await opsFetch('scan_ses_makesafes', {}, {});
+    showToast('Scanned ' + data.scanned + ' emails, found ' + data.new_count + ' new make-safe drafts', 'success');
+    loadMakesafeIntake();
+  } catch (e) {
+    showToast('Scan failed: ' + (e.message || e), 'error');
+  }
+}
+
+async function approveIntakeDraft(draftId) {
+  if (!confirm('Create a make-safe job from this draft?')) return;
+  try {
+    var result = await opsFetch('approve_intake_draft', {}, { draft_id: draftId, approved_by: 'ops_dashboard' });
+    showToast('Job created: ' + (result.job && result.job.job_number || ''), 'success');
+    loadMakesafeIntake();
+  } catch (e) {
+    showToast('Approve failed: ' + (e.message || e), 'error');
+  }
+}
+
+async function rejectIntakeDraft(draftId) {
+  var notes = prompt('Rejection reason (optional):');
+  try {
+    await opsFetch('reject_intake_draft', {}, { draft_id: draftId, rejected_by: 'ops_dashboard', review_notes: notes || null });
+    showToast('Draft rejected', 'success');
+    loadMakesafeIntake();
+  } catch (e) {
+    showToast('Reject failed: ' + (e.message || e), 'error');
+  }
+}
+
+// ── Make-Safe Map View ──
+var _makesafeMapInstance = null;
+function toggleMakesafeMap() {
+  var existing = document.getElementById('makesafeMapContainer');
+  if (existing) {
+    existing.remove();
+    if (_makesafeMapInstance) { _makesafeMapInstance.remove(); _makesafeMapInstance = null; }
+    return;
+  }
+  var container = document.getElementById('jobsBody');
+  var mapDiv = document.createElement('div');
+  mapDiv.id = 'makesafeMapContainer';
+  mapDiv.style.cssText = 'position:absolute;inset:0;z-index:100;background:#fff;';
+  mapDiv.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--sw-border);">'
+    + '<div style="display:flex;gap:6px;">'
+    + '<button onclick="loadMakesafeMapData(\'active\')" class="btn btn-sm" style="font-size:11px;">All Active</button>'
+    + '<button onclick="loadMakesafeMapData(\'today\')" class="btn btn-sm" style="font-size:11px;">Today</button>'
+    + '<button onclick="loadMakesafeMapData(\'unassigned\')" class="btn btn-sm" style="font-size:11px;">Unassigned</button>'
+    + '<button onclick="loadMakesafeMapData(\'waiting_report\')" class="btn btn-sm" style="font-size:11px;">Waiting Report</button>'
+    + '<button onclick="loadMakesafeMapData(\'to_invoice\')" class="btn btn-sm" style="font-size:11px;">To Invoice</button>'
+    + '</div>'
+    + '<button onclick="toggleMakesafeMap()" style="background:none;border:none;font-size:20px;cursor:pointer;">&times;</button>'
+    + '</div>'
+    + '<div id="makesafeMapView" style="height:calc(100% - 40px);"></div>'
+    + '<div id="makesafeNoLocation" style="position:absolute;bottom:0;left:0;right:0;max-height:120px;overflow-y:auto;background:rgba(255,255,255,0.95);border-top:1px solid var(--sw-border);padding:8px;font-size:12px;display:none;"></div>';
+  container.style.position = 'relative';
+  container.appendChild(mapDiv);
+
+  // Load Leaflet if not already loaded
+  if (!window.L) {
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(link);
+    var script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.onload = function() { initMakesafeMap(); };
+    document.head.appendChild(script);
+  } else {
+    initMakesafeMap();
+  }
+}
+
+function initMakesafeMap() {
+  var map = L.map('makesafeMapView').setView([-31.9505, 115.8605], 11); // Perth
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap',
+    maxZoom: 18,
+  }).addTo(map);
+  _makesafeMapInstance = map;
+  loadMakesafeMapData('active');
+}
+
+async function loadMakesafeMapData(filter) {
+  if (!_makesafeMapInstance) return;
+  try {
+    var data = await opsFetch('makesafe_map', { filter: filter });
+    // Clear existing markers
+    _makesafeMapInstance.eachLayer(function(layer) {
+      if (layer instanceof L.Marker || layer instanceof L.CircleMarker) {
+        _makesafeMapInstance.removeLayer(layer);
+      }
+    });
+
+    var STATUS_COLORS = {
+      accepted: '#3498DB',
+      scheduled: '#E67E22',
+      in_progress: '#F15A29',
+      complete: '#27AE60',
+      invoiced: '#7F8C8D',
+    };
+
+    (data.jobs || []).forEach(function(j) {
+      var color = STATUS_COLORS[j.status] || '#8FA4B2';
+      if (j.on_road) color = '#E74C3C';
+      var marker = L.circleMarker([j.site_lat, j.site_lng], {
+        radius: j.on_road ? 10 : 7,
+        fillColor: color,
+        color: '#fff',
+        weight: 2,
+        fillOpacity: 0.9,
+      }).addTo(_makesafeMapInstance);
+
+      var popup = '<div style="min-width:200px;">'
+        + '<strong>' + esc(j.client_name || 'Unknown') + '</strong><br>'
+        + '<span style="font-size:12px;">' + esc(j.job_number || '') + '</span><br>'
+        + '<span style="font-size:12px;">' + esc(j.site_address || '') + '</span><br>';
+      if (j.requesting_company) popup += '<span style="font-size:12px;color:#D97706;">' + esc(j.requesting_company) + '</span><br>';
+      if (j.external_ref) popup += '<span style="font-size:12px;">Ref: ' + esc(j.external_ref) + '</span><br>';
+      if (j.assigned_trade) popup += '<span style="font-size:12px;">Trade: ' + esc(j.assigned_trade) + '</span><br>';
+      if (j.on_road) popup += '<span style="font-size:12px;color:#E74C3C;font-weight:600;">ON ROAD</span><br>';
+      popup += '<button onclick="openJobDetail(\'' + j.id + '\');toggleMakesafeMap();" style="margin-top:6px;background:#293C46;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;">Open Job</button>';
+      popup += '</div>';
+      marker.bindPopup(popup);
+    });
+
+    // Show no-location jobs
+    var noLocDiv = document.getElementById('makesafeNoLocation');
+    if (data.no_location && data.no_location.length > 0) {
+      noLocDiv.style.display = '';
+      noLocDiv.innerHTML = '<strong style="color:#E74C3C;">No Location (' + data.no_location.length + '):</strong> '
+        + data.no_location.map(function(j) {
+          return '<span style="cursor:pointer;text-decoration:underline;" onclick="openJobDetail(\'' + j.id + '\');toggleMakesafeMap();">' + esc(j.job_number || j.client_name) + '</span>';
+        }).join(', ');
+    } else {
+      noLocDiv.style.display = 'none';
+    }
+  } catch (e) {
+    showToast('Map data failed: ' + (e.message || e), 'warning');
+  }
 }
 
 function copyJobInfo(jobId) {
