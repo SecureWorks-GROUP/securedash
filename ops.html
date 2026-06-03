@@ -8368,6 +8368,18 @@ function renderMakesafeCard(j, status, substatusLabels) {
   return html;
 }
 
+// ── Make-Safe Substatus Advance ──
+async function advanceMakesafeSubstatus(jobId, newSubstatus) {
+  try {
+    await opsPost('update_makesafe_substatus', { jobId: jobId, substatus: newSubstatus });
+    showToast('Substatus updated', 'success');
+    refreshJobDetail();
+    loadJobs();
+  } catch (e) {
+    showToast('Failed: ' + e.message, 'warning');
+  }
+}
+
 // ── Quick Allocate (Make-Safe) ──
 async function openQuickAllocateModal(jobId, clientName) {
   document.getElementById('quickAllocateJobId').value = jobId;
@@ -11614,6 +11626,89 @@ function renderOverviewView(data) {
     html += '<button class="btn btn-sm" style="background:' + color + ';color:#fff;" onclick="changeJobStatus(\x27' + j.id + '\x27,\x27' + s + '\x27)">' + (STATUS_LABELS[s] || s) + '</button></div>';
   });
   html += '</div>';
+
+  // ── Make-Safe Report Review + Substatus Actions ──
+  if (j.type === 'makesafe') {
+    var msDetails = data.makesafe_details || {};
+    var msSub = msDetails.substatus || 'pending_allocation';
+    var msReport = (data.service_reports || [])[0] || null;
+    var msChecklist = msReport && msReport.checklist_json ? msReport.checklist_json : null;
+
+    html += '<div style="background:var(--sw-card);padding:14px;margin-bottom:12px;box-shadow:var(--sw-shadow);">';
+    html += '<div style="font-size:11px;font-weight:700;color:var(--sw-mid);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">Make-Safe Status</div>';
+
+    // Current substatus badge
+    var subLabels = { pending_allocation: 'Needs Allocation', waiting_on_trade_report: 'Waiting on Trade Report', admin_to_send_report: 'Admin to Send Report', ready_to_invoice: 'Ready to Invoice', complete: 'Complete' };
+    var subColors = { pending_allocation: '#3498DB', waiting_on_trade_report: '#F39C12', admin_to_send_report: '#9B59B6', ready_to_invoice: '#27AE60', complete: '#8FA4B2' };
+    html += '<div style="margin-bottom:12px;"><span style="font-size:12px;padding:4px 12px;border-radius:10px;background:' + (subColors[msSub] || '#8FA4B2') + ';color:#fff;font-weight:600;">' + (subLabels[msSub] || msSub) + '</span></div>';
+
+    // Company info
+    if (msDetails.makesafe_companies) {
+      html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:4px;">Requesting: <strong style="color:#D97706;">' + escapeHtml(msDetails.makesafe_companies.name || '') + '</strong></div>';
+    }
+    if (msDetails.external_ref) {
+      html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:8px;">Ref: <strong>' + escapeHtml(msDetails.external_ref) + '</strong></div>';
+    }
+
+    // Substatus action buttons
+    var subActions = [];
+    if (msSub === 'pending_allocation') subActions.push({ to: 'waiting_on_trade_report', label: 'Mark Waiting on Report', color: '#F39C12' });
+    if (msSub === 'waiting_on_trade_report') subActions.push({ to: 'admin_to_send_report', label: 'Mark Admin to Send', color: '#9B59B6' });
+    if (msSub === 'admin_to_send_report') subActions.push({ to: 'ready_to_invoice', label: 'Mark Ready to Invoice', color: '#27AE60' });
+    if (msSub === 'ready_to_invoice') subActions.push({ to: 'complete', label: 'Mark Complete', color: '#8FA4B2' });
+
+    if (subActions.length > 0) {
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">';
+      subActions.forEach(function(sa) {
+        html += '<button onclick="advanceMakesafeSubstatus(\'' + j.id + '\',\'' + sa.to + '\')" class="btn btn-sm" style="background:' + sa.color + ';color:#fff;font-size:11px;">' + sa.label + '</button>';
+      });
+      html += '</div>';
+    }
+
+    // Trade Report (if submitted)
+    if (msChecklist) {
+      html += '<div style="border-top:1px solid var(--sw-border);padding-top:10px;margin-top:4px;">';
+      html += '<div style="font-size:11px;font-weight:700;color:var(--sw-mid);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Trade Report <span style="font-weight:400;color:var(--sw-green);">Submitted ' + (msReport.submitted_at ? fmtDate(msReport.submitted_at.slice(0,10)) : '') + '</span></div>';
+
+      if (msChecklist.work_done) {
+        html += '<div style="font-size:11px;font-weight:600;color:var(--sw-dark);margin-bottom:2px;">Work Done</div>';
+        html += '<div style="font-size:12px;color:var(--sw-text);margin-bottom:8px;white-space:pre-wrap;">' + escapeHtml(msChecklist.work_done) + '</div>';
+      }
+
+      var reportMeta = [];
+      if (msChecklist.labour_hours) reportMeta.push(msChecklist.labour_hours + 'h labour');
+      if (msChecklist.trade_count) reportMeta.push(msChecklist.trade_count + ' trade' + (msChecklist.trade_count > 1 ? 's' : ''));
+      if (reportMeta.length) {
+        html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:8px;">' + reportMeta.join(' | ') + '</div>';
+      }
+
+      if (msChecklist.materials_used && msChecklist.materials_used.length > 0) {
+        var mats = Array.isArray(msChecklist.materials_used) ? msChecklist.materials_used : [msChecklist.materials_used];
+        html += '<div style="font-size:11px;font-weight:600;color:var(--sw-dark);margin-bottom:2px;">Materials</div>';
+        html += '<div style="font-size:12px;color:var(--sw-text);margin-bottom:8px;">' + mats.map(function(m) { return escapeHtml(String(m)); }).join(', ') + '</div>';
+      }
+
+      if (msChecklist.access_issues) {
+        html += '<div style="font-size:11px;font-weight:600;color:var(--sw-dark);margin-bottom:2px;">Access / Issues</div>';
+        html += '<div style="font-size:12px;color:var(--sw-text);margin-bottom:8px;">' + escapeHtml(msChecklist.access_issues) + '</div>';
+      }
+
+      if (msChecklist.invoice_notes) {
+        html += '<div style="font-size:11px;font-weight:600;color:var(--sw-dark);margin-bottom:2px;">Invoice Notes</div>';
+        html += '<div style="font-size:12px;color:var(--sw-text);margin-bottom:8px;background:rgba(39,174,96,0.06);padding:6px 8px;">' + escapeHtml(msChecklist.invoice_notes) + '</div>';
+      }
+
+      if (msChecklist.follow_up_required) {
+        html += '<div style="font-size:12px;color:var(--sw-red);font-weight:600;margin-bottom:8px;">Follow-up required</div>';
+      }
+
+      html += '</div>';
+    } else {
+      html += '<div style="font-size:12px;color:var(--sw-text-sec);font-style:italic;margin-top:4px;">No trade report submitted yet</div>';
+    }
+
+    html += '</div>';
+  }
 
   // AI Annotations section (between Next Actions and Progress)
   if (_currentJobAnnotations && _currentJobAnnotations.length > 0) {
