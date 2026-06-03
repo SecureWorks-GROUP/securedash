@@ -7143,53 +7143,84 @@
       h += '</div>';
       if (report.checklist_json) {
         var cl = report.checklist_json;
-        if (cl.work_done) h += '<div style="margin-bottom:8px;"><strong>Work Done:</strong><br><span style="font-size:13px;">' + esc(cl.work_done) + '</span></div>';
-        if (cl.materials_used && cl.materials_used.length) h += '<div style="margin-bottom:8px;"><strong>Materials:</strong> ' + esc(cl.materials_used.join(', ')) + '</div>';
+        if (cl.arrival_time) h += '<div style="margin-bottom:8px;"><strong>Arrival:</strong> ' + esc(cl.arrival_time) + '</div>';
         if (cl.labour_hours) h += '<div style="margin-bottom:8px;"><strong>Labour:</strong> ' + cl.labour_hours + ' hrs x ' + (cl.trade_count || 1) + ' trades</div>';
+        if (cl.damage_description) h += '<div style="margin-bottom:8px;"><strong>Damage:</strong><br><span style="font-size:13px;">' + esc(cl.damage_description) + '</span></div>';
+        if (cl.damage_cause) h += '<div style="margin-bottom:8px;"><strong>Cause:</strong> ' + esc(cl.damage_cause) + '</div>';
+        if (cl.work_done) h += '<div style="margin-bottom:8px;"><strong>Rectification:</strong><br><span style="font-size:13px;">' + esc(cl.work_done) + '</span></div>';
+        if (cl.materials_used && cl.materials_used.length) h += '<div style="margin-bottom:8px;"><strong>Materials:</strong> ' + esc(Array.isArray(cl.materials_used) ? cl.materials_used.join(', ') : cl.materials_used) + '</div>';
+        if (cl.access_issues) h += '<div style="margin-bottom:8px;"><strong>Access Issues:</strong> ' + esc(cl.access_issues) + '</div>';
         if (cl.invoice_notes) h += '<div style="margin-bottom:8px;"><strong>Invoice Notes:</strong> ' + esc(cl.invoice_notes) + '</div>';
+        if (cl.follow_up_required) h += '<div style="margin-bottom:8px;color:var(--sw-red);"><strong>Follow-up required</strong></div>';
       }
       container.innerHTML = h;
       return;
     }
 
     h += '<div style="font-size:15px;font-weight:700;color:var(--sw-dark);margin-bottom:12px;">Make-Safe Completion Report</div>';
-    h += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:16px;">Complete this report after finishing the make-safe work. Photos should be uploaded in the Photos tab first.</div>';
+    h += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:16px;">Complete this report after finishing the make-safe work.</div>';
 
-    // Work done description
-    h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Work Done *</label>';
-    h += '<textarea id="msrWorkDone" rows="4" placeholder="Describe the make-safe work completed..." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc((report && report.checklist_json && report.checklist_json.work_done) || '') + '</textarea>';
-    h += '</div>';
+    var cl = (report && report.checklist_json) || {};
 
-    // Materials used
+    // Time of arrival
     h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Materials Used</label>';
-    h += '<textarea id="msrMaterials" rows="2" placeholder="e.g. 6x temp fence panels, 3x cement bases, star pickets..." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc((report && report.checklist_json && (report.checklist_json.materials_used || []).join(', ')) || '') + '</textarea>';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Time of Arrival</label>';
+    h += '<input id="msrArrivalTime" type="time" value="' + (cl.arrival_time || '') + '" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;">';
     h += '</div>';
 
     // Labour
     h += '<div style="display:flex;gap:12px;margin-bottom:14px;">';
     h += '<div style="flex:1;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Hours per Trade</label>';
-    h += '<input id="msrHours" type="number" step="0.5" min="0" value="' + ((report && report.checklist_json && report.checklist_json.labour_hours) || '') + '" placeholder="3" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
+    h += '<input id="msrHours" type="number" step="0.5" min="0" value="' + (cl.labour_hours || '') + '" placeholder="3" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
     h += '<div style="flex:1;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Number of Trades</label>';
-    h += '<input id="msrTradeCount" type="number" min="1" value="' + ((report && report.checklist_json && report.checklist_json.trade_count) || '2') + '" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
+    h += '<input id="msrTradeCount" type="number" min="1" value="' + (cl.trade_count || '2') + '" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
+    h += '</div>';
+
+    // Description of damage
+    h += '<div style="margin-bottom:14px;">';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Description of Damage *</label>';
+    h += '<textarea id="msrDamageDesc" rows="3" placeholder="e.g. Hardie fence panels blown down, 3 panels collapsed across boundary..." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.damage_description || '') + '</textarea>';
+    h += '</div>';
+
+    // Cause of damage
+    h += '<div style="margin-bottom:14px;">';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Cause of Damage</label>';
+    h += '<select id="msrDamageCause" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;background:#fff;">';
+    var causes = ['Wind / Storm', 'Impact (vehicle/tree)', 'Age / Wear', 'Water / Flood', 'Fire', 'Other'];
+    causes.forEach(function(c) {
+      var sel = (cl.damage_cause === c) ? ' selected' : '';
+      h += '<option value="' + esc(c) + '"' + sel + '>' + esc(c) + '</option>';
+    });
+    h += '</select>';
+    h += '</div>';
+
+    // Rectification / Action taken (was "Work Done")
+    h += '<div style="margin-bottom:14px;">';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Rectification / Action Taken *</label>';
+    h += '<textarea id="msrWorkDone" rows="3" placeholder="e.g. Removed fallen panels, stacked neatly on site, installed 6x temp fence panels with cement bases..." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.work_done || '') + '</textarea>';
+    h += '</div>';
+
+    // Materials used
+    h += '<div style="margin-bottom:14px;">';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Materials Used</label>';
+    h += '<textarea id="msrMaterials" rows="2" placeholder="e.g. 6x temp fence panels, 3x cement bases, star pickets, cable ties..." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc((cl.materials_used || []).join ? (cl.materials_used || []).join(', ') : (cl.materials_used || '')) + '</textarea>';
     h += '</div>';
 
     // Access issues
     h += '<div style="margin-bottom:14px;">';
     h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Access Issues / Problems</label>';
-    h += '<textarea id="msrAccess" rows="2" placeholder="Any access problems, issues found, follow-up needed..." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc((report && report.checklist_json && report.checklist_json.access_issues) || '') + '</textarea>';
+    h += '<textarea id="msrAccess" rows="2" placeholder="Any access problems, issues found, follow-up needed..." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.access_issues || '') + '</textarea>';
     h += '</div>';
 
     // Invoice notes
     h += '<div style="margin-bottom:14px;">';
     h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Invoice Notes</label>';
-    h += '<textarea id="msrInvoiceNotes" rows="2" placeholder="Notes for admin when invoicing (e.g. charge 3hrs x 2 trades + 6 temp panels)..." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc((report && report.checklist_json && report.checklist_json.invoice_notes) || '') + '</textarea>';
+    h += '<textarea id="msrInvoiceNotes" rows="2" placeholder="Notes for admin when invoicing (e.g. charge 3hrs x 2 trades + 6 temp panels)..." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.invoice_notes || '') + '</textarea>';
     h += '</div>';
 
     // Follow-up required
     h += '<div style="margin-bottom:16px;display:flex;align-items:center;gap:8px;">';
-    h += '<input type="checkbox" id="msrFollowUp" ' + ((report && report.checklist_json && report.checklist_json.follow_up_required) ? 'checked' : '') + ' style="width:18px;height:18px;">';
+    h += '<input type="checkbox" id="msrFollowUp" ' + (cl.follow_up_required ? 'checked' : '') + ' style="width:18px;height:18px;">';
     h += '<label for="msrFollowUp" style="font-size:13px;font-weight:600;">Follow-up required (permanent repair needed)</label>';
     h += '</div>';
 
@@ -7247,14 +7278,19 @@
   }
 
   window.submitMakesafeReport = function() {
+    var damageDesc = document.getElementById('msrDamageDesc');
+    if (!damageDesc || !damageDesc.value.trim()) { toast('Please describe the damage'); return; }
     var workDone = document.getElementById('msrWorkDone');
-    if (!workDone || !workDone.value.trim()) { toast('Please describe the work done'); return; }
+    if (!workDone || !workDone.value.trim()) { toast('Please describe the rectification / action taken'); return; }
 
     var materialsRaw = (document.getElementById('msrMaterials') || {}).value || '';
     var materials = materialsRaw.split(',').map(function(m) { return m.trim(); }).filter(Boolean);
 
     var payload = {
       job_id: _currentJobId,
+      arrival_time: ((document.getElementById('msrArrivalTime') || {}).value || '').trim(),
+      damage_description: damageDesc.value.trim(),
+      damage_cause: ((document.getElementById('msrDamageCause') || {}).value || '').trim(),
       work_done: workDone.value.trim(),
       materials_used: materials,
       labour_hours: parseFloat((document.getElementById('msrHours') || {}).value) || 0,
