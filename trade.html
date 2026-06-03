@@ -6821,6 +6821,34 @@
     });
   };
 
+  // Make-safe report photo upload handler
+  window.handleMsrPhotoUpload = function(input, phase) {
+    var files = Array.from(input.files || []);
+    if (files.length === 0 || _uploading) return;
+    _uploading = true;
+    var prefix = phase === 'scope' ? 'msrBefore' : 'msrAfter';
+    var progress = document.getElementById(prefix + 'Progress');
+    var progressText = document.getElementById(prefix + 'ProgressText');
+    var progressFill = document.getElementById(prefix + 'ProgressFill');
+    if (progress) progress.style.display = 'block';
+
+    uploadPhotosSequential(files, _currentJobId, phase, function(done, total) {
+      if (progressText) progressText.textContent = 'Uploading ' + done + '/' + total + '...';
+      if (progressFill) progressFill.style.width = Math.round((done / total) * 100) + '%';
+    }).then(function() {
+      _uploading = false;
+      if (progress) progress.style.display = 'none';
+      toast(files.length + ' photo(s) uploaded');
+      input.value = '';
+      loadJobDetail(_currentJobId);
+    }).catch(function(err) {
+      _uploading = false;
+      if (progress) progress.style.display = 'none';
+      toast('Upload failed — ' + friendlyError(err), true);
+      input.value = '';
+    });
+  };
+
   function renderJobTab_comms(data, phase, container) {
     var job = data.job;
     var h = '';
@@ -7144,14 +7172,52 @@
     h += '<label for="msrFollowUp" style="font-size:13px;font-weight:600;">Follow-up required (permanent repair needed)</label>';
     h += '</div>';
 
-    // Photo count reminder
-    var photoCount = (data.media || []).length;
-    var beforePhotos = (data.media || []).filter(function(m) { return m.phase === 'scope' || m.phase === 'before'; }).length;
-    var afterPhotos = (data.media || []).filter(function(m) { return m.phase === 'completion' || m.phase === 'after'; }).length;
-    h += '<div style="background:var(--sw-light);border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;">';
-    h += '<strong>Photos:</strong> ' + photoCount + ' total (' + beforePhotos + ' before, ' + afterPhotos + ' after)';
-    if (photoCount < 4) h += '<div style="color:var(--sw-red);margin-top:4px;">Minimum 4 photos recommended (before + after)</div>';
+    // ── Photo Upload Sections ──
+    var allMedia = data.media || [];
+    var beforePhotos = allMedia.filter(function(m) { return m.phase === 'scope'; });
+    var afterPhotos = allMedia.filter(function(m) { return m.phase === 'completion'; });
+
+    h += '<div style="margin-bottom:14px;">';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">Before Photos (' + beforePhotos.length + ')</label>';
+    if (beforePhotos.length > 0) {
+      h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;">';
+      beforePhotos.forEach(function(p) {
+        h += '<img src="' + esc(p.thumbnail_url || p.storage_url) + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="openLightbox(\'' + esc(p.storage_url) + '\')">';
+      });
+      h += '</div>';
+    }
+    h += '<div class="upload-area" onclick="document.getElementById(\'msrBeforeInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;">';
+    h += '<svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg>';
+    h += '<p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Tap to add before photos</p>';
     h += '</div>';
+    h += '<input type="file" id="msrBeforeInput" accept="image/*" capture="environment" multiple style="display:none" onchange="handleMsrPhotoUpload(this, \'scope\')">';
+    h += '<div class="upload-progress" id="msrBeforeProgress" style="display:none"><span id="msrBeforeProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrBeforeProgressFill"></div></div></div>';
+    h += '</div>';
+
+    h += '<div style="margin-bottom:14px;">';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">After Photos (' + afterPhotos.length + ')</label>';
+    if (afterPhotos.length > 0) {
+      h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;">';
+      afterPhotos.forEach(function(p) {
+        h += '<img src="' + esc(p.thumbnail_url || p.storage_url) + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="openLightbox(\'' + esc(p.storage_url) + '\')">';
+      });
+      h += '</div>';
+    }
+    h += '<div class="upload-area" onclick="document.getElementById(\'msrAfterInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;">';
+    h += '<svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg>';
+    h += '<p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Tap to add after photos</p>';
+    h += '</div>';
+    h += '<input type="file" id="msrAfterInput" accept="image/*" capture="environment" multiple style="display:none" onchange="handleMsrPhotoUpload(this, \'completion\')">';
+    h += '<div class="upload-progress" id="msrAfterProgress" style="display:none"><span id="msrAfterProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrAfterProgressFill"></div></div></div>';
+    h += '</div>';
+
+    // Photo summary
+    var totalPhotos = beforePhotos.length + afterPhotos.length;
+    if (totalPhotos < 4) {
+      h += '<div style="background:#FEF3C7;border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;color:#92400E;">';
+      h += '<strong>Minimum 4 photos recommended</strong> (before + after). Currently ' + totalPhotos + ' uploaded.';
+      h += '</div>';
+    }
 
     // Submit button
     h += '<button onclick="submitMakesafeReport()" style="width:100%;background:var(--sw-orange);color:#fff;border:none;padding:14px;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;min-height:50px;">Submit Make-Safe Report</button>';
