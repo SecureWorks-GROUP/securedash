@@ -8649,11 +8649,12 @@ function toggleMakesafeMap() {
     + '<button onclick="loadMakesafeMapData(\'unassigned\')" class="btn btn-sm" style="font-size:11px;">Unassigned</button>'
     + '<button onclick="loadMakesafeMapData(\'waiting_report\')" class="btn btn-sm" style="font-size:11px;">Waiting Report</button>'
     + '<button onclick="loadMakesafeMapData(\'to_invoice\')" class="btn btn-sm" style="font-size:11px;">To Invoice</button>'
+    + '<button onclick="geocodeMissingMakesafes()" class="btn btn-sm" style="font-size:11px;background:#3498DB;color:#fff;margin-left:auto;">Geocode All</button>'
     + '</div>'
     + '<button onclick="toggleMakesafeMap()" style="background:none;border:none;font-size:20px;cursor:pointer;">&times;</button>'
     + '</div>'
     + '<div id="makesafeMapView" style="height:calc(100% - 40px);"></div>'
-    + '<div id="makesafeNoLocation" style="position:absolute;bottom:0;left:0;right:0;max-height:120px;overflow-y:auto;background:rgba(255,255,255,0.95);border-top:1px solid var(--sw-border);padding:8px;font-size:12px;display:none;"></div>';
+    + '<div id="makesafeNoLocation" style="position:absolute;bottom:50px;left:0;right:0;max-height:120px;overflow-y:auto;background:rgba(255,255,255,0.95);border-top:1px solid var(--sw-border);padding:8px;font-size:12px;display:none;z-index:500;"></div>';
   container.style.position = 'relative';
   container.appendChild(mapDiv);
 
