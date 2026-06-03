@@ -5389,7 +5389,8 @@
     h += '<h3>Approvals &amp; Documents</h3>';
 
     docs.forEach(function(d) {
-      var url = d.storage_url || d.pdf_url;
+      var rawUrl = d.pdf_url || d.storage_url || '';
+      var url = /^https?:\/\//.test(rawUrl) ? rawUrl : (d.pdf_url || d.storage_url || '');
       var cfg = typeLabels[d.type] || typeLabels.general;
       var name = d.file_name || cfg.label;
       var isPdf = /\.pdf$/i.test(name) || (d.pdf_url && !d.storage_url);
@@ -6644,33 +6645,17 @@
     // Trade documents (uploaded docs)
     h += renderTradeDocuments(data, phase);
 
-    // Work order PDF (internal + supplier)
-    var docs = data.documents || [];
-    var workOrderDocs = docs.filter(function(d) { return (d.type === 'work_order' || d.type === 'supplier_work_order') && d.visible_to_trades; });
-    if (workOrderDocs.length > 0) {
-      h += '<div class="detail-section">';
-      h += '  <h3>Work Orders</h3>';
-      workOrderDocs.forEach(function(wo, idx) {
-        var isLatest = idx === 0;
-        h += '<a href="' + esc(wo.pdf_url || wo.storage_url || '#') + '" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--sw-light);border-radius:8px;text-decoration:none;margin-bottom:6px">';
-        h += '<svg width="20" height="20" viewBox="0 0 24 24" fill="var(--sw-mid)"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z"/></svg>';
-        h += '<div style="flex:1">';
-        h += '<div style="font-size:13px;font-weight:600;color:var(--sw-dark)">' + esc(wo.file_name || 'Work Order') + ' (v' + (wo.version || 1) + ')</div>';
-        if (wo.created_at) h += '<div style="font-size:11px;color:var(--sw-text-sec)">' + formatDate(wo.created_at) + '</div>';
-        h += '</div>';
-        if (isLatest) h += '<span style="font-size:10px;font-weight:700;background:var(--sw-green);color:#fff;padding:2px 6px;border-radius:4px">Latest</span>';
-        h += '</a>';
-      });
-      h += '</div>';
-    }
-
     // Other documents (plans, drawings, council approvals) — trades-visible only
+    // Work orders are already shown via renderTradeDocuments above
+    var docs = data.documents || [];
     var otherDocs = docs.filter(function(d) { return d.type !== 'work_order' && d.type !== 'supplier_work_order' && d.type !== 'site_photo' && d.visible_to_trades; });
     if (otherDocs.length > 0) {
       h += '<div class="detail-section">';
       h += '  <h3>Documents</h3>';
       otherDocs.forEach(function(d) {
-        h += '<a href="' + esc(d.pdf_url || d.storage_url || '#') + '" target="_blank" style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--sw-light);border-radius:8px;text-decoration:none;margin-bottom:4px">';
+        var docUrl = d.pdf_url || d.storage_url || '#';
+        if (!/^https?:\/\//.test(docUrl)) docUrl = d.pdf_url || '#';
+        h += '<a href="' + esc(docUrl) + '" target="_blank" style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--sw-light);border-radius:8px;text-decoration:none;margin-bottom:4px">';
         h += '<svg width="18" height="18" viewBox="0 0 24 24" fill="var(--sw-mid)"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z"/></svg>';
         h += '<div style="flex:1;font-size:13px;color:var(--sw-dark)">' + esc(d.file_name || d.type || 'Document') + '</div>';
         h += '</a>';
