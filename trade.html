@@ -6839,11 +6839,16 @@
     var gridId = prefix + 'Grid';
     var grid = document.getElementById(gridId);
     if (!grid) {
-      var label = input.parentElement;
+      var parentDiv = input.parentElement;
       var newGrid = document.createElement('div');
       newGrid.id = gridId;
       newGrid.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;';
-      label.parentElement.insertBefore(newGrid, label.querySelector('.upload-area') || label.children[1]);
+      var areaEl = parentDiv.querySelector('.upload-area');
+      if (areaEl) {
+        parentDiv.insertBefore(newGrid, areaEl);
+      } else {
+        parentDiv.appendChild(newGrid);
+      }
       grid = newGrid;
     }
     var imgEls = [];
