@@ -6821,7 +6821,7 @@
     });
   };
 
-  // Make-safe report photo upload handler
+  // Make-safe report photo upload handler — uploads immediately but doesn't reload the page
   window.handleMsrPhotoUpload = function(input, phase) {
     var files = Array.from(input.files || []);
     if (files.length === 0 || _uploading) return;
@@ -6832,15 +6832,36 @@
     var progressFill = document.getElementById(prefix + 'ProgressFill');
     if (progress) progress.style.display = 'block';
 
+    // Create local preview thumbnails immediately
+    var gridId = prefix + 'Grid';
+    var grid = document.getElementById(gridId);
+    if (!grid) {
+      var label = input.parentElement;
+      var newGrid = document.createElement('div');
+      newGrid.id = gridId;
+      newGrid.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;';
+      label.parentElement.insertBefore(newGrid, label.querySelector('.upload-area') || label.children[1]);
+      grid = newGrid;
+    }
+    files.forEach(function(f) {
+      var img = document.createElement('img');
+      img.style.cssText = 'width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;opacity:0.5;';
+      var reader = new FileReader();
+      reader.onload = function(e) { img.src = e.target.result; };
+      reader.readAsDataURL(f);
+      grid.appendChild(img);
+    });
+
     uploadPhotosSequential(files, _currentJobId, phase, function(done, total) {
       if (progressText) progressText.textContent = 'Uploading ' + done + '/' + total + '...';
       if (progressFill) progressFill.style.width = Math.round((done / total) * 100) + '%';
-    }).then(function() {
+    }).then(function(results) {
       _uploading = false;
       if (progress) progress.style.display = 'none';
       toast(files.length + ' photo(s) uploaded');
       input.value = '';
-      loadJobDetail(_currentJobId);
+      // Make preview thumbnails fully opaque
+      if (grid) { var imgs = grid.querySelectorAll('img'); imgs.forEach(function(img) { img.style.opacity = '1'; }); }
     }).catch(function(err) {
       _uploading = false;
       if (progress) progress.style.display = 'none';
