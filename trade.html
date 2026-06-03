@@ -7153,6 +7153,7 @@
         if (cl.invoice_notes) h += '<div style="margin-bottom:8px;"><strong>Invoice Notes:</strong> ' + esc(cl.invoice_notes) + '</div>';
         if (cl.follow_up_required) h += '<div style="margin-bottom:8px;color:var(--sw-red);"><strong>Follow-up required</strong></div>';
       }
+      h += '<button onclick="deleteMakesafeReport()" style="width:100%;margin-top:16px;background:none;border:2px solid var(--sw-red);color:var(--sw-red);padding:12px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">Delete Report & Start Over</button>';
       container.innerHTML = h;
       return;
     }
@@ -7278,6 +7279,16 @@
   }
 
   window.submitMakesafeReport = function() {
+    // Check photos are uploaded (from server data, not local previews)
+    var media = (_currentJobData && _currentJobData.media) || [];
+    var beforeCount = media.filter(function(m) { return m.phase === 'scope'; }).length;
+    var afterCount = media.filter(function(m) { return m.phase === 'completion'; }).length;
+    // Also count any locally uploaded photos (faded thumbnails that haven't refreshed into server data yet)
+    var localBefore = document.querySelectorAll('#msrBeforeGrid img').length;
+    var localAfter = document.querySelectorAll('#msrAfterGrid img').length;
+    if ((beforeCount + localBefore) < 1) { toast('Please upload at least 1 before photo'); return; }
+    if ((afterCount + localAfter) < 1) { toast('Please upload at least 1 after photo'); return; }
+
     var damageDesc = document.getElementById('msrDamageDesc');
     if (!damageDesc || !damageDesc.value.trim()) { toast('Please describe the damage'); return; }
     var workDone = document.getElementById('msrWorkDone');
@@ -7304,6 +7315,22 @@
     api('submit_makesafe_report', null, payload).then(function() {
       toast('Report submitted');
       refreshJobTab('ms_report');
+    }).catch(function(err) {
+      toast('Failed: ' + (err.message || err));
+    });
+  };
+
+  window.deleteMakesafeReport = function() {
+    if (!confirm('Delete this report and start over? The form will be cleared.')) return;
+    api('submit_makesafe_report', null, {
+      job_id: _currentJobId,
+      work_done: '', materials_used: [], labour_hours: 0, trade_count: 1,
+      arrival_time: '', damage_description: '', damage_cause: '',
+      access_issues: '', follow_up_required: false, invoice_notes: '',
+      status: 'draft',
+    }).then(function() {
+      toast('Report deleted');
+      loadJobDetail(_currentJobId);
     }).catch(function(err) {
       toast('Failed: ' + (err.message || err));
     });
