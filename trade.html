@@ -6827,12 +6827,15 @@
     if (files.length === 0 || _uploading) return;
     _uploading = true;
     var prefix = phase === 'scope' ? 'msrBefore' : 'msrAfter';
+    var phaseLabel = phase === 'scope' ? 'before' : 'after';
     var progress = document.getElementById(prefix + 'Progress');
     var progressText = document.getElementById(prefix + 'ProgressText');
     var progressFill = document.getElementById(prefix + 'ProgressFill');
     if (progress) progress.style.display = 'block';
+    if (progressText) progressText.textContent = 'Preparing ' + files.length + ' ' + phaseLabel + ' photo(s)...';
+    if (progressFill) { progressFill.style.width = '0%'; progressFill.style.transition = 'width 0.3s ease'; }
 
-    // Create local preview thumbnails immediately
+    // Create local preview thumbnails immediately with spinner overlay
     var gridId = prefix + 'Grid';
     var grid = document.getElementById(gridId);
     if (!grid) {
@@ -6843,30 +6846,57 @@
       label.parentElement.insertBefore(newGrid, label.querySelector('.upload-area') || label.children[1]);
       grid = newGrid;
     }
-    files.forEach(function(f) {
+    var imgEls = [];
+    files.forEach(function(f, idx) {
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative;';
       var img = document.createElement('img');
-      img.style.cssText = 'width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;opacity:0.5;';
+      img.style.cssText = 'width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;opacity:0.4;';
+      var badge = document.createElement('div');
+      badge.id = prefix + 'Badge' + idx;
+      badge.style.cssText = 'position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,0.5);color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:700;';
+      badge.textContent = '...';
       var reader = new FileReader();
       reader.onload = function(e) { img.src = e.target.result; };
       reader.readAsDataURL(f);
-      grid.appendChild(img);
+      wrap.appendChild(img);
+      wrap.appendChild(badge);
+      grid.appendChild(wrap);
+      imgEls.push({ img: img, badge: badge });
     });
 
     uploadPhotosSequential(files, _currentJobId, phase, function(done, total) {
-      if (progressText) progressText.textContent = 'Uploading ' + done + '/' + total + '...';
+      if (progressText) progressText.textContent = 'Uploading ' + phaseLabel + ' photo ' + done + ' of ' + total + '...';
       if (progressFill) progressFill.style.width = Math.round((done / total) * 100) + '%';
+      // Mark completed photo with green tick
+      if (done > 0 && imgEls[done - 1]) {
+        imgEls[done - 1].img.style.opacity = '1';
+        imgEls[done - 1].badge.style.background = '#4CAF50';
+        imgEls[done - 1].badge.innerHTML = '&#10003;';
+      }
     }).then(function(results) {
       _uploading = false;
       if (progress) progress.style.display = 'none';
-      toast(files.length + ' photo(s) uploaded');
+      toast(files.length + ' ' + phaseLabel + ' photo(s) uploaded');
       input.value = '';
-      // Make preview thumbnails fully opaque
-      if (grid) { var imgs = grid.querySelectorAll('img'); imgs.forEach(function(img) { img.style.opacity = '1'; }); }
+      // Ensure all show as done
+      imgEls.forEach(function(el) {
+        el.img.style.opacity = '1';
+        el.badge.style.background = '#4CAF50';
+        el.badge.innerHTML = '&#10003;';
+      });
     }).catch(function(err) {
       _uploading = false;
       if (progress) progress.style.display = 'none';
       toast('Upload failed — ' + friendlyError(err), true);
       input.value = '';
+      // Mark failed photos red
+      imgEls.forEach(function(el) {
+        if (el.img.style.opacity !== '1') {
+          el.badge.style.background = '#F44336';
+          el.badge.innerHTML = '&#10007;';
+        }
+      });
     });
   };
 
