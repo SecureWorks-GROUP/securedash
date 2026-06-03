@@ -3235,6 +3235,37 @@
   </div>
 </div>
 
+<!-- Quick Allocate Modal (Make-Safe) -->
+<div class="modal-overlay" id="quickAllocateModal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-title">Allocate Make-Safe</div>
+    <div id="quickAllocateJobLabel" style="font-size:13px;color:var(--sw-text-sec);margin-bottom:12px;"></div>
+    <input type="hidden" id="quickAllocateJobId" />
+    <div class="form-group">
+      <label class="form-label">Assign To</label>
+      <div id="quickAllocateCrewContainer"><select class="form-input" id="quickAllocateCrew"><option value="">Loading...</option></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Date</label>
+        <input type="date" class="form-input" id="quickAllocateDate">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Start Time</label>
+        <input type="time" class="form-input" id="quickAllocateTime" value="07:00">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Notes <span style="font-weight:400;color:var(--sw-text-sec);font-size:11px;">(optional)</span></label>
+      <textarea class="form-textarea" id="quickAllocateNotes" rows="2" placeholder="Any instructions for the trade..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('quickAllocateModal')">Cancel</button>
+      <button class="btn btn-primary" id="quickAllocateSubmitBtn" onclick="submitQuickAllocate()">Allocate</button>
+    </div>
+  </div>
+</div>
+
 <!-- Add Event Modal -->
 <div class="modal-overlay" id="addEventModal">
   <div class="modal" style="max-width:480px;">
@@ -8320,14 +8351,87 @@ function renderMakesafeCard(j, status, substatusLabels) {
   if (j.assigned_trade) {
     html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:4px;">&#128100; ' + escapeHtml(j.assigned_trade) + '</div>';
   }
-  // Age indicator
+  // Age indicator + allocate button row
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">';
   if (j.age_hours !== undefined) {
     var ageLabel = j.age_hours < 24 ? j.age_hours + 'h' : Math.floor(j.age_hours / 24) + 'd';
     var ageColor = j.age_hours > 72 ? '#E74C3C' : j.age_hours > 24 ? '#F39C12' : 'var(--sw-text-sec)';
-    html += '<div style="font-size:10px;color:' + ageColor + ';margin-top:3px;">' + ageLabel + ' ago</div>';
+    html += '<span style="font-size:10px;color:' + ageColor + ';">' + ageLabel + ' ago</span>';
+  } else {
+    html += '<span></span>';
+  }
+  if (status === 'accepted' || (sub === 'pending_allocation')) {
+    html += '<button onclick="event.stopPropagation();openQuickAllocateModal(\'' + j.id + '\',\'' + escapeHtml((j.client_name || '').replace(/'/g, '')) + '\')" style="font-size:10px;padding:2px 8px;background:#E67E22;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:600;">Allocate</button>';
   }
   html += '</div>';
+  html += '</div>';
   return html;
+}
+
+// ── Quick Allocate (Make-Safe) ──
+async function openQuickAllocateModal(jobId, clientName) {
+  document.getElementById('quickAllocateJobId').value = jobId;
+  document.getElementById('quickAllocateJobLabel').textContent = clientName || 'Make-Safe Job';
+  document.getElementById('quickAllocateDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('quickAllocateTime').value = '07:00';
+  document.getElementById('quickAllocateNotes').value = '';
+  document.getElementById('quickAllocateSubmitBtn').disabled = false;
+  document.getElementById('quickAllocateModal').classList.add('active');
+  await loadCrewList();
+  document.getElementById('quickAllocateCrewContainer').innerHTML = renderCrewDropdown('quickAllocateCrew', '');
+}
+
+async function submitQuickAllocate() {
+  var jobId = document.getElementById('quickAllocateJobId').value;
+  var crewUserId = getCrewSelectId('quickAllocateCrew');
+  var crewName = getCrewSelectName('quickAllocateCrew');
+  var date = document.getElementById('quickAllocateDate').value;
+  var startTime = document.getElementById('quickAllocateTime').value || '07:00';
+  var notes = document.getElementById('quickAllocateNotes').value || null;
+
+  if (!crewUserId) { alert('Please select a trade to assign.'); return; }
+  if (!date) { alert('Please select a date.'); return; }
+
+  var btn = document.getElementById('quickAllocateSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Allocating...';
+
+  try {
+    // 1. Create assignment (auto-moves job from accepted -> scheduled)
+    await opsPost('create_assignment', {
+      jobId: jobId,
+      scheduledDate: date,
+      scheduledEnd: date,
+      startTime: startTime,
+      endTime: '15:00',
+      assignmentType: 'install',
+      crewName: crewName,
+      userId: crewUserId,
+      role: 'lead_installer',
+      notes: notes
+    });
+
+    // 2. Move job status to scheduled (backend auto-sets 'processing' but kanban needs 'scheduled')
+    try {
+      await opsPost('update_job_status', { jobId: jobId, status: 'scheduled' });
+    } catch (e) { console.log('Status update skipped:', e.message); }
+
+    // 3. Move substatus from pending_allocation to waiting_on_trade_report
+    try {
+      await opsPost('update_makesafe_substatus', {
+        jobId: jobId,
+        substatus: 'waiting_on_trade_report'
+      });
+    } catch (e) { console.log('Substatus update skipped:', e.message); }
+
+    closeModal('quickAllocateModal');
+    showToast('Allocated to ' + crewName, 'success');
+    loadJobs(); // Refresh kanban
+  } catch (e) {
+    alert('Failed to allocate: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = 'Allocate';
+  }
 }
 
 // ── New Make-Safe Modal ──
