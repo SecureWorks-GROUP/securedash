@@ -8732,12 +8732,24 @@ async function loadMakesafeMapData(filter) {
       noLocDiv.innerHTML = '<strong style="color:#E74C3C;">No Location (' + data.no_location.length + '):</strong> '
         + data.no_location.map(function(j) {
           return '<span style="cursor:pointer;text-decoration:underline;" onclick="openJobDetail(\'' + j.id + '\');toggleMakesafeMap();">' + escapeHtml(j.job_number || j.client_name) + '</span>';
-        }).join(', ');
+        }).join(', ')
+        + ' <button onclick="geocodeMissingMakesafes()" class="btn btn-sm" style="margin-left:8px;font-size:10px;background:#3498DB;color:#fff;">Geocode All</button>';
     } else {
       noLocDiv.style.display = 'none';
     }
   } catch (e) {
     showToast('Map data failed: ' + (e.message || e), 'warning');
+  }
+}
+
+async function geocodeMissingMakesafes() {
+  showToast('Geocoding addresses...', 'info');
+  try {
+    var result = await opsPost('geocode_missing_makesafes', {});
+    showToast('Geocoded ' + (result.geocoded || 0) + ' of ' + (result.total || 0) + ' jobs', 'success');
+    loadMakesafeMapData('active');
+  } catch (e) {
+    showToast('Geocode failed: ' + e.message, 'warning');
   }
 }
 
