@@ -8695,22 +8695,22 @@ async function loadMakesafeMapData(filter) {
     });
 
     var STATUS_COLORS = {
-      accepted: '#3498DB',
-      scheduled: '#E67E22',
-      in_progress: '#F15A29',
-      complete: '#27AE60',
-      invoiced: '#7F8C8D',
+      accepted: '#2196F3',
+      scheduled: '#FF9800',
+      in_progress: '#FF5722',
+      complete: '#4CAF50',
+      invoiced: '#9E9E9E',
     };
 
     (data.jobs || []).forEach(function(j) {
-      var color = STATUS_COLORS[j.status] || '#8FA4B2';
-      if (j.on_road) color = '#E74C3C';
+      var color = STATUS_COLORS[j.status] || '#90A4AE';
+      if (j.on_road) color = '#F44336';
       var marker = L.circleMarker([j.site_lat, j.site_lng], {
-        radius: j.on_road ? 10 : 7,
+        radius: j.on_road ? 12 : 9,
         fillColor: color,
         color: '#fff',
-        weight: 2,
-        fillOpacity: 0.9,
+        weight: 2.5,
+        fillOpacity: 1,
       }).addTo(_makesafeMapInstance);
 
       var popup = '<div style="min-width:200px;">'
