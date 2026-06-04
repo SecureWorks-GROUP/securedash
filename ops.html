@@ -561,6 +561,7 @@
     .cal-div-pill.active { background: var(--sw-dark); color: #fff; border-color: var(--sw-dark); }
     .cal-div-pill.patio-pill.active { background: var(--sw-orange); border-color: var(--sw-orange); }
     .cal-div-pill.fencing-pill.active { background: var(--sw-mid); border-color: var(--sw-mid); }
+    .cal-div-pill.makesafe-pill.active { background: #D97706; border-color: #D97706; }
 
     /* Week summary bar */
     .cal-summary-bar {
@@ -2725,9 +2726,10 @@
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="cal-sidebar-chevron"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
           <div class="cal-sidebar-list">
-            <label class="cal-sidebar-item"><input type="radio" name="calDiv" value="all" onchange="setCalDivision('all')" checked><span class="cal-sidebar-dot" style="background:var(--sw-dark);"></span>All</label>
-            <label class="cal-sidebar-item"><input type="radio" name="calDiv" value="patio" onchange="setCalDivision('patio')"><span class="cal-sidebar-dot" style="background:var(--sw-orange);"></span>Patios</label>
-            <label class="cal-sidebar-item"><input type="radio" name="calDiv" value="fencing" onchange="setCalDivision('fencing')"><span class="cal-sidebar-dot" style="background:var(--sw-mid);"></span>Fencing</label>
+            <label class="cal-sidebar-item"><input type="checkbox" data-caldiv="all" onchange="toggleCalDivision('all', this.checked)"><span class="cal-sidebar-dot" style="background:var(--sw-dark);"></span>All</label>
+            <label class="cal-sidebar-item"><input type="checkbox" data-caldiv="patio" onchange="toggleCalDivision('patio', this.checked)"><span class="cal-sidebar-dot" style="background:var(--sw-orange);"></span>Patios</label>
+            <label class="cal-sidebar-item"><input type="checkbox" data-caldiv="fencing" onchange="toggleCalDivision('fencing', this.checked)"><span class="cal-sidebar-dot" style="background:var(--sw-mid);"></span>Fencing</label>
+            <label class="cal-sidebar-item"><input type="checkbox" data-caldiv="makesafe" onchange="toggleCalDivision('makesafe', this.checked)"><span class="cal-sidebar-dot" style="background:#D97706;"></span>Make Safes</label>
           </div>
         </div>
       </div>
@@ -5732,7 +5734,11 @@ function renderPipelineOverview(pipeline) {
 
 // Calendar state
 var _calRangeMode = localStorage.getItem('sw_cal_range') || '1w'; // '1w', '2w', 'month'
-var _calDivFilter = localStorage.getItem('sw_cal_div') || 'all'; // 'all', 'patio', 'fencing'
+var _calDivFilters = (function() {
+  try { var v = JSON.parse(localStorage.getItem('sw_cal_divs')); if (Array.isArray(v)) return v; } catch(e) {}
+  return ['all'];
+})(); // array of active divisions: ['all'] or subset of ['patio','fencing','makesafe']
+var _calDivFilter = _calDivFilters.indexOf('all') !== -1 ? 'all' : _calDivFilters; // compat shim
 var _calUnschedOpen = false;
 var _calAvailability = {}; // { 'CrewName_date': { status, note } }
 var _calReadiness = {};   // { jobId: { score, status, blockers, warnings, completeness } }
@@ -5765,7 +5771,7 @@ function initCalEventFilterChips() {
     var key = cb.dataset.filter;
     if (key && _calEventFilters[key] !== undefined) cb.checked = _calEventFilters[key];
   });
-  document.querySelectorAll('input[name="calDiv"]').forEach(function(r) { r.checked = r.value === _calDivFilter; });
+  syncCalDivCheckboxes();
 }
 
 function getHolidayMap() {
@@ -6018,13 +6024,45 @@ function setCalRange(mode) {
   loadCalendar();
 }
 
-function setCalDivision(div) {
-  _calDivFilter = div;
-  localStorage.setItem('sw_cal_div', div);
-  document.querySelectorAll('.cal-div-pill').forEach(function(b) {
-    b.classList.toggle('active', b.dataset.caldiv === div);
-  });
+function toggleCalDivision(div, checked) {
+  var allDivs = ['patio', 'fencing', 'makesafe'];
+  if (div === 'all') {
+    // "All" toggled on -> select all, toggled off -> deselect all
+    if (checked) {
+      _calDivFilters = ['all'];
+    } else {
+      _calDivFilters = [];
+    }
+  } else {
+    // Remove 'all' if present
+    _calDivFilters = _calDivFilters.filter(function(d) { return d !== 'all'; });
+    if (checked) {
+      if (_calDivFilters.indexOf(div) === -1) _calDivFilters.push(div);
+    } else {
+      _calDivFilters = _calDivFilters.filter(function(d) { return d !== div; });
+    }
+    // If all three are now selected, switch to 'all'
+    var allSelected = allDivs.every(function(d) { return _calDivFilters.indexOf(d) !== -1; });
+    if (allSelected) _calDivFilters = ['all'];
+    // If none selected, default to 'all'
+    if (_calDivFilters.length === 0) _calDivFilters = ['all'];
+  }
+  _calDivFilter = _calDivFilters.indexOf('all') !== -1 ? 'all' : _calDivFilters;
+  localStorage.setItem('sw_cal_divs', JSON.stringify(_calDivFilters));
+  syncCalDivCheckboxes();
   if (_calEvents) renderCalendar();
+}
+
+function syncCalDivCheckboxes() {
+  var isAll = _calDivFilters.indexOf('all') !== -1;
+  document.querySelectorAll('[data-caldiv]').forEach(function(cb) {
+    var val = cb.dataset.caldiv;
+    if (val === 'all') {
+      cb.checked = isAll;
+    } else {
+      cb.checked = isAll || _calDivFilters.indexOf(val) !== -1;
+    }
+  });
 }
 
 function toggleCalUnsched() {
@@ -6349,7 +6387,7 @@ function renderSwimlaneView(container, range) {
   crewNames.forEach(function(crew) {
     var crewData = crewMap[crew] || { division: '', events: {} };
     var div = crewData.division || '';
-    var isDimmed = _calDivFilter !== 'all' && div && div !== _calDivFilter;
+    var isDimmed = _calDivFilter !== 'all' && div && (Array.isArray(_calDivFilters) ? _calDivFilters.indexOf(div) === -1 : true);
 
     // Division divider removed — single unified crew list
 
@@ -6677,11 +6715,17 @@ function renderScheduleView(container, range) {
       }
       return;
     }
-    // Division filter
+    // Division filter (multi-select)
     if (_calDivFilter !== 'all') {
       var div = ev.job_type || 'patio';
-      if (_calDivFilter === 'patio' && div !== 'patio' && div !== 'decking') return;
-      if (_calDivFilter === 'fencing' && div !== 'fencing') return;
+      var match = false;
+      for (var fi = 0; fi < _calDivFilters.length; fi++) {
+        var f = _calDivFilters[fi];
+        if (f === 'patio' && (div === 'patio' || div === 'decking')) { match = true; break; }
+        if (f === 'fencing' && div === 'fencing') { match = true; break; }
+        if (f === 'makesafe' && (div === 'makesafe' || div === 'makesafes')) { match = true; break; }
+      }
+      if (!match) return;
     }
     var jid = ev.job_id;
     if (!jobMap[jid]) {
