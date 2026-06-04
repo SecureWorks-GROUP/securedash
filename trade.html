@@ -2645,6 +2645,7 @@
   var _currentJobLoaded = null;  // last loaded jobId (cache key)
   var _reportLoadedForJob = null; // prevent report form reload when switching tabs
   var _reportDirty = false;       // unsaved changes in report form
+  var _reportDirectToJobs = false; // makesafe cards open report directly and back returns to Jobs
   var _invoiceBuilderOpen = false; // true when invoice builder is active
   var _opsApiBase = '';
   var _cachedMyJobs = [];    // flat array of all assignments for Camera/Schedule views
@@ -3535,7 +3536,12 @@
 
   window.goBack = function() {
     if (_currentView === 'report') {
-      showView('job');
+      if (_reportDirectToJobs) {
+        _reportDirectToJobs = false;
+        showView('myJobs');
+      } else {
+        showView('job');
+      }
     } else {
       showView('myJobs');
     }
@@ -3777,7 +3783,8 @@
           var statusClass = 'status-' + (a.status || 'scheduled');
           if (!job.id) return;
           var type = job.type || 'patio';
-          html += '<div class="job-card" data-type="' + type + '" onclick="openJob(\'' + job.id + '\', \'' + a.id + '\')">';
+          var openAction = type === 'makesafe' ? 'openJobReport' : 'openJob';
+          html += '<div class="job-card" data-type="' + type + '" onclick="' + openAction + '(\'' + job.id + '\', \'' + a.id + '\')">';
           html += '  <div class="job-card-top">';
           html += '    <div>';
           html += '      <div class="job-card-client">' + esc(job.client_name || 'Unknown') + '</div>';
@@ -3859,7 +3866,8 @@
         }
 
         var type = job.type || 'patio';
-        html += '<div class="job-card' + todayClass + '" data-type="' + type + '" onclick="openJob(\'' + job.id + '\', \'' + a.id + '\')">';
+        var openAction = type === 'makesafe' ? 'openJobReport' : 'openJob';
+        html += '<div class="job-card' + todayClass + '" data-type="' + type + '" onclick="' + openAction + '(\'' + job.id + '\', \'' + a.id + '\')">';
         html += '  <div class="job-card-top">';
         html += '    <div>';
         html += '      <div class="job-card-client">' + esc(job.client_name || 'Unknown') + '</div>';
@@ -4001,7 +4009,18 @@
     _currentJobLoaded = null; // force reload
     _reportLoadedForJob = null; // force report reload for new job
     _currentAssignment = assignmentId || null;
+    _reportDirectToJobs = false;
     showView('job');
+  };
+
+  // Makesafes are field-report jobs: skip the normal job-detail layer and open the report flow.
+  window.openJobReport = function(jobId, assignmentId) {
+    _currentJobId = jobId;
+    _currentJobLoaded = null; // keep job detail clean if user later opens full job
+    _reportLoadedForJob = null; // force report reload for this job
+    _currentAssignment = assignmentId || null;
+    _reportDirectToJobs = true;
+    showView('report');
   };
   // Open a job and auto-switch to a specific tab (e.g. 'comms') after it loads
   window.openJobToTab = function(jobId, assignmentId, tabName) {
@@ -7895,8 +7914,8 @@
     _reportLoadedForJob = _currentJobId;
     _reportDirty = false;
 
-    // Store report for print/share functions
-    if (report) _currentJob.serviceReport = report;
+    // Store report for print/share functions when full job detail is already loaded.
+    if (report && _currentJob) _currentJob.serviceReport = report;
 
     // If already submitted, show success state
     if (report && (report.status === 'submitted' || report.status === 'approved')) {
@@ -9788,7 +9807,8 @@
       // Check availability conflict
       var hasConflict = a.scheduled_date && !isDateAvailable(a.scheduled_date);
 
-      html += '<div class="' + cardClass + '" onclick="openJob(\'' + job.id + '\', \'' + a.id + '\')">';
+      var openAction = (job.type || 'patio') === 'makesafe' ? 'openJobReport' : 'openJob';
+      html += '<div class="' + cardClass + '" onclick="' + openAction + '(\'' + job.id + '\', \'' + a.id + '\')">';
       html += '  <div style="display:flex;justify-content:space-between;align-items:start">';
       html += '    <div>';
       html += '      <div style="font-size:14px;font-weight:700;color:var(--sw-dark)">' + esc(job.client_name || 'Unknown') + '</div>';
