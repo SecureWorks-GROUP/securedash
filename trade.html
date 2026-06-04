@@ -10848,50 +10848,72 @@
 
   function _renderInvRow(row, showDate) {
     var i = row._idx;
-    var h = '';
-    var rowBg = row._source === 'clock' ? 'rgba(52,152,219,0.06)' : row._source === 'edited' ? 'rgba(241,90,41,0.06)' : '';
     var isClockRow = row._source === 'clock';
-    var roAttr = isClockRow ? ' readonly tabindex="-1"' : '';
-    var disAttr = isClockRow ? ' disabled' : '';
-    var readonlyStyle = isClockRow ? ';background:rgba(52,152,219,0.04);color:var(--sw-mid)' : '';
     var hasKnownJob = row.job_text && _knownJobNumbers && _knownJobNumbers.indexOf(row.job_text) >= 0;
-    h += '<div class="inv-line" style="padding:8px 10px;overflow:hidden' + (rowBg ? ';background:' + rowBg : '') + '">';
+    var hasInput = !!(row.job_text || row.division || row.client_name || row.site_address || row.description || row.hours);
+    var h = '';
 
-    // Line 1: Job + Delete (+ optional date for misc rows)
-    h += '<div style="display:flex;gap:6px;margin-bottom:5px;align-items:center">';
-    if (showDate) h += '<input type="date" id="ir_date_' + i + '" value="' + (row.date || '') + '" style="flex:0 0 110px;padding:5px 4px;border:1px solid var(--sw-border);border-radius:6px;font-size:11px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
-    h += '<input type="text" id="ir_job_' + i + '" value="' + esc(row.job_text || '') + '" list="invJobList" placeholder="Job # (or leave blank)" onchange="invJobChanged(' + i + ')"' + roAttr + ' style="flex:1;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box' + readonlyStyle + '">';
-    if (isClockRow) h += '<span style="flex:0 0 auto;font-size:10px;font-weight:700;color:#2980b9;background:rgba(52,152,219,0.12);border-radius:999px;padding:4px 7px">CLOCKED</span>';
-    else h += '<button onclick="deleteInvRow(' + i + ')" style="flex:0 0 26px;height:26px;background:none;border:1px solid var(--sw-border);border-radius:6px;color:var(--sw-red);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center" title="Delete">&times;</button>';
+    if (isClockRow) {
+      var meta = [row.job_text || 'SecureWorks job', row.division || 'Labour'].filter(Boolean).join(' · ');
+      var desc = row.description || 'Clocked SecureWorks hours';
+      var hoursDisplay = Number(row.hours || 0).toFixed(2).replace(/\.00$/, '');
+      var rateDisplay = Number(row.rate || 0).toFixed(0);
+      var amtDisplay = row.amount > 0 ? '$' + row.amount.toFixed(2) : '—';
+      h += '<div class="inv-line" style="padding:10px 12px;overflow:hidden;background:rgba(52,152,219,0.06);border-left:3px solid #3498db">';
+      h += '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">';
+      h += '<div style="min-width:0;flex:1">';
+      h += '<div style="font-size:10px;font-weight:800;color:#2980b9;letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px">Clocked hours · review only</div>';
+      h += '<div style="font-size:14px;font-weight:800;color:var(--sw-dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(meta) + '</div>';
+      h += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:2px;line-height:1.35">' + esc(desc) + '</div>';
+      h += '</div>';
+      h += '<div style="text-align:right;flex:0 0 auto">';
+      h += '<div style="font-size:15px;font-weight:800;color:var(--sw-dark)">' + amtDisplay + '</div>';
+      h += '<div style="font-size:11px;color:var(--sw-text-sec);white-space:nowrap">' + hoursDisplay + 'h × $' + rateDisplay + '</div>';
+      h += '</div>';
+      h += '</div></div>';
+      return h;
+    }
+
+    var rowBg = row._source === 'edited' ? 'rgba(241,90,41,0.06)' : '';
+    var noDivSelected = !row.division;
+    var divBorder = (hasInput && noDivSelected) ? 'var(--sw-orange)' : 'var(--sw-border)';
+    var clientBorder = (hasInput && !row.client_name) ? 'var(--sw-orange)' : 'var(--sw-border)';
+    var addrBorder = (hasInput && !row.site_address) ? 'var(--sw-orange)' : 'var(--sw-border)';
+    var descBorder = (hasInput && !row.description) ? 'var(--sw-orange)' : 'var(--sw-border)';
+
+    h += '<div class="inv-line" style="padding:8px 10px;overflow:hidden' + (rowBg ? ';background:' + rowBg : '') + '">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+    h += '<span style="font-size:10px;font-weight:800;color:var(--sw-mid);letter-spacing:.04em;text-transform:uppercase">' + (row._misc ? 'Extra / adjustment' : 'Day adjustment') + '</span>';
+    h += '<button onclick="deleteInvRow(' + i + ')" style="flex:0 0 26px;height:26px;background:none;border:1px solid var(--sw-border);border-radius:6px;color:var(--sw-red);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center" title="Delete">&times;</button>';
     h += '</div>';
 
-    // Line 2: Division (full width, prominent)
-    var noDivSelected = !row.division;
-    h += '<select id="ir_div_' + i + '"' + disAttr + ' style="width:100%;padding:7px 10px;margin-bottom:5px;border:2px solid ' + (noDivSelected ? 'var(--sw-orange)' : 'var(--sw-border)') + ';border-radius:6px;font-size:13px;font-weight:600;font-family:var(--sw-font);color:' + (noDivSelected ? 'var(--sw-text-sec)' : 'var(--sw-dark)') + ';background:#fff;box-sizing:border-box' + readonlyStyle + '">';
+    h += '<div style="display:flex;gap:6px;margin-bottom:5px;align-items:center">';
+    if (showDate) h += '<input type="date" id="ir_date_' + i + '" value="' + (row.date || '') + '" style="flex:0 0 110px;padding:5px 4px;border:1px solid var(--sw-border);border-radius:6px;font-size:11px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
+    h += '<input type="text" id="ir_job_' + i + '" value="' + esc(row.job_text || '') + '" list="invJobList" placeholder="Job # (optional)" onchange="invJobChanged(' + i + ')" style="flex:1;padding:7px 9px;border:1px solid var(--sw-border);border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
+    h += '</div>';
+
+    h += '<select id="ir_div_' + i + '" style="width:100%;padding:8px 10px;margin-bottom:5px;border:2px solid ' + divBorder + ';border-radius:7px;font-size:13px;font-weight:600;font-family:var(--sw-font);color:' + (noDivSelected ? 'var(--sw-text-sec)' : 'var(--sw-dark)') + ';background:#fff;box-sizing:border-box">';
     h += '<option value=""' + (noDivSelected ? ' selected' : '') + ' disabled>Select type of work...</option>';
     [['Patio','Patio'],['Fencing','Fencing'],['Decking','Decking'],['Make Safe','Make Safe'],['General Labour','General Labour']].forEach(function(dv) {
       h += '<option value="' + dv[0] + '"' + (row.division === dv[0] ? ' selected' : '') + '>' + dv[1] + '</option>';
     });
     h += '</select>';
 
-    // Line 3: Client name + Address (only if no known job selected)
     if (!hasKnownJob) {
       h += '<div style="display:flex;gap:5px;margin-bottom:5px">';
-      h += '<input type="text" id="ir_client_' + i + '" value="' + esc(row.client_name || '') + '" placeholder="Client name *" style="flex:1;padding:5px 8px;border:1px solid ' + (!row.client_name ? 'var(--sw-orange)' : 'var(--sw-border)') + ';border-radius:6px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
+      h += '<input type="text" id="ir_client_' + i + '" value="' + esc(row.client_name || '') + '" placeholder="Client name" style="flex:1;padding:7px 9px;border:1px solid ' + clientBorder + ';border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
       h += '</div>';
       h += '<div style="position:relative;margin-bottom:5px">';
-      h += '<input type="text" id="ir_addr_' + i + '" value="' + esc(row.site_address || '') + '" placeholder="Site address *" oninput="invAddrSearch(' + i + ')" style="width:100%;padding:5px 8px;border:1px solid ' + (!row.site_address ? 'var(--sw-orange)' : 'var(--sw-border)') + ';border-radius:6px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
+      h += '<input type="text" id="ir_addr_' + i + '" value="' + esc(row.site_address || '') + '" placeholder="Site address" oninput="invAddrSearch(' + i + ')" style="width:100%;padding:7px 9px;border:1px solid ' + addrBorder + ';border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
       h += '<div id="ir_addr_dd_' + i + '" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--sw-border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:100;max-height:150px;overflow-y:auto"></div>';
       h += '</div>';
     }
 
-    // Line 4: Description (full width)
-    h += '<input type="text" id="ir_desc_' + i + '" value="' + esc(row.description || '') + '" placeholder="Description of work *"' + roAttr + ' style="width:100%;padding:5px 8px;margin-bottom:5px;border:1px solid ' + (!row.description ? 'var(--sw-orange)' : 'var(--sw-border)') + ';border-radius:6px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box' + readonlyStyle + '">';
+    h += '<input type="text" id="ir_desc_' + i + '" value="' + esc(row.description || '') + '" placeholder="Description of work" style="width:100%;padding:7px 9px;margin-bottom:5px;border:1px solid ' + descBorder + ';border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
 
-    // Line 5: Hours + Rate + Amount
     h += '<div style="display:flex;gap:5px;align-items:center">';
-    h += '<input type="number" id="ir_hrs_' + i + '" value="' + (row.hours || '') + '" step="0.25" min="0" placeholder="Hrs" oninput="invRowChanged(' + i + ')"' + roAttr + ' style="flex:1;padding:5px 4px;border:1px solid var(--sw-border);border-radius:6px;font-size:13px;font-weight:600;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box;text-align:center' + readonlyStyle + '">';
-    h += '<input type="number" id="ir_rate_' + i + '" value="' + (row.rate || '') + '" step="0.01" min="0" placeholder="$/hr" oninput="invRowChanged(' + i + ')"' + roAttr + ' style="flex:1;padding:5px 4px;border:1px solid var(--sw-border);border-radius:6px;font-size:13px;font-weight:600;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box;text-align:center' + readonlyStyle + '">';
+    h += '<input type="number" id="ir_hrs_' + i + '" value="' + (row.hours || '') + '" step="0.25" min="0" placeholder="Hours" oninput="invRowChanged(' + i + ')" style="flex:1;padding:7px 4px;border:1px solid var(--sw-border);border-radius:7px;font-size:13px;font-weight:600;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box;text-align:center">';
+    h += '<input type="number" id="ir_rate_' + i + '" value="' + (row.rate || '') + '" step="0.01" min="0" placeholder="$/hr" oninput="invRowChanged(' + i + ')" style="flex:1;padding:7px 4px;border:1px solid var(--sw-border);border-radius:7px;font-size:13px;font-weight:600;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box;text-align:center">';
     var amtDisplay = row.amount > 0 ? '$' + row.amount.toFixed(2) : '—';
     h += '<div id="ir_amt_' + i + '" style="flex:1;text-align:right;font-size:14px;font-weight:700;color:' + (row.amount > 0 ? 'var(--sw-dark)' : 'var(--sw-text-sec)') + '">' + amtDisplay + '</div>';
     h += '</div></div>';
@@ -11053,8 +11075,8 @@
     }
 
     // ── 7-Day Timesheet (Mon–Sun) ──
-    html += '<div class="inv-section-label" style="margin-top:16px">Your Hours</div>';
-    if (!isExpense) html += '<div style="font-size:11px;color:var(--sw-text-sec);margin:-2px 0 8px">Clocked rows are review-only and are calculated by SecureWorks. Use Additional / Miscellaneous for extras or adjustments.</div>';
+    html += '<div class="inv-section-label" style="margin-top:16px">SecureWorks hours</div>';
+    if (!isExpense) html += '<div style="font-size:11px;color:var(--sw-text-sec);margin:-2px 0 8px">Review the hours SecureWorks already has. Add extras separately below — do not re-enter normal hours.</div>';
 
     var dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     var shortDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -11099,24 +11121,25 @@
         rows.forEach(function(row) {
           html += _renderInvRow(row, false);
         });
-        html += '<button class="inv-add-btn" style="font-size:11px;padding:5px;margin-bottom:2px" onclick="addInvRowForDay(\'' + dateStr + '\')">+ Add</button>';
+        html += '<button class="inv-add-btn" style="font-size:11px;padding:5px;margin-bottom:2px" onclick="addInvRowForDay(\'' + dateStr + '\')">+ Add adjustment</button>';
       } else {
-        // Empty day — compact single line with inline add
+        // Empty day — compact single line
         html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--sw-border)">';
         html += '<span style="font-size:12px;font-weight:600;color:var(--sw-mid)">' + dayLabel + '</span>';
-        html += '<button onclick="addInvRowForDay(\'' + dateStr + '\')" style="font-size:11px;padding:3px 10px;background:none;border:1px dashed var(--sw-border);border-radius:6px;color:var(--sw-mid);cursor:pointer">+ Add</button>';
+        html += '<span style="font-size:11px;color:var(--sw-text-sec)">No hours</span>';
         html += '</div>';
       }
     });
 
     // ── Additional / Miscellaneous ──
-    html += '<div class="inv-section-label" style="margin-top:16px">Additional / Miscellaneous</div>';
+    html += '<div class="inv-section-label" style="margin-top:16px">Extras / adjustments</div>';
     if (miscRows.length > 0) {
       miscRows.forEach(function(row) {
         html += _renderInvRow(row, true);
       });
     }
-    html += '<button class="inv-add-btn" onclick="addInvRow()">+ Add Misc Row</button>';
+    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin:-2px 0 8px">Only add items not already covered by the clocked hours above.</div>';
+    html += '<button class="inv-add-btn" onclick="addInvRow()">+ Add extra / adjustment</button>';
 
     // ── Notes ──
     html += '<div style="margin-top:8px">';
@@ -11136,10 +11159,12 @@
       html += '<button class="hours-submit-btn" onclick="saveDraftInvoice()" style="flex:1;background:var(--sw-mid);margin:0">Save Draft</button>';
       html += '<button class="hours-submit-btn" id="invSubmitBtn" onclick="submitInvoiceFromBuilder()" style="flex:2;margin:0">Submit Invoice' + (t.total > 0 ? ' — $' + t.total.toFixed(2) : '') + '</button>';
       html += '</div>';
-      html += '<div style="text-align:center;font-size:11px;color:var(--sw-text-sec);margin-top:6px">Draft saves for later. Submit sends for processing.</div>';
+      html += '<div style="text-align:center;font-size:11px;color:var(--sw-text-sec);margin-top:6px">Draft saves for later. Submit sends to SecureWorks for processing.</div>';
     } else {
       html += '<div style="text-align:center;padding:16px;font-size:13px;color:var(--sw-text-sec)">Add at least one row to create an invoice</div>';
     }
+
+    html += '<div style="height:96px"></div>';
 
     container.innerHTML = html;
     _saveInvDraft(); // persist draft to sessionStorage
