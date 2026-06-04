@@ -10881,10 +10881,30 @@
     var addrBorder = (hasInput && !row.site_address) ? 'var(--sw-orange)' : 'var(--sw-border)';
     var descBorder = (hasInput && !row.description) ? 'var(--sw-orange)' : 'var(--sw-border)';
 
+    if (!row._expanded) {
+      var title = row.job_text || row.description || (row._misc ? 'Extra / adjustment' : 'Day adjustment');
+      var subBits = [];
+      if (row.division) subBits.push(row.division);
+      if (row.client_name) subBits.push(row.client_name);
+      if (row.hours) subBits.push(Number(row.hours || 0).toFixed(2).replace(/\.00$/, '') + 'h');
+      var sub = subBits.length ? subBits.join(' · ') : 'Tap edit to add details';
+      var amount = row.amount > 0 ? '$' + row.amount.toFixed(2) : '—';
+      h += '<div class="inv-line" style="padding:10px 12px;overflow:hidden;display:flex;align-items:center;gap:10px">';
+      h += '<button onclick="expandInvRow(' + i + ')" style="flex:1;text-align:left;background:none;border:none;padding:0;cursor:pointer;font-family:var(--sw-font);min-width:0">';
+      h += '<div style="font-size:10px;font-weight:800;color:var(--sw-mid);letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px">' + (row._misc ? 'Extra / adjustment' : 'Day adjustment') + '</div>';
+      h += '<div style="font-size:14px;font-weight:800;color:var(--sw-dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(title) + '</div>';
+      h += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(sub) + '</div>';
+      h += '</button>';
+      h += '<div style="text-align:right;flex:0 0 auto"><div style="font-size:14px;font-weight:800;color:var(--sw-dark)">' + amount + '</div><button onclick="expandInvRow(' + i + ')" style="margin-top:3px;background:none;border:none;color:var(--sw-mid);font-size:11px;font-weight:700;cursor:pointer">Edit</button></div>';
+      h += '<button onclick="deleteInvRow(' + i + ')" style="flex:0 0 26px;height:26px;background:none;border:1px solid var(--sw-border);border-radius:6px;color:var(--sw-red);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center" title="Delete">&times;</button>';
+      h += '</div>';
+      return h;
+    }
+
     h += '<div class="inv-line" style="padding:8px 10px;overflow:hidden' + (rowBg ? ';background:' + rowBg : '') + '">';
     h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
     h += '<span style="font-size:10px;font-weight:800;color:var(--sw-mid);letter-spacing:.04em;text-transform:uppercase">' + (row._misc ? 'Extra / adjustment' : 'Day adjustment') + '</span>';
-    h += '<button onclick="deleteInvRow(' + i + ')" style="flex:0 0 26px;height:26px;background:none;border:1px solid var(--sw-border);border-radius:6px;color:var(--sw-red);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center" title="Delete">&times;</button>';
+    h += '<button onclick="collapseInvRow(' + i + ')" style="background:var(--sw-light);border:1px solid var(--sw-border);border-radius:999px;color:var(--sw-mid);font-size:11px;font-weight:800;padding:5px 10px;cursor:pointer">Done</button>';
     h += '</div>';
 
     h += '<div style="display:flex;gap:6px;margin-bottom:5px;align-items:center">';
@@ -10968,14 +10988,26 @@
     _syncRowsFromDOM();
     var today = new Date().toISOString().slice(0, 10);
     var defRate = (_hoursData && _hoursData.rate) || _tradeRate || 0;
-    _invRows.push({ date: today, job_id: null, job_text: '', description: '', division: '', hours: 0, rate: defRate, amount: 0, _misc: true, _source: 'manual' });
+    _invRows.push({ date: today, job_id: null, job_text: '', description: '', division: '', hours: 0, rate: defRate, amount: 0, _misc: true, _source: 'manual', _expanded: true });
     renderInvoiceBuilder();
   };
 
   window.addInvRowForDay = function(dateStr) {
     _syncRowsFromDOM();
     var defRate = (_hoursData && _hoursData.rate) || _tradeRate || 0;
-    _invRows.push({ date: dateStr, job_id: null, job_text: '', description: '', division: '', hours: 0, rate: defRate, amount: 0, _source: 'manual' });
+    _invRows.push({ date: dateStr, job_id: null, job_text: '', description: '', division: '', hours: 0, rate: defRate, amount: 0, _source: 'manual', _expanded: true });
+    renderInvoiceBuilder();
+  };
+
+  window.expandInvRow = function(idx) {
+    _syncRowsFromDOM();
+    if (_invRows[idx]) _invRows[idx]._expanded = true;
+    renderInvoiceBuilder();
+  };
+
+  window.collapseInvRow = function(idx) {
+    _syncRowsFromDOM();
+    if (_invRows[idx]) _invRows[idx]._expanded = false;
     renderInvoiceBuilder();
   };
 
@@ -11121,7 +11153,7 @@
         rows.forEach(function(row) {
           html += _renderInvRow(row, false);
         });
-        html += '<button class="inv-add-btn" style="font-size:11px;padding:5px;margin-bottom:2px" onclick="addInvRowForDay(\'' + dateStr + '\')">+ Add adjustment</button>';
+        html += '<button class="inv-add-btn" style="font-size:11px;padding:5px;margin-bottom:2px" onclick="addInvRowForDay(\'' + dateStr + '\')">+ Add adjustment for this day</button>';
       } else {
         // Empty day — compact single line
         html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--sw-border)">';
