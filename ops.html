@@ -7961,7 +7961,7 @@ function __renderedStagesFor(typeKey) {
 var FENCING_STAGES = __renderedStagesFor('fencing');
 var PATIO_STAGES = __renderedStagesFor('patio');
 var DECKING_STAGES = __renderedStagesFor('decking');
-var MAKESAFES_STAGES = ['accepted', 'scheduled', 'in_progress', 'complete', 'invoiced'];
+var MAKESAFES_STAGES = ['new', 'allocated', 'report_ready', 'to_invoice', 'completed'];
 
 // Status Mapping Gap diagnostic column key — synthetic, not a real jobs.status value.
 // Pipeline Visibility Guard requires this column to render even when empty so an operator
@@ -8313,32 +8313,26 @@ function renderKanban(container, columns) {
 
 function renderMakesafeKanban(container, columns) {
   var STAGE_LABELS = {
-    accepted: 'New',
-    scheduled: 'Allocated',
-    in_progress: 'In Progress',
-    complete: 'Works Complete',
-    invoiced: 'Invoiced',
+    new: 'New',
+    allocated: 'Allocated',
+    report_ready: 'Report Ready',
+    to_invoice: 'To Invoice',
+    completed: 'Completed',
   };
   var STAGE_COLORS = {
-    accepted: '#3498DB',
-    scheduled: '#E67E22',
-    in_progress: '#F15A29',
-    complete: '#27AE60',
-    invoiced: '#7F8C8D',
+    new: '#3498DB',
+    allocated: '#E67E22',
+    report_ready: '#9B59B6',
+    to_invoice: '#27AE60',
+    completed: '#7F8C8D',
   };
-  var SUBSTATUS_LABELS = {
-    pending_allocation: 'Needs Allocation',
-    waiting_on_trade_report: 'Waiting Report',
-    admin_to_send_report: 'Admin Send',
-    ready_to_invoice: 'Ready to Invoice',
-    complete: 'Done',
-  };
+  var uiColumns = buildMakesafeColumns(columns);
 
   var html = '<div style="display:flex;gap:8px;height:100%;">';
   html += '<div class="kanban-container" style="flex:1;">';
 
   MAKESAFES_STAGES.forEach(function(status) {
-    var jobs = columns[status] || [];
+    var jobs = uiColumns[status] || [];
     var stageColor = STAGE_COLORS[status] || '#8FA4B2';
     html += '<div class="kanban-col" data-status="' + status + '" ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
     html += '<div class="kanban-col-header" style="border-bottom:3px solid ' + stageColor + ';">' + (STAGE_LABELS[status] || status) + '<span class="count">' + jobs.length + '</span></div>';
@@ -8348,7 +8342,7 @@ function renderMakesafeKanban(container, columns) {
       html += '<div style="text-align:center; padding:20px; color:var(--sw-text-sec); font-size:12px;">No jobs</div>';
     } else {
       jobs.forEach(function(j) {
-        html += renderMakesafeCard(j, status, SUBSTATUS_LABELS);
+        html += renderMakesafeCard(j, status);
       });
     }
 
@@ -8360,54 +8354,152 @@ function renderMakesafeKanban(container, columns) {
   setupKanbanHorizontalScroll();
 }
 
-function renderMakesafeCard(j, status, substatusLabels) {
-  var html = '<div class="kanban-card" draggable="true" data-job-id="' + j.id + '" data-status="' + status + '" onclick="openJobDetail(\'' + j.id + '\')" onmouseenter="hoverJobCard(event,\'' + j.id + '\')" onmouseleave="hideJobHover()" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)">';
-  // Header: client name + company ref
-  html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:4px;">';
-  html += '<span style="font-weight:600;font-size:13px;color:var(--sw-dark);flex:1;">' + (j.client_name || 'Unknown') + '</span>';
-  if (j.external_ref) {
-    html += '<span style="font-size:10px;background:#E8E4DF;padding:1px 6px;border-radius:3px;font-weight:600;white-space:nowrap;">' + escapeHtml(j.external_ref) + '</span>';
+function getMakesafeSubstatus(j) {
+  return j.substatus || (j.makesafe_details && j.makesafe_details.substatus) || '';
+}
+function getMakesafeBuilder(j) {
+  var md = j.makesafe_details || j.metadata || {};
+  var company = md.makesafe_companies || md.requesting_company || j.makesafe_companies;
+  if (company && typeof company === 'object') return company.name || company.company_name || '';
+  return j.requesting_company || j.requesting_company_name || company || '';
+}
+function getMakesafeIntakeDate(j) {
+  return j.intake_date || j.received_at || j.created_at || j.accepted_at || '';
+}
+function getMakesafeAgeParts(j, status) {
+  if (status === 'completed') return { label: 'closed', color: '#7F8C8D', days: null, health: 'neutral' };
+  var raw = getMakesafeIntakeDate(j);
+  var days = null;
+  if (raw) {
+    var d = new Date(String(raw).slice(0, 10) + 'T00:00:00');
+    if (!isNaN(d.getTime())) {
+      var today = new Date();
+      var t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      days = Math.max(0, Math.floor((t0 - d) / 86400000));
+    }
   }
+  if (days == null && j.age_hours !== undefined) days = Math.floor(Number(j.age_hours || 0) / 24);
+  if (days == null) return { label: 'age n/a', color: '#8FA4B2', days: null, health: 'neutral' };
+  if (days === 0) return { label: 'same day', color: '#27AE60', days: 0, health: 'green' };
+  if (days === 1) return { label: '1 day old', color: '#F39C12', days: 1, health: 'yellow' };
+  return { label: days + ' days old', color: '#E74C3C', days: days, health: 'red' };
+}
+function getMakesafeStage(j, rawStatus) {
+  var sub = getMakesafeSubstatus(j);
+  var reportStatus = j.report_status || j.service_report_status || (j.service_report && j.service_report.status) || '';
+  if (rawStatus === 'new' || rawStatus === 'allocated' || rawStatus === 'report_ready' || rawStatus === 'to_invoice' || rawStatus === 'completed') return rawStatus;
+  if (sub === 'complete' || rawStatus === 'invoiced' || rawStatus === 'completed') return 'completed';
+  if (sub === 'ready_to_invoice') return 'to_invoice';
+  if (sub === 'admin_to_send_report' || reportStatus === 'submitted') return 'report_ready';
+  if (sub === 'waiting_on_trade_report' || rawStatus === 'scheduled' || rawStatus === 'in_progress') return 'allocated';
+  return 'new';
+}
+function buildMakesafeColumns(columns) {
+  var out = { new: [], allocated: [], report_ready: [], to_invoice: [], completed: [] };
+  Object.keys(columns || {}).forEach(function(rawStatus) {
+    (columns[rawStatus] || []).forEach(function(j) {
+      var stage = getMakesafeStage(j, rawStatus);
+      if (!out[stage]) out[stage] = [];
+      j._makesafe_raw_status = rawStatus;
+      out[stage].push(j);
+    });
+  });
+  return out;
+}
+function getMakesafeCrewLabel(j) {
+  var names = [];
+  if (Array.isArray(j.assigned_trades)) names = names.concat(j.assigned_trades);
+  if (Array.isArray(j.trade_names)) names = names.concat(j.trade_names);
+  if (Array.isArray(j.user_names)) names = names.concat(j.user_names);
+  if (j.assigned_trade) names.push(j.assigned_trade);
+  if (j.crew_name) names.push(j.crew_name);
+  if (j.assigned_crew) names.push(j.assigned_crew);
+  names = names.filter(Boolean).map(String).filter(function(v, i, a) { return a.indexOf(v) === i; });
+  return names.join(' + ');
+}
+function getMakesafeDayLabel(j) {
+  var d = j.scheduled_date || j.first_scheduled_date || j.next_scheduled_date || '';
+  if (!d) return '';
+  return fmtDate(String(d).slice(0, 10));
+}
+function getMakesafeReportLabel(j, status) {
+  var sub = getMakesafeSubstatus(j);
+  if (sub === 'admin_to_send_report' || status === 'report_ready') return { label: 'Report ready', color: '#9B59B6' };
+  if (sub === 'ready_to_invoice' || status === 'to_invoice') return { label: 'Report sent', color: '#27AE60' };
+  if (sub === 'complete' || status === 'completed') return { label: 'Report done', color: '#7F8C8D' };
+  if (sub === 'waiting_on_trade_report' || status === 'allocated') return { label: 'Report needed', color: '#F39C12' };
+  return { label: 'No report yet', color: '#8FA4B2' };
+}
+function getMakesafeInvoiceLabel(j, status) {
+  var inv = j.invoice_status || j.final_invoice_status || '';
+  if (status === 'completed' || inv === 'PAID' || inv === 'paid') return { label: inv ? 'Invoice ' + String(inv).toLowerCase() : 'Closed', color: '#7F8C8D' };
+  if (status === 'to_invoice') return { label: 'Invoice needed', color: '#27AE60' };
+  if (j.has_final_invoice || j.invoice_number) return { label: 'Invoice sent', color: '#3498DB' };
+  return { label: 'No invoice yet', color: '#8FA4B2' };
+}
+function renderMakesafeTinyBadge(label, color) {
+  return '<span style="font-size:10px;padding:2px 6px;border-radius:10px;background:' + color + '20;color:' + color + ';font-weight:700;white-space:nowrap;">' + escapeHtml(label) + '</span>';
+}
+function makesafeUiStageLabel(stage) {
+  return ({ new: 'New', allocated: 'Allocated', report_ready: 'Report Ready', to_invoice: 'To Invoice', completed: 'Completed' })[stage] || stage;
+}
+async function moveMakesafeUiStage(jobId, stage) {
+  var map = {
+    new: { status: 'accepted', substatus: 'pending_allocation' },
+    allocated: { status: 'scheduled', substatus: 'waiting_on_trade_report' },
+    report_ready: { status: 'complete', substatus: 'admin_to_send_report' },
+    to_invoice: { status: 'complete', substatus: 'ready_to_invoice' },
+    completed: { status: 'invoiced', substatus: 'complete' },
+  };
+  var target = map[stage];
+  if (!target) throw new Error('Unknown make-safe stage: ' + stage);
+  await opsPost('update_job_status', { jobId: jobId, status: target.status });
+  await opsPost('update_makesafe_substatus', { jobId: jobId, substatus: target.substatus });
+}
+
+function renderMakesafeCard(j, status) {
+  var builder = getMakesafeBuilder(j);
+  var suburb = j.site_suburb || j.suburb || '';
+  var age = getMakesafeAgeParts(j, status);
+  var intake = getMakesafeIntakeDate(j);
+  var intakeLabel = intake ? fmtDate(String(intake).slice(0, 10)) : 'Intake n/a';
+  var crew = getMakesafeCrewLabel(j);
+  var day = getMakesafeDayLabel(j);
+  var report = getMakesafeReportLabel(j, status);
+  var invoice = getMakesafeInvoiceLabel(j, status);
+  var woCount = Number(j.wo_count || j.work_order_count || 0);
+  var docCount = Number(j.document_count || j.docs_count || j.doc_count || 0);
+  var docSignal = (woCount > 0 ? 'WO ✓' : 'WO missing') + (docCount > 0 ? ' · ' + docCount + ' doc' + (docCount === 1 ? '' : 's') : ' · no docs');
+  var html = '<div class="kanban-card" draggable="true" data-job-id="' + j.id + '" data-status="' + status + '" onclick="openJobDetail(\'' + j.id + '\')" onmouseenter="hoverJobCard(event,\'' + j.id + '\')" onmouseleave="hideJobHover()" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)" style="border-left:4px solid ' + age.color + ';">';
+
+  html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">';
+  html += '<div style="min-width:0;flex:1;">';
+  html += '<div style="font-size:10px;font-weight:800;color:#D97706;text-transform:uppercase;letter-spacing:0.35px;">Make Safe</div>';
+  html += '<div style="font-weight:800;font-size:15px;color:var(--sw-dark);line-height:1.15;">' + escapeHtml(suburb || 'Suburb TBC') + '</div>';
   html += '</div>';
-  // Job number
-  if (j.job_number) {
-    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:2px;">' + escapeHtml(j.job_number) + '</div>';
-  }
-  // Requesting company
-  if (j.requesting_company) {
-    html += '<div style="font-size:11px;color:#D97706;font-weight:600;margin-top:3px;">' + escapeHtml(j.requesting_company) + '</div>';
-  }
-  // Suburb
-  if (j.site_suburb) {
-    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:2px;">' + escapeHtml(j.site_suburb) + '</div>';
-  }
-  // Substatus badge
-  var sub = j.substatus || (j.makesafe_details && j.makesafe_details.substatus);
-  if (sub && substatusLabels[sub]) {
-    var badgeColor = sub === 'pending_allocation' ? '#3498DB'
-      : sub === 'waiting_on_trade_report' ? '#F39C12'
-      : sub === 'admin_to_send_report' ? '#9B59B6'
-      : sub === 'ready_to_invoice' ? '#27AE60'
-      : '#8FA4B2';
-    html += '<div style="margin-top:5px;"><span style="font-size:10px;padding:2px 8px;border-radius:10px;background:' + badgeColor + ';color:#fff;font-weight:600;">' + substatusLabels[sub] + '</span></div>';
-  }
-  // Assigned trade
-  if (j.assigned_trade) {
-    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:4px;">&#128100; ' + escapeHtml(j.assigned_trade) + '</div>';
-  }
-  // Age indicator + allocate button row
-  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">';
-  if (j.age_hours !== undefined) {
-    var ageLabel = j.age_hours < 24 ? j.age_hours + 'h' : Math.floor(j.age_hours / 24) + 'd';
-    var ageColor = j.age_hours > 72 ? '#E74C3C' : j.age_hours > 24 ? '#F39C12' : 'var(--sw-text-sec)';
-    html += '<span style="font-size:10px;color:' + ageColor + ';">' + ageLabel + ' ago</span>';
-  } else {
-    html += '<span></span>';
-  }
-  if (status === 'accepted' || (sub === 'pending_allocation')) {
-    html += '<button onclick="event.stopPropagation();openQuickAllocateModal(\'' + j.id + '\',\'' + escapeHtml((j.client_name || '').replace(/'/g, '')) + '\')" style="font-size:10px;padding:2px 8px;background:#E67E22;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:600;">Allocate</button>';
-  }
+  html += renderMakesafeTinyBadge(age.label, age.color);
   html += '</div>';
+
+  if (builder) html += '<div style="font-size:12px;color:#D97706;font-weight:800;margin-top:5px;line-height:1.25;">' + escapeHtml(builder) + '</div>';
+  if (j.external_ref || j.job_number) {
+    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:2px;">' + escapeHtml([j.external_ref, j.job_number].filter(Boolean).join(' · ')) + '</div>';
+  }
+  if (j.client_name) html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:3px;">Client: ' + escapeHtml(j.client_name) + '</div>';
+  html += '<div style="font-size:11px;color:var(--sw-text);margin-top:6px;display:flex;flex-direction:column;gap:2px;">';
+  html += '<span>Intake: <strong>' + escapeHtml(intakeLabel) + '</strong></span>';
+  html += '<span>Crew/day: <strong>' + escapeHtml([crew || 'unallocated', day].filter(Boolean).join(' · ')) + '</strong></span>';
+  if (j.assignment_count > 0) html += '<span>Individuals: <strong>' + escapeHtml(crew || (j.assignment_count + ' assigned')) + '</strong></span>';
+  html += '</div>';
+
+  html += '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;">';
+  html += renderMakesafeTinyBadge(report.label, report.color);
+  html += renderMakesafeTinyBadge(invoice.label, invoice.color);
+  html += renderMakesafeTinyBadge(docSignal, woCount > 0 ? '#27AE60' : '#F39C12');
+  html += '</div>';
+
+  if (status === 'new' || getMakesafeSubstatus(j) === 'pending_allocation') {
+    html += '<button onclick="event.stopPropagation();openQuickAllocateModal(\'' + j.id + '\',\'' + escapeHtml((suburb || j.client_name || '').replace(/'/g, '')) + '\')" style="width:100%;font-size:11px;padding:6px 8px;background:#E67E22;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:800;margin-top:8px;">Allocate for tomorrow</button>';
+  }
   html += '</div>';
   return html;
 }
@@ -8757,13 +8849,20 @@ async function loadMakesafeMapData(filter) {
         fillOpacity: 0.9,
       }).addTo(_makesafeMapInstance);
 
-      var popup = '<div style="min-width:200px;">'
-        + '<strong>' + escapeHtml(j.client_name || 'Unknown') + '</strong><br>'
-        + '<span style="font-size:12px;">' + escapeHtml(j.job_number || '') + '</span><br>'
-        + '<span style="font-size:12px;">' + escapeHtml(j.site_address || '') + '</span><br>';
-      if (j.requesting_company) popup += '<span style="font-size:12px;color:#D97706;">' + escapeHtml(j.requesting_company) + '</span><br>';
-      if (j.external_ref) popup += '<span style="font-size:12px;">Ref: ' + escapeHtml(j.external_ref) + '</span><br>';
-      if (j.assigned_trade) popup += '<span style="font-size:12px;">Trade: ' + escapeHtml(j.assigned_trade) + '</span><br>';
+      var mapStage = getMakesafeStage(j, j.status || j._makesafe_raw_status || '');
+      var mapBuilder = getMakesafeBuilder(j) || j.requesting_company || 'Builder TBC';
+      var mapAge = getMakesafeAgeParts(j, mapStage);
+      var mapCrew = getMakesafeCrewLabel(j) || j.assigned_trade || 'Unallocated';
+      var popup = '<div style="min-width:220px;">'
+        + '<div style="font-size:10px;font-weight:800;color:#D97706;text-transform:uppercase;letter-spacing:0.35px;">Make Safe</div>'
+        + '<strong style="font-size:15px;">' + escapeHtml(j.site_suburb || 'Suburb TBC') + '</strong><br>'
+        + '<span style="font-size:12px;color:#D97706;font-weight:700;">' + escapeHtml(mapBuilder) + '</span><br>'
+        + '<span style="font-size:12px;">Stage: ' + escapeHtml(makesafeUiStageLabel(mapStage)) + '</span><br>'
+        + '<span style="font-size:12px;">Crew: ' + escapeHtml(mapCrew) + '</span><br>'
+        + '<span style="font-size:12px;color:' + mapAge.color + ';font-weight:700;">Age: ' + escapeHtml(mapAge.label) + '</span><br>';
+      if (j.external_ref || j.job_number) popup += '<span style="font-size:12px;">Ref: ' + escapeHtml([j.external_ref, j.job_number].filter(Boolean).join(' · ')) + '</span><br>';
+      if (j.site_address) popup += '<span style="font-size:11px;color:var(--sw-text-sec);">' + escapeHtml(j.site_address) + '</span><br>';
+      if (j.client_name) popup += '<span style="font-size:11px;color:var(--sw-text-sec);">Client: ' + escapeHtml(j.client_name) + '</span><br>';
       if (j.on_road) popup += '<span style="font-size:12px;color:#E74C3C;font-weight:600;">ON ROAD</span><br>';
       popup += '<button onclick="openJobDetail(\'' + j.id + '\');toggleMakesafeMap();" style="margin-top:6px;background:#293C46;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;">Open Job</button>';
       popup += '</div>';
@@ -9040,8 +9139,13 @@ async function kanbanDrop(e) {
     return;
   }
   try {
-    await opsPost('update_job_status', { jobId: jobId, status: toStatus });
-    showToast('Job moved to ' + (STATUS_LABELS[toStatus] || toStatus), 'success');
+    if (_pipelineTab === 'makesafes') {
+      await moveMakesafeUiStage(jobId, toStatus);
+      showToast('Make-safe moved to ' + makesafeUiStageLabel(toStatus), 'success');
+    } else {
+      await opsPost('update_job_status', { jobId: jobId, status: toStatus });
+      showToast('Job moved to ' + (STATUS_LABELS[toStatus] || toStatus), 'success');
+    }
     var kc = document.querySelector('#jobsBody .kanban-container');
     _kanbanSavedScroll = kc ? kc.scrollLeft : 0;
     loadJobs();
@@ -11611,8 +11715,103 @@ async function saveClientName(jobId) {
   }
 }
 
+function renderMakesafeOpsDetail(data) {
+  var j = data.job || {};
+  var md = data.makesafe_details || j.makesafe_details || j.metadata || {};
+  var sub = md.substatus || getMakesafeSubstatus(j) || 'pending_allocation';
+  var stage = getMakesafeStage(Object.assign({}, j, { substatus: sub }), j.status || '');
+  var age = getMakesafeAgeParts(j, stage);
+  var builder = getMakesafeBuilder(Object.assign({}, j, { makesafe_details: md })) || 'Builder TBC';
+  var suburb = j.site_suburb || j.suburb || 'Suburb TBC';
+  var docs = data.documents || [];
+  var workOrders = data.work_orders || [];
+  var workOrderDocs = docs.filter(function(d) { return d.type === 'work_order' || d.type === 'supplier_work_order'; });
+  var reports = data.service_reports || (data.serviceReport ? [data.serviceReport] : []);
+  var report = reports[0] || null;
+  var checklist = report && report.checklist_json ? report.checklist_json : null;
+  var invoices = (data.invoices || []).filter(function(inv) { return inv.invoice_type === 'ACCREC' && ['VOIDED','DELETED'].indexOf(inv.status) < 0; });
+
+  var html = '<div style="padding-bottom:16px;">';
+  html += '<div style="background:var(--sw-card);padding:16px;margin-bottom:12px;box-shadow:var(--sw-shadow);border-left:5px solid ' + age.color + ';">';
+  html += '<div style="font-size:10px;font-weight:800;color:#D97706;text-transform:uppercase;letter-spacing:0.4px;">Make Safe</div>';
+  html += '<div style="font-size:22px;font-weight:800;color:var(--sw-dark);line-height:1.15;">' + escapeHtml(suburb) + '</div>';
+  html += '<div style="font-size:14px;color:#D97706;font-weight:800;margin-top:4px;">' + escapeHtml(builder) + '</div>';
+  html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">';
+  html += renderMakesafeTinyBadge(makesafeUiStageLabel(stage), age.color);
+  html += renderMakesafeTinyBadge(age.label, age.color);
+  if (j.job_number) html += renderMakesafeTinyBadge(j.job_number, '#8FA4B2');
+  if (md.external_ref || j.external_ref) html += renderMakesafeTinyBadge('Ref ' + (md.external_ref || j.external_ref), '#8FA4B2');
+  html += '</div>';
+  if (j.site_address) html += '<div style="font-size:13px;color:var(--sw-text);margin-top:10px;">' + escapeHtml(j.site_address) + '</div>';
+  if (j.client_name) html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:2px;">Client: ' + escapeHtml(j.client_name) + '</div>';
+  html += '</div>';
+
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:12px;">';
+
+  html += '<div style="background:var(--sw-card);padding:14px;box-shadow:var(--sw-shadow);">';
+  html += '<div style="font-size:11px;font-weight:800;color:var(--sw-mid);text-transform:uppercase;margin-bottom:8px;">Work Order</div>';
+  if (workOrders.length || workOrderDocs.length) {
+    html += '<div style="font-size:14px;font-weight:800;color:var(--sw-green);margin-bottom:6px;">Available</div>';
+    workOrders.slice(0, 2).forEach(function(wo) { html += '<div style="font-size:12px;color:var(--sw-text);margin-bottom:4px;">' + escapeHtml(wo.wo_number || 'Work order') + (wo.status ? ' · ' + escapeHtml(wo.status) : '') + '</div>'; });
+    workOrderDocs.slice(0, 2).forEach(function(doc) { var url = doc.storage_url || doc.pdf_url || ''; html += '<div style="font-size:12px;margin-bottom:4px;">📄 ' + (url ? '<a href="' + escapeHtml(url) + '" target="_blank" style="color:var(--sw-mid);font-weight:700;">' + escapeHtml(doc.file_name || 'Work order') + '</a>' : escapeHtml(doc.file_name || 'Work order')) + '</div>'; });
+  } else {
+    html += '<div style="font-size:14px;font-weight:800;color:#F39C12;margin-bottom:6px;">Not attached yet</div>';
+    html += '<div style="font-size:12px;color:var(--sw-text-sec);">Upload or generate the work order when available.</div>';
+  }
+  html += '</div>';
+
+  html += '<div style="background:var(--sw-card);padding:14px;box-shadow:var(--sw-shadow);">';
+  html += '<div style="font-size:11px;font-weight:800;color:var(--sw-mid);text-transform:uppercase;margin-bottom:8px;">Report</div>';
+  if (checklist) {
+    html += '<div style="font-size:14px;font-weight:800;color:var(--sw-green);margin-bottom:6px;">Received from trade</div>';
+    if (report.submitted_at) html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:6px;">Submitted ' + fmtDate(String(report.submitted_at).slice(0, 10)) + '</div>';
+    if (checklist.work_done) html += '<div style="font-size:12px;color:var(--sw-text);white-space:pre-wrap;">' + escapeHtml(String(checklist.work_done).slice(0, 220)) + '</div>';
+    if (checklist.invoice_notes) html += '<div style="font-size:12px;background:rgba(39,174,96,0.08);padding:6px 8px;margin-top:8px;">Invoice notes: ' + escapeHtml(checklist.invoice_notes) + '</div>';
+  } else {
+    html += '<div style="font-size:14px;font-weight:800;color:#F39C12;margin-bottom:6px;">Waiting for report</div>';
+    html += '<div style="font-size:12px;color:var(--sw-text-sec);">Trade app opens MakeSafe jobs directly into the report flow.</div>';
+  }
+  html += '</div>';
+
+  html += '<div style="background:var(--sw-card);padding:14px;box-shadow:var(--sw-shadow);">';
+  html += '<div style="font-size:11px;font-weight:800;color:var(--sw-mid);text-transform:uppercase;margin-bottom:8px;">Invoice</div>';
+  if (invoices.length) {
+    var inv = invoices[0];
+    html += '<div style="font-size:14px;font-weight:800;color:var(--sw-green);margin-bottom:6px;">' + escapeHtml(inv.invoice_number || inv.status || 'Invoice created') + '</div>';
+    html += '<div style="font-size:12px;color:var(--sw-text);">' + fmt$(inv.total || 0) + (inv.status ? ' · ' + escapeHtml(inv.status) : '') + '</div>';
+    if (inv.amount_due > 0) html += '<div style="font-size:12px;color:var(--sw-red);font-weight:700;margin-top:4px;">Due: ' + fmt$(inv.amount_due) + '</div>';
+  } else {
+    html += '<div style="font-size:14px;font-weight:800;color:' + (stage === 'to_invoice' ? 'var(--sw-green)' : '#8FA4B2') + ';margin-bottom:6px;">' + (stage === 'to_invoice' ? 'Ready to invoice' : 'No invoice yet') + '</div>';
+    html += '<div style="font-size:12px;color:var(--sw-text-sec);">Invoice once report is sent/approved.</div>';
+  }
+  html += '</div>';
+  html += '</div>';
+
+  var subActions = [];
+  if (sub === 'pending_allocation') subActions.push({ to: 'waiting_on_trade_report', label: 'Allocated / waiting report', color: '#F39C12' });
+  if (sub === 'waiting_on_trade_report') subActions.push({ to: 'admin_to_send_report', label: 'Report ready', color: '#9B59B6' });
+  if (sub === 'admin_to_send_report') subActions.push({ to: 'ready_to_invoice', label: 'Ready to invoice', color: '#27AE60' });
+  if (sub === 'ready_to_invoice') subActions.push({ to: 'complete', label: 'Completed', color: '#7F8C8D' });
+  html += '<div style="background:var(--sw-card);padding:14px;margin-bottom:12px;box-shadow:var(--sw-shadow);">';
+  html += '<div style="font-size:11px;font-weight:800;color:var(--sw-mid);text-transform:uppercase;margin-bottom:8px;">Next step</div>';
+  if (subActions.length) {
+    subActions.forEach(function(sa) { html += '<button onclick="advanceMakesafeSubstatus(\'' + j.id + '\',\'' + sa.to + '\')" class="btn btn-sm" style="background:' + sa.color + ';color:#fff;margin-right:6px;margin-bottom:6px;">' + sa.label + '</button>'; });
+  } else {
+    html += '<div style="font-size:13px;color:var(--sw-green);font-weight:700;">MakeSafe flow complete.</div>';
+  }
+  html += '<button onclick="showJobSubView(\'files\')" class="btn btn-secondary btn-sm" style="margin-right:6px;margin-bottom:6px;">Files</button>';
+  html += '<button onclick="showJobSubView(\'history\')" class="btn btn-secondary btn-sm" style="margin-bottom:6px;">History</button>';
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
 function renderOverviewView(data) {
   var j = data.job;
+  if (j.type === 'makesafe') {
+    document.getElementById('jdOverview').innerHTML = renderMakesafeOpsDetail(data);
+    return;
+  }
   var html = '';
   // Section 1: Client Card
   html += '<div style="background:var(--sw-card);padding:14px;margin-bottom:12px;box-shadow:var(--sw-shadow);">';

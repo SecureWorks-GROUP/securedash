@@ -3938,9 +3938,17 @@
           html += '      Call</a>';
         }
         if (canMessage()) {
-          html += '    <button onclick="event.stopPropagation();openJobToTab(\'' + esc(job.id) + '\', \'' + esc(a.id) + '\', \'comms\')" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-blue);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">';
-          html += '      <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>';
-          html += '      Text</button>';
+          if (type === 'makesafe') {
+            if (job.client_phone) {
+              html += '    <a href="sms:' + esc(job.client_phone) + '" onclick="event.stopPropagation()" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-blue);color:#fff;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700">';
+              html += '      <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>';
+              html += '      Text</a>';
+            }
+          } else {
+            html += '    <button onclick="event.stopPropagation();openJobToTab(\'' + esc(job.id) + '\', \'' + esc(a.id) + '\', \'comms\')" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-blue);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">';
+            html += '      <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>';
+            html += '      Text</button>';
+          }
         }
         if (job.site_address || job.site_suburb) {
           var navUrl = getMapsUrl(job.site_address, job.site_suburb);
@@ -6928,6 +6936,9 @@
       _uploading = false;
       if (progress) progress.style.display = 'none';
       toast(files.length + ' ' + phaseLabel + ' photo(s) uploaded');
+      window._msrPhotoCounts = window._msrPhotoCounts || { before: 0, after: 0 };
+      if (phase === 'scope') window._msrPhotoCounts.before += files.length;
+      if (phase === 'completion') window._msrPhotoCounts.after += files.length;
       input.value = '';
       // Ensure all show as done
       imgEls.forEach(function(el) {
@@ -7308,6 +7319,7 @@
     var allMedia = data.media || [];
     var beforePhotos = allMedia.filter(function(m) { return m.phase === 'scope'; });
     var afterPhotos = allMedia.filter(function(m) { return m.phase === 'completion'; });
+    window._msrPhotoCounts = { before: beforePhotos.length, after: afterPhotos.length };
 
     h += '<div style="margin-bottom:14px;">';
     h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">Before Photos (' + beforePhotos.length + ')</label>';
@@ -7343,13 +7355,12 @@
     h += '<div class="upload-progress" id="msrAfterProgress" style="display:none"><span id="msrAfterProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrAfterProgressFill"></div></div></div>';
     h += '</div>';
 
-    // Photo summary
-    var totalPhotos = beforePhotos.length + afterPhotos.length;
-    if (totalPhotos < 4) {
-      h += '<div style="background:#FEF3C7;border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;color:#92400E;">';
-      h += '<strong>Minimum 4 photos recommended</strong> (before + after). Currently ' + totalPhotos + ' uploaded.';
-      h += '</div>';
-    }
+    // Photo submission gate summary
+    var beforeOk = beforePhotos.length >= 2;
+    var afterOk = afterPhotos.length >= 2;
+    h += '<div style="background:' + (beforeOk && afterOk ? '#E8F8EF' : '#FEF3C7') + ';border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;color:' + (beforeOk && afterOk ? '#155724' : '#92400E') + ';">';
+    h += '<strong>Photo minimum required:</strong> 2 before + 2 after. Current: before ' + beforePhotos.length + '/2, after ' + afterPhotos.length + '/2.';
+    h += '</div>';
 
     // Submit button
     h += '<button onclick="submitMakesafeReport()" style="width:100%;background:var(--sw-orange);color:#fff;border:none;padding:14px;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;min-height:50px;">Submit Make-Safe Report</button>';
@@ -7358,23 +7369,37 @@
   }
 
   window.submitMakesafeReport = function() {
+    var arrival = ((document.getElementById('msrArrivalTime') || {}).value || '').trim();
+    if (!arrival) { toast('Please enter arrival time'); return; }
+    var hours = parseFloat((document.getElementById('msrHours') || {}).value) || 0;
+    if (hours <= 0) { toast('Please enter labour hours'); return; }
+    var tradeCount = parseInt((document.getElementById('msrTradeCount') || {}).value) || 0;
+    if (tradeCount <= 0) { toast('Please enter number of trades'); return; }
     var damageDesc = document.getElementById('msrDamageDesc');
     if (!damageDesc || !damageDesc.value.trim()) { toast('Please describe the damage'); return; }
+    var damageCause = ((document.getElementById('msrDamageCause') || {}).value || '').trim();
+    if (!damageCause) { toast('Please select cause of damage'); return; }
     var workDone = document.getElementById('msrWorkDone');
     if (!workDone || !workDone.value.trim()) { toast('Please describe the rectification / action taken'); return; }
 
     var materialsRaw = (document.getElementById('msrMaterials') || {}).value || '';
+    if (!materialsRaw.trim()) { toast('Please enter materials used, or write None'); return; }
     var materials = materialsRaw.split(',').map(function(m) { return m.trim(); }).filter(Boolean);
+    var photoCounts = window._msrPhotoCounts || { before: 0, after: 0 };
+    if (photoCounts.before < 2 || photoCounts.after < 2) {
+      toast('Please add at least 2 before and 2 after photos');
+      return;
+    }
 
     var payload = {
       job_id: _currentJobId,
-      arrival_time: ((document.getElementById('msrArrivalTime') || {}).value || '').trim(),
+      arrival_time: arrival,
       damage_description: damageDesc.value.trim(),
-      damage_cause: ((document.getElementById('msrDamageCause') || {}).value || '').trim(),
+      damage_cause: damageCause,
       work_done: workDone.value.trim(),
       materials_used: materials,
-      labour_hours: parseFloat((document.getElementById('msrHours') || {}).value) || 0,
-      trade_count: parseInt((document.getElementById('msrTradeCount') || {}).value) || 2,
+      labour_hours: hours,
+      trade_count: tradeCount,
       access_issues: ((document.getElementById('msrAccess') || {}).value || '').trim(),
       follow_up_required: document.getElementById('msrFollowUp') ? document.getElementById('msrFollowUp').checked : false,
       invoice_notes: ((document.getElementById('msrInvoiceNotes') || {}).value || '').trim(),
