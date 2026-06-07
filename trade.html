@@ -8209,6 +8209,11 @@
 
     api('trade_job_detail', { jobId: jobId }).then(function(data) {
       if (!data.job) data.job = data;
+      // Backend returns MakeSafe overlay details at top level. Copy enough of
+      // that signal onto the job before type detection so SWMS/detail-backed
+      // MakeSafes cannot fall back to the old generic service checklist.
+      if (data.makesafe_details && data.job) data.job.makesafe_details = data.makesafe_details;
+      if (data.job && data.makesafe_details && !data.job.type) data.job.type = 'makesafe';
       cacheTradeJob(data.job, null);
       _currentJob = data;
       _currentJobLoaded = jobId;
@@ -8220,6 +8225,7 @@
         renderServiceReport({ report: data.serviceReport || null, checklistTemplate: data.checklistTemplate || [] });
         return;
       }
+      _reportMode = 'makesafe';
       renderMakesafeReportDirect(data, false);
     }).catch(function(err) {
       var cached = getCachedTradeJob(jobId);
@@ -8232,18 +8238,30 @@
         renderMakesafeReportDirect(fallback, true);
         return;
       }
-      container.innerHTML = '<div class="empty-state">Error: ' + friendlyError(err) + '<br><button class="btn btn-secondary btn-small" style="margin-top:12px;width:auto" onclick="loadMakesafeReport(\'' + jobId + '\')">Retry</button></div>';
+      container.innerHTML = '<div class="empty-state">Error: ' + friendlyError(err) + '<br><button class="btn btn-secondary btn-small" style="margin-top:12px;width:auto" onclick="loadMakesafeReport(\"' + jobId + '\")">Retry</button></div>';
     });
   };
 
   window.loadServiceReport = function loadServiceReport(jobId) {
+    var cached = getCachedTradeJob(jobId);
+    if ((_reportMode === 'makesafe') || (cached && isTradeMakesafeJob(cached.job, cached.assignment))) {
+      _reportMode = 'makesafe';
+      return loadMakesafeReport(jobId);
+    }
+
     var container = document.getElementById('reportContent');
     container.innerHTML = '<div class="loading-screen"><div class="spinner"></div>Loading report...</div>';
 
     api('get_service_report', { jobId: jobId }).then(function(data) {
+      // Defensive final guard: if the server/report payload identifies the job
+      // as MakeSafe, never render the generic checklist.
+      if (data && data.job && isTradeMakesafeJob(data.job, null)) {
+        _reportMode = 'makesafe';
+        return loadMakesafeReport(jobId);
+      }
       renderServiceReport(data);
     }).catch(function(err) {
-      container.innerHTML = '<div class="empty-state">Error: ' + friendlyError(err) + '<br><button class="btn btn-secondary btn-small" style="margin-top:12px;width:auto" onclick="loadServiceReport(\'' + jobId + '\')">Retry</button></div>';
+      container.innerHTML = '<div class="empty-state">Error: ' + friendlyError(err) + '<br><button class="btn btn-secondary btn-small" style="margin-top:12px;width:auto" onclick="loadServiceReport(\"' + jobId + '\")">Retry</button></div>';
     });
   };
 
