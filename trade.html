@@ -4106,6 +4106,11 @@
   }
 
   window.openJob = function(jobId, assignmentId) {
+    var cached = getCachedTradeJob(jobId);
+    if (cached && isTradeMakesafeJob(cached.job, cached.assignment)) {
+      openJobReport(jobId, assignmentId || (cached.assignment && cached.assignment.id) || '');
+      return;
+    }
     _currentJobId = jobId;
     _currentJobLoaded = null; // force reload
     _reportLoadedForJob = null; // force report reload for new job
@@ -4174,6 +4179,7 @@
       md.type, md.job_type, md.makesafe_type, md.scope_type, md.work_type, md.service_type, md.damage_type, md.category]
       .map(function(v) { return String(v || '').toLowerCase().trim(); });
     if (direct.indexOf('makesafe') !== -1 || direct.indexOf('make_safe') !== -1 || direct.indexOf('make-safe') !== -1 || direct.indexOf('make safe') !== -1) return true;
+    if (/^SWMS-/i.test(String(job.job_number || job.external_ref || job.ref || ''))) return true;
 
     var text = [
       job.ref, job.external_ref, job.job_number, job.stage, job.stage_name, job.pipeline_stage, job.status, job.substatus,
@@ -4194,7 +4200,7 @@
   function getCachedTradeJob(jobId) {
     var cached = _tradeJobCacheById[jobId];
     if (cached) return cached;
-    var groups = _lastJobData ? ['today', 'thisWeek', 'upcoming', 'recent'] : [];
+    var groups = _lastJobData ? ['today', 'thisWeek', 'upcoming', 'recent', 'makesafePool'] : [];
     for (var g = 0; g < groups.length; g++) {
       var items = _lastJobData[groups[g]] || [];
       for (var i = 0; i < items.length; i++) {
@@ -4251,6 +4257,10 @@
       clearTimeout(slowTimer);
       _currentJob = data;
       _currentJobLoaded = jobId;
+      if (data && data.job && getTradeJobType(data.job) === 'makesafe') {
+        openJobReport(jobId, _currentAssignment);
+        return;
+      }
       renderJobDetail(data);
       if (_pendingJobTab) _pendingJobTab = null;
       // Check for stale clock-on from previous day — debounced to avoid blocking render
