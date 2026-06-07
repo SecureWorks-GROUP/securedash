@@ -2792,7 +2792,7 @@
         <button class="btn btn-sm" id="btnNewMakesafe" onclick="openNewMakesafeModal()" style="display:none;background:#D97706;color:#fff;font-weight:600;font-size:11px;padding:4px 12px;border:none;border-radius:4px;cursor:pointer;">+ New Make-Safe</button>
         <button class="btn btn-sm" id="btnMakesafeIntake" onclick="loadMakesafeIntake()" style="display:none;background:#4C6A7C;color:#fff;font-weight:600;font-size:11px;padding:4px 12px;border:none;border-radius:4px;cursor:pointer;">Intake</button>
         <button class="btn btn-sm" id="btnMakesafeMap" onclick="toggleMakesafeMap()" style="display:none;background:#293C46;color:#fff;font-weight:600;font-size:11px;padding:4px 12px;border:none;border-radius:4px;cursor:pointer;">Map</button>
-        <button class="btn btn-sm" id="btnMakesafeCrewDay" onclick="toggleMakesafeCrewDay()" style="display:none;background:#4C6A7C;color:#fff;font-weight:600;font-size:11px;padding:4px 12px;border:none;border-radius:4px;cursor:pointer;">Crew Day</button>
+        <button class="btn btn-sm" id="btnMakesafeCrewDay" onclick="toggleMakesafeCrewDay()" style="display:none;background:#4C6A7C;color:#fff;font-weight:600;font-size:11px;padding:4px 12px;border:none;border-radius:4px;cursor:pointer;">Crew Week</button>
         <div style="flex:1;"></div>
         <div id="jobsDateDisplay" style="font-size:12px;font-weight:600;color:var(--sw-text-sec);letter-spacing:0.3px;white-space:nowrap;"></div>
         <button class="btn btn-secondary btn-sm" id="btnKanban" onclick="setJobView('kanban')" style="font-weight:600;">Kanban</button>
@@ -8798,7 +8798,10 @@ async function rejectIntakeDraft(draftId) {
 // ── Make-Safe Map + Crew Allocation Views ──
 var _makesafeMapInstance = null;
 var _makesafeMapFilter = 'active';
+var MAKESAFE_CREW_PLANNER_KEY = 'sw_makesafe_crew_planner_v1';
 var _makesafeCrewDayDate = (function() { var d = new Date(localDateStr(new Date()) + 'T00:00:00'); d.setDate(d.getDate() + 1); return localDateStr(d); })();
+var _makesafeCrewPlannerCache = null;
+var _makesafeCrewSetupOpen = true;
 
 function getMakesafeMapVisual(j) {
   var stage = getMakesafeStage(j, j.status || j._makesafe_raw_status || '');
@@ -8982,6 +8985,226 @@ async function loadMakesafeMapData(filter) {
   }
 }
 
+function makesafePlannerAttr(value) {
+  return String(value == null ? '' : value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function makesafePlannerSlug(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'row';
+}
+function makesafePlannerNameKey(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function makesafePlannerWeekStart(dateStr) {
+  var d = new Date((dateStr || localDateStr(new Date())) + 'T00:00:00');
+  if (isNaN(d.getTime())) d = new Date(localDateStr(new Date()) + 'T00:00:00');
+  var day = d.getDay();
+  var diff = (day === 0 ? -6 : 1 - day);
+  d.setDate(d.getDate() + diff);
+  return localDateStr(d);
+}
+function makesafePlannerWeekDays(weekStart) {
+  var days = [];
+  var d = new Date(weekStart + 'T00:00:00');
+  for (var i = 0; i < 7; i++) {
+    var x = new Date(d.getTime());
+    x.setDate(d.getDate() + i);
+    days.push(localDateStr(x));
+  }
+  return days;
+}
+function makesafePlannerDisplayName(u) {
+  return (u && (u.name || cleanCrewName(u.email || u.id))) || '';
+}
+function makesafePlannerFieldUsers() {
+  var fieldRoles = ['installer', 'trade', 'subcontractor', 'lead_installer', 'crew', 'ops_manager'];
+  return (_crewList || []).filter(function(u) {
+    var role = String(u.role || '').toLowerCase();
+    var div = String(u.division || '').toLowerCase();
+    return fieldRoles.indexOf(role) !== -1 || /make.?safe|fenc|install|trade|crew/.test(div + ' ' + role);
+  });
+}
+function makesafePlannerDefaultCapableIds() {
+  var ids = {};
+  var field = makesafePlannerFieldUsers();
+  (field.length ? field : (_crewList || [])).forEach(function(u) { if (u && u.id) ids[u.id] = true; });
+  return ids;
+}
+function makesafePlannerReadState() {
+  var state = null;
+  try { state = JSON.parse(localStorage.getItem(MAKESAFE_CREW_PLANNER_KEY) || 'null'); } catch(e) { state = null; }
+  if (!state || typeof state !== 'object') state = {};
+  if (!state.capableIds || typeof state.capableIds !== 'object') state.capableIds = {};
+  if (!Array.isArray(state.crews)) state.crews = [];
+  if (!state.plans || typeof state.plans !== 'object') state.plans = {};
+  return state;
+}
+function makesafePlannerWriteState(state) {
+  localStorage.setItem(MAKESAFE_CREW_PLANNER_KEY, JSON.stringify(state));
+}
+function makesafePlannerEnsureState() {
+  var state = makesafePlannerReadState();
+  var defaultIds = makesafePlannerDefaultCapableIds();
+  if (!Object.keys(state.capableIds).length) state.capableIds = defaultIds;
+
+  var byName = {};
+  (_crewList || []).forEach(function(u) { byName[makesafePlannerNameKey(makesafePlannerDisplayName(u))] = u; });
+  var hasHugoAlyx = state.crews.some(function(c) { return /hugo/.test(c.name || '') && /alyx|alex/.test(c.name || ''); });
+  var hugo = byName.hugo || Object.keys(byName).map(function(k){return byName[k];}).find(function(u){ return /hugo/.test(makesafePlannerNameKey(makesafePlannerDisplayName(u))); });
+  var alyx = byName.alyx || byName.alex || Object.keys(byName).map(function(k){return byName[k];}).find(function(u){ return /alyx|alex/.test(makesafePlannerNameKey(makesafePlannerDisplayName(u))); });
+  if (!hasHugoAlyx && hugo && alyx && hugo.id !== alyx.id) {
+    state.crews.unshift({ id: 'crew_hugo_alyx', name: 'Hugo + Alyx', memberIds: [hugo.id, alyx.id] });
+    state.capableIds[hugo.id] = true;
+    state.capableIds[alyx.id] = true;
+  }
+  state.crews = state.crews.filter(function(c) { return c && Array.isArray(c.memberIds) && c.memberIds.length > 1; }).map(function(c, idx) {
+    var seen = {};
+    var memberIds = c.memberIds.filter(function(id) { if (!id || seen[id]) return false; seen[id] = true; return true; });
+    var names = memberIds.map(function(id) { var u = (_crewList || []).find(function(x) { return x.id === id; }); return makesafePlannerDisplayName(u); }).filter(Boolean);
+    return { id: c.id || ('crew_' + idx + '_' + makesafePlannerSlug(names.join('_'))), name: c.name || names.join(' + ') || ('Crew ' + (idx + 1)), memberIds: memberIds };
+  });
+  makesafePlannerWriteState(state);
+  return state;
+}
+function makesafePlannerRows(state) {
+  state = state || makesafePlannerEnsureState();
+  var usedInTeam = {};
+  var rows = [];
+  state.crews.forEach(function(c) {
+    var members = (c.memberIds || []).map(function(id) { return (_crewList || []).find(function(u) { return u.id === id; }); }).filter(Boolean);
+    if (members.length < 2) return;
+    members.forEach(function(u) { usedInTeam[u.id] = true; });
+    rows.push({ id: c.id, name: c.name || members.map(makesafePlannerDisplayName).join(' + '), memberIds: members.map(function(u) { return u.id; }), members: members, kind: 'crew' });
+  });
+  (_crewList || []).forEach(function(u) {
+    if (!u || !u.id || !state.capableIds[u.id] || usedInTeam[u.id]) return;
+    rows.push({ id: 'solo_' + u.id, name: makesafePlannerDisplayName(u), memberIds: [u.id], members: [u], kind: 'solo' });
+  });
+  rows.sort(function(a, b) { if (a.kind !== b.kind) return a.kind === 'crew' ? -1 : 1; return a.name.localeCompare(b.name); });
+  rows.push({ id: 'other_existing', name: 'Other existing allocations', memberIds: [], members: [], kind: 'other' });
+  return rows;
+}
+function makesafePlannerMemberLabel(row) {
+  if (!row || !row.members || !row.members.length) return '';
+  return row.members.map(makesafePlannerDisplayName).filter(Boolean).join(' + ');
+}
+function makesafePlannerFlattenMakesafes(columns) {
+  var all = [];
+  Object.keys(columns || {}).forEach(function(k) { all = all.concat(columns[k] || []); });
+  return all;
+}
+function makesafePlannerEventIsMakesafe(ev) {
+  var t = String(ev.job_type || ev.type || ev.division || '').toLowerCase();
+  return !!ev.job_id && (t === 'makesafe' || t === 'makesafes' || /make.?safe/i.test(String(ev.label || ev.job_number || ev.title || '')));
+}
+function makesafePlannerEventDates(ev, weekDays) {
+  var start = ev.scheduled_date;
+  var end = ev.scheduled_end || ev.scheduled_date;
+  if (!start) return [];
+  return weekDays.filter(function(day) { return day >= start && day <= end; });
+}
+function makesafePlannerMatchRowForEvent(ev, rows) {
+  if (ev.user_id) {
+    var byUser = rows.find(function(r) { return (r.memberIds || []).indexOf(ev.user_id) !== -1; });
+    if (byUser) return byUser;
+  }
+  var crewName = makesafePlannerNameKey(cleanCrewName(ev.crew_name || ev.assigned_to || '') || '');
+  if (crewName) {
+    var byName = rows.find(function(r) {
+      if (r.kind === 'other') return false;
+      if (makesafePlannerNameKey(r.name) === crewName) return true;
+      return (r.members || []).some(function(u) { return makesafePlannerNameKey(makesafePlannerDisplayName(u)) === crewName; });
+    });
+    if (byName) return byName;
+  }
+  return rows.find(function(r) { return r.id === 'other_existing'; });
+}
+function makesafePlannerPlanJob(jobId, crewId, dateStr) {
+  var state = makesafePlannerEnsureState();
+  var rows = makesafePlannerRows(state);
+  var row = rows.find(function(r) { return r.id === crewId && r.kind !== 'other'; });
+  if (!row) { showToast('Choose a MakeSafe-capable crew row first', 'warning'); return; }
+  if (!dateStr) { showToast('Choose a day first', 'warning'); return; }
+  state.plans[jobId] = { jobId: jobId, crewId: row.id, crewName: row.name, memberIds: row.memberIds, date: dateStr, savedAt: new Date().toISOString() };
+  makesafePlannerWriteState(state);
+  showToast('Saved local plan: ' + row.name + ' on ' + fmtDate(dateStr), 'success');
+  renderMakesafeCrewWeekFromCache();
+}
+function makesafePlannerClearJob(jobId) {
+  var state = makesafePlannerEnsureState();
+  delete state.plans[jobId];
+  makesafePlannerWriteState(state);
+  showToast('Removed from local MakeSafe plan', 'success');
+  renderMakesafeCrewWeekFromCache();
+}
+function makesafePlannerSaveFromBacklog(jobId) {
+  var crew = document.getElementById('msPlanCrew_' + makesafePlannerSlug(jobId));
+  var day = document.getElementById('msPlanDay_' + makesafePlannerSlug(jobId));
+  makesafePlannerPlanJob(jobId, crew ? crew.value : '', day ? day.value : '');
+}
+function makesafePlannerDragStart(ev, jobId) {
+  ev.dataTransfer.setData('text/plain', jobId);
+  ev.dataTransfer.effectAllowed = 'move';
+}
+function makesafePlannerDrop(ev, crewId, dateStr) {
+  ev.preventDefault();
+  var jobId = ev.dataTransfer.getData('text/plain');
+  if (jobId) makesafePlannerPlanJob(jobId, crewId, dateStr);
+}
+function makesafePlannerToggleCapable(userId, checked) {
+  var state = makesafePlannerEnsureState();
+  if (checked) state.capableIds[userId] = true;
+  else delete state.capableIds[userId];
+  makesafePlannerWriteState(state);
+  renderMakesafeCrewWeekFromCache();
+}
+function makesafePlannerCreateCrewFromSelection() {
+  var checks = Array.prototype.slice.call(document.querySelectorAll('.msCrewMemberCb:checked'));
+  var ids = checks.map(function(cb) { return cb.value; }).filter(Boolean);
+  if (ids.length < 2) { showToast('Select at least two trades to make a crew', 'warning'); return; }
+  var state = makesafePlannerEnsureState();
+  ids.forEach(function(id) { state.capableIds[id] = true; });
+  var names = ids.map(function(id) { var u = (_crewList || []).find(function(x) { return x.id === id; }); return makesafePlannerDisplayName(u); }).filter(Boolean);
+  var id = 'crew_' + Date.now() + '_' + makesafePlannerSlug(names.join('_'));
+  state.crews.push({ id: id, name: names.join(' + '), memberIds: ids });
+  makesafePlannerWriteState(state);
+  showToast('Crew row saved: ' + names.join(' + '), 'success');
+  renderMakesafeCrewWeekFromCache();
+}
+function makesafePlannerRemoveCrew(crewId) {
+  var state = makesafePlannerEnsureState();
+  state.crews = state.crews.filter(function(c) { return c.id !== crewId; });
+  Object.keys(state.plans || {}).forEach(function(jobId) { if (state.plans[jobId].crewId === crewId) delete state.plans[jobId]; });
+  makesafePlannerWriteState(state);
+  renderMakesafeCrewWeekFromCache();
+}
+function makesafePlannerToggleSetup() {
+  _makesafeCrewSetupOpen = !_makesafeCrewSetupOpen;
+  renderMakesafeCrewWeekFromCache();
+}
+function renderMakesafePlannerSetup(state, rows) {
+  var html = '<div style="background:#fff;border:1px solid var(--sw-border);border-radius:10px;padding:10px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">'
+    + '<div><strong style="color:var(--sw-dark);">Crew setup</strong><div style="font-size:11px;color:var(--sw-text-sec);">Tick MakeSafe-capable trades, then select people who travel as one crew. People in a crew are hidden from duplicate solo rows.</div></div>'
+    + '<button class="btn btn-sm" onclick="makesafePlannerToggleSetup()" style="font-size:11px;">' + (_makesafeCrewSetupOpen ? 'Hide setup' : 'Show setup') + '</button></div>';
+  if (!_makesafeCrewSetupOpen) return html + '</div>';
+  html += '<div style="display:grid;grid-template-columns:minmax(260px,1fr) minmax(260px,1fr);gap:12px;align-items:start;">';
+  html += '<div><div style="font-size:11px;font-weight:850;color:var(--sw-text-sec);text-transform:uppercase;margin-bottom:6px;">MakeSafe-capable trades</div>';
+  (_crewList || []).forEach(function(u) {
+    html += '<label style="display:flex;align-items:center;gap:7px;font-size:12px;padding:4px 0;"><input type="checkbox" ' + (state.capableIds[u.id] ? 'checked' : '') + ' onchange="makesafePlannerToggleCapable(\'' + makesafePlannerAttr(u.id) + '\', this.checked)"> <span>' + escapeHtml(makesafePlannerDisplayName(u)) + '</span><span style="color:var(--sw-text-sec);font-size:10px;">' + escapeHtml([u.role, u.division].filter(Boolean).join(' · ')) + '</span></label>';
+  });
+  html += '</div><div><div style="font-size:11px;font-weight:850;color:var(--sw-text-sec);text-transform:uppercase;margin-bottom:6px;">Crews / teams</div>';
+  (_crewList || []).forEach(function(u) {
+    html += '<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;margin:0 8px 6px 0;padding:4px 7px;background:var(--sw-light);border-radius:999px;"><input class="msCrewMemberCb" type="checkbox" value="' + makesafePlannerAttr(u.id) + '"> ' + escapeHtml(makesafePlannerDisplayName(u)) + '</label>';
+  });
+  html += '<div><button class="btn btn-sm" onclick="makesafePlannerCreateCrewFromSelection()" style="font-size:11px;background:#4C6A7C;color:#fff;">Create crew row</button></div>';
+  html += '<div style="margin-top:8px;display:flex;flex-direction:column;gap:5px;">';
+  state.crews.forEach(function(c) {
+    html += '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:12px;background:#FAFAF8;border:1px solid var(--sw-border);border-radius:8px;padding:6px 8px;"><strong>' + escapeHtml(c.name) + '</strong><button onclick="makesafePlannerRemoveCrew(\'' + makesafePlannerAttr(c.id) + '\')" style="border:none;background:none;color:#E74C3C;font-weight:850;cursor:pointer;">Remove</button></div>';
+  });
+  html += '</div></div></div></div>';
+  return html;
+}
+
 function toggleMakesafeCrewDay() {
   var existing = document.getElementById('makesafeCrewDayContainer');
   if (existing) { closeMakesafeCrewDayIfOpen(); return; }
@@ -8990,103 +9213,164 @@ function toggleMakesafeCrewDay() {
   var panel = document.createElement('div');
   panel.id = 'makesafeCrewDayContainer';
   panel.style.cssText = 'position:absolute;inset:0;z-index:100;background:#fff;display:flex;flex-direction:column;';
-  panel.innerHTML = makesafeCommandHeader('MakeSafe crew day', 'Pick a date and see who has what, plus what still needs allocation.', 'toggleMakesafeCrewDay()')
-    + '<div style="display:flex;gap:8px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--sw-border);background:var(--sw-light);">'
-    + '<label style="font-size:12px;font-weight:800;color:var(--sw-text-sec);">Date</label>'
-    + '<input id="makesafeCrewDayDate" type="date" value="' + escapeHtml(_makesafeCrewDayDate) + '" onchange="loadMakesafeCrewDay(this.value)" style="padding:6px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:13px;">'
-    + '<button class="btn btn-sm" onclick="loadMakesafeCrewDay(localDateStr(new Date()))" style="font-size:11px;">Today</button>'
-    + '<button class="btn btn-sm" onclick="var d=new Date(localDateStr(new Date())+\'T00:00:00\');d.setDate(d.getDate()+1);loadMakesafeCrewDay(localDateStr(d))" style="font-size:11px;">Tomorrow</button>'
+  var weekStart = makesafePlannerWeekStart(_makesafeCrewDayDate);
+  panel.innerHTML = makesafeCommandHeader('MakeSafe crew week planner', 'Plan the whole week by real crew/team rows. Local planner changes stay in this browser until an operator separately books work live.', 'toggleMakesafeCrewDay()')
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--sw-border);background:var(--sw-light);">'
+    + '<label style="font-size:12px;font-weight:800;color:var(--sw-text-sec);">Week of</label>'
+    + '<input id="makesafeCrewDayDate" type="date" value="' + escapeHtml(weekStart) + '" onchange="loadMakesafeCrewDay(this.value)" style="padding:6px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:13px;">'
+    + '<button class="btn btn-sm" onclick="var d=new Date(makesafePlannerWeekStart(_makesafeCrewDayDate)+\'T00:00:00\');d.setDate(d.getDate()-7);loadMakesafeCrewDay(localDateStr(d))" style="font-size:11px;">Prev week</button>'
+    + '<button class="btn btn-sm" onclick="loadMakesafeCrewDay(localDateStr(new Date()))" style="font-size:11px;">This week</button>'
+    + '<button class="btn btn-sm" onclick="var d=new Date(makesafePlannerWeekStart(_makesafeCrewDayDate)+\'T00:00:00\');d.setDate(d.getDate()+7);loadMakesafeCrewDay(localDateStr(d))" style="font-size:11px;">Next week</button>'
+    + '<span style="font-size:11px;color:var(--sw-text-sec);font-weight:700;">Frontend-only planner: reads calendar + MakeSafe pipeline; saves crew presets/local plan in localStorage.</span>'
     + '</div><div id="makesafeCrewDayBody" style="flex:1;overflow:auto;padding:12px;background:#FAFAF8;"></div>';
   container.style.position = 'relative';
   container.appendChild(panel);
-  loadMakesafeCrewDay(_makesafeCrewDayDate);
+  loadMakesafeCrewDay(weekStart);
 }
 
-function renderMakesafeCrewJobPill(j, source) {
+function renderMakesafeCrewJobPill(j, source, opts) {
+  opts = opts || {};
   var stage = getMakesafeStage(j, j.status || j._makesafe_raw_status || '');
   var age = getMakesafeAgeParts(j, stage);
   var typeLabel = getMakesafeTypeLabel(j);
   var builder = getMakesafeBuilder(j) || 'Builder TBC';
   var suburb = j.site_suburb || j.suburb || 'Suburb TBC';
-  return '<div onclick="openJobDetail(\'' + j.id + '\')" style="cursor:pointer;background:#fff;border-left:4px solid ' + age.color + ';border-radius:8px;padding:8px 10px;margin-bottom:7px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">'
+  var html = '<div draggable="' + (opts.draggable ? 'true' : 'false') + '" ' + (opts.draggable ? 'ondragstart="makesafePlannerDragStart(event,\'' + makesafePlannerAttr(j.id) + '\')"' : '') + ' style="cursor:' + (opts.draggable ? 'grab' : 'pointer') + ';background:#fff;border-left:4px solid ' + age.color + ';border-radius:8px;padding:8px 10px;margin-bottom:7px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">';
+  html += '<div onclick="openJobDetail(\'' + makesafePlannerAttr(j.id) + '\')" style="cursor:pointer;">'
     + '<div style="display:flex;justify-content:space-between;gap:8px;"><div style="font-size:10px;font-weight:850;color:#D97706;text-transform:uppercase;">' + escapeHtml(typeLabel) + '</div><span style="font-size:10px;color:' + age.color + ';font-weight:850;">' + escapeHtml(age.label) + '</span></div>'
     + '<div style="font-size:14px;font-weight:850;color:var(--sw-dark);">' + escapeHtml(suburb) + '</div>'
     + '<div style="font-size:12px;color:#D97706;font-weight:800;">' + escapeHtml(builder) + '</div>'
     + '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:2px;">' + escapeHtml([j.external_ref, j.job_number].filter(Boolean).join(' · ')) + '</div>'
     + (source ? '<div style="font-size:10px;color:var(--sw-text-sec);margin-top:4px;">' + escapeHtml(source) + '</div>' : '')
     + '</div>';
+  if (opts.clearPlan) html += '<button onclick="event.stopPropagation();makesafePlannerClearJob(\'' + makesafePlannerAttr(j.id) + '\')" style="margin-top:6px;border:none;background:#FEE2E2;color:#991B1B;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:850;cursor:pointer;">Remove local plan</button>';
+  return html + '</div>';
+}
+
+function renderMakesafePlannerBacklog(backlog, rows, days) {
+  var optionsCrew = rows.filter(function(r) { return r.kind !== 'other'; }).map(function(r) { return '<option value="' + makesafePlannerAttr(r.id) + '">' + escapeHtml(r.name) + '</option>'; }).join('');
+  var optionsDay = days.map(function(d) { return '<option value="' + d + '">' + fmtDate(d) + '</option>'; }).join('');
+  var html = '<div style="width:330px;min-width:300px;max-width:38vw;border-right:1px solid var(--sw-border);padding-right:10px;">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div><strong>Unassigned backlog</strong><div style="font-size:11px;color:var(--sw-text-sec);">Drag into the week grid or choose a crew/day.</div></div><span style="font-size:12px;font-weight:850;color:#E74C3C;">' + backlog.length + '</span></div>';
+  if (!backlog.length) html += '<div style="background:#fff;border-radius:10px;padding:18px;text-align:center;color:var(--sw-text-sec);font-size:12px;">No unassigned active MakeSafes found.</div>';
+  backlog.forEach(function(j) {
+    var sid = makesafePlannerSlug(j.id);
+    html += '<div style="margin-bottom:8px;">' + renderMakesafeCrewJobPill(j, 'Needs allocation', { draggable: true });
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:5px;margin-top:-3px;margin-bottom:8px;">'
+      + '<select id="msPlanCrew_' + sid + '" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px;">' + optionsCrew + '</select>'
+      + '<select id="msPlanDay_' + sid + '" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px;">' + optionsDay + '</select>'
+      + '<button onclick="makesafePlannerSaveFromBacklog(\'' + makesafePlannerAttr(j.id) + '\')" style="font-size:11px;background:#D97706;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Plan</button>'
+      + '</div></div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderMakesafeCrewWeekFromCache() {
+  if (!_makesafeCrewPlannerCache) return;
+  renderMakesafeCrewWeek(_makesafeCrewPlannerCache);
+}
+
+function renderMakesafeCrewWeek(cache) {
+  _makesafeCrewPlannerCache = cache;
+  var body = document.getElementById('makesafeCrewDayBody');
+  if (!body) return;
+  var state = makesafePlannerEnsureState();
+  var rows = makesafePlannerRows(state);
+  var days = cache.days;
+  var jobsById = cache.jobsById;
+  var cells = {};
+  rows.forEach(function(r) { cells[r.id] = {}; days.forEach(function(d) { cells[r.id][d] = []; }); });
+  var eventJobIds = {};
+  var plannedJobIds = {};
+
+  cache.events.forEach(function(ev) {
+    var row = makesafePlannerMatchRowForEvent(ev, rows);
+    if (!row) return;
+    var dates = makesafePlannerEventDates(ev, days);
+    dates.forEach(function(d) {
+      var j = jobsById[ev.job_id] || { id: ev.job_id, job_number: ev.job_number, external_ref: ev.external_ref, site_suburb: ev.site_suburb, site_address: ev.site_address, client_name: ev.client_name, type: 'makesafe', status: ev.job_status || ev.status, crew_name: ev.crew_name, scheduled_date: ev.scheduled_date };
+      var key = 'live_' + j.id;
+      if (!cells[row.id][d].some(function(x) { return x.key === key; })) cells[row.id][d].push({ key: key, job: j, source: 'Live calendar', live: true });
+      eventJobIds[j.id] = true;
+    });
+  });
+  Object.keys(state.plans || {}).forEach(function(jobId) {
+    var plan = state.plans[jobId];
+    if (!plan || days.indexOf(plan.date) === -1) return;
+    var row = rows.find(function(r) { return r.id === plan.crewId; });
+    var j = jobsById[jobId];
+    if (!row || !j) return;
+    cells[row.id][plan.date].push({ key: 'plan_' + jobId, job: j, source: 'Local plan only', planned: true });
+    plannedJobIds[jobId] = true;
+  });
+
+  var activeJobs = cache.allMakesafes.filter(function(j) { return getMakesafeStage(j, j.status || j._makesafe_raw_status || '') !== 'completed'; });
+  var backlog = activeJobs.filter(function(j) {
+    if (!j || !j.id || plannedJobIds[j.id] || eventJobIds[j.id]) return false;
+    var crew = getMakesafeCrewLabel(j);
+    return !crew || crew.toLowerCase() === 'unallocated' || getMakesafeStage(j, j.status || j._makesafe_raw_status || '') === 'new' || getMakesafeSubstatus(j) === 'pending_allocation';
+  });
+  backlog.sort(function(a, b) {
+    var aa = getMakesafeAgeParts(a, getMakesafeStage(a, a.status || a._makesafe_raw_status || '')).days || 0;
+    var bb = getMakesafeAgeParts(b, getMakesafeStage(b, b.status || b._makesafe_raw_status || '')).days || 0;
+    return bb - aa || String(a.site_suburb || '').localeCompare(String(b.site_suburb || ''));
+  });
+
+  var plannedCount = Object.keys(state.plans || {}).filter(function(jobId) { return plannedJobIds[jobId]; }).length;
+  var liveCount = Object.keys(eventJobIds).length;
+  var html = renderMakesafePlannerSetup(state, rows);
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:12px;">'
+    + '<div style="background:#fff;border-left:4px solid #293C46;border-radius:8px;padding:10px;"><div style="font-size:22px;font-weight:850;">' + activeJobs.length + '</div><div style="font-size:12px;color:var(--sw-text-sec);">active MakeSafes</div></div>'
+    + '<div style="background:#fff;border-left:4px solid #E67E22;border-radius:8px;padding:10px;"><div style="font-size:22px;font-weight:850;">' + liveCount + '</div><div style="font-size:12px;color:var(--sw-text-sec);">live calendar jobs this week</div></div>'
+    + '<div style="background:#fff;border-left:4px solid #D97706;border-radius:8px;padding:10px;"><div style="font-size:22px;font-weight:850;">' + plannedCount + '</div><div style="font-size:12px;color:var(--sw-text-sec);">local planned jobs</div></div>'
+    + '<div style="background:#fff;border-left:4px solid #E74C3C;border-radius:8px;padding:10px;"><div style="font-size:22px;font-weight:850;color:#E74C3C;">' + backlog.length + '</div><div style="font-size:12px;color:var(--sw-text-sec);">unassigned backlog</div></div>'
+    + '</div>';
+  html += '<div style="display:flex;gap:12px;align-items:flex-start;min-height:460px;">';
+  html += renderMakesafePlannerBacklog(backlog, rows, days);
+  html += '<div style="flex:1;overflow:auto;background:#fff;border:1px solid var(--sw-border);border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">';
+  html += '<div style="display:grid;grid-template-columns:190px repeat(7,minmax(150px,1fr));min-width:1180px;">';
+  html += '<div style="position:sticky;left:0;z-index:3;background:#293C46;color:#fff;padding:9px;font-size:12px;font-weight:850;">Crew / team</div>';
+  days.forEach(function(d) { html += '<div style="background:#293C46;color:#fff;padding:9px;font-size:12px;font-weight:850;text-align:center;">' + new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }) + '</div>'; });
+  rows.forEach(function(row) {
+    var color = row.kind === 'other' ? '#8FA4B2' : crewColor(row.name);
+    html += '<div style="position:sticky;left:0;z-index:2;background:#fff;border-top:1px solid var(--sw-border);border-right:1px solid var(--sw-border);padding:9px;min-height:112px;">'
+      + '<div style="display:flex;gap:8px;align-items:center;"><span style="width:26px;height:26px;border-radius:50%;background:' + color + ';color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:850;">' + escapeHtml(row.name.charAt(0).toUpperCase()) + '</span><strong style="font-size:13px;">' + escapeHtml(row.name) + '</strong></div>'
+      + '<div style="font-size:10px;color:var(--sw-text-sec);margin-top:5px;line-height:1.3;">' + escapeHtml(row.kind === 'crew' ? makesafePlannerMemberLabel(row) : (row.kind === 'solo' ? 'Solo capable trade' : 'Live assignments not in preset crews')) + '</div></div>';
+    days.forEach(function(day) {
+      var items = cells[row.id][day] || [];
+      html += '<div ondragover="event.preventDefault()" ondrop="makesafePlannerDrop(event,\'' + makesafePlannerAttr(row.id) + '\',\'' + day + '\')" style="border-top:1px solid var(--sw-border);border-right:1px solid var(--sw-border);padding:7px;min-height:112px;background:' + (items.length ? '#FFFBEB' : '#fff') + ';">';
+      if (!items.length) html += '<div style="height:100%;min-height:84px;border:1px dashed #E5E7EB;border-radius:8px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--sw-text-sec);font-size:11px;padding:8px;">Drop MakeSafe here</div>';
+      items.forEach(function(item) { html += renderMakesafeCrewJobPill(item.job, item.source, { clearPlan: item.planned }); });
+      html += '</div>';
+    });
+  });
+  html += '</div></div></div>';
+  body.innerHTML = html;
 }
 
 async function loadMakesafeCrewDay(dateStr) {
-  _makesafeCrewDayDate = dateStr || localDateStr(new Date());
+  _makesafeCrewDayDate = makesafePlannerWeekStart(dateStr || _makesafeCrewDayDate || localDateStr(new Date()));
   var input = document.getElementById('makesafeCrewDayDate');
   if (input) input.value = _makesafeCrewDayDate;
   var body = document.getElementById('makesafeCrewDayBody');
   if (!body) return;
-  body.innerHTML = '<div class="loading" style="padding:24px;text-align:center;">Loading crew day...</div>';
+  body.innerHTML = '<div class="loading" style="padding:24px;text-align:center;">Loading crew week planner...</div>';
   try {
     await loadCrewList();
+    var days = makesafePlannerWeekDays(_makesafeCrewDayDate);
     var results = await Promise.all([
-      opsFetch('calendar', { from: _makesafeCrewDayDate, to: _makesafeCrewDayDate }),
+      opsFetch('calendar', { from: days[0], to: days[6] }),
       opsFetch('makesafe_pipeline', {})
     ]);
-    var events = (results[0].events || []).filter(function(ev) {
-      var t = ev.job_type || ev.type || ev.division || '';
-      return ev.job_id && (t === 'makesafe' || t === 'makesafes' || /make.?safe/i.test(String(ev.label || ev.job_number || '')));
-    });
-    var allMakesafes = [];
-    var cols = results[1].columns || {};
-    Object.keys(cols).forEach(function(k) { allMakesafes = allMakesafes.concat(cols[k] || []); });
-    var byId = {};
-    allMakesafes.forEach(function(j) { byId[j.id] = j; });
-    var crewRows = {};
-    _crewList.forEach(function(u) { crewRows[u.name] = { user: u, jobs: [] }; });
-    crewRows['Unassigned'] = { user: null, jobs: [] };
-
-    events.forEach(function(ev) {
-      var crew = 'Unassigned';
-      if (ev.user_id) {
-        var match = _crewList.find(function(u) { return u.id === ev.user_id; });
-        crew = match ? match.name : (cleanCrewName(ev.crew_name || ev.assigned_to) || 'Unassigned');
-      } else crew = cleanCrewName(ev.crew_name || ev.assigned_to) || 'Unassigned';
-      if (!crewRows[crew]) crewRows[crew] = { user: null, jobs: [] };
-      var j = byId[ev.job_id] || { id: ev.job_id, job_number: ev.job_number, external_ref: ev.external_ref, site_suburb: ev.site_suburb, site_address: ev.site_address, client_name: ev.client_name, type: 'makesafe', status: ev.job_status || ev.status, crew_name: crew, scheduled_date: ev.scheduled_date };
-      crewRows[crew].jobs.push({ job: j, event: ev });
-    });
-
-    allMakesafes.forEach(function(j) {
-      var stage = getMakesafeStage(j, j.status || j._makesafe_raw_status || '');
-      if (stage === 'completed') return;
-      var crew = getMakesafeCrewLabel(j);
-      var day = (j.scheduled_date || j.first_scheduled_date || j.next_scheduled_date || '').slice(0, 10);
-      if (!crew && (!day || day === _makesafeCrewDayDate)) {
-        crewRows['Unassigned'].jobs.push({ job: j, event: null });
-      }
-    });
-
-    var names = Object.keys(crewRows).sort(function(a,b) { if (a === 'Unassigned') return -1; if (b === 'Unassigned') return 1; return a.localeCompare(b); });
-    var assignedCount = names.reduce(function(n, c) { return n + (c === 'Unassigned' ? 0 : crewRows[c].jobs.length); }, 0);
-    var unassignedCount = crewRows['Unassigned'] ? crewRows['Unassigned'].jobs.length : 0;
-    var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin-bottom:12px;">'
-      + '<div style="background:#fff;border-left:4px solid #E67E22;border-radius:8px;padding:10px;"><div style="font-size:22px;font-weight:850;">' + assignedCount + '</div><div style="font-size:12px;color:var(--sw-text-sec);">assigned MakeSafes on date</div></div>'
-      + '<div style="background:#fff;border-left:4px solid #E74C3C;border-radius:8px;padding:10px;"><div style="font-size:22px;font-weight:850;color:#E74C3C;">' + unassignedCount + '</div><div style="font-size:12px;color:var(--sw-text-sec);">need allocation</div></div>'
-      + '<div style="background:#fff;border-left:4px solid #293C46;border-radius:8px;padding:10px;"><div style="font-size:22px;font-weight:850;">' + _crewList.length + '</div><div style="font-size:12px;color:var(--sw-text-sec);">known crew rows</div></div>'
-      + '</div>';
-    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;align-items:start;">';
-    names.forEach(function(name) {
-      var row = crewRows[name];
-      var color = name === 'Unassigned' ? '#E74C3C' : crewColor(name);
-      var initial = name.charAt(0).toUpperCase();
-      html += '<div style="background:var(--sw-card);border-radius:10px;padding:10px;box-shadow:var(--sw-shadow);min-height:96px;">';
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;"><div style="display:flex;align-items:center;gap:8px;"><span style="width:28px;height:28px;border-radius:50%;background:' + color + ';color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:850;">' + initial + '</span><strong>' + escapeHtml(name) + '</strong></div><span style="font-size:12px;color:var(--sw-text-sec);font-weight:800;">' + row.jobs.length + '</span></div>';
-      if (!row.jobs.length) html += '<div style="font-size:12px;color:var(--sw-text-sec);padding:8px 0;">No MakeSafes assigned for this date.</div>';
-      row.jobs.forEach(function(item) { html += renderMakesafeCrewJobPill(item.job, item.event ? 'Calendar assignment' : 'Needs allocation'); });
-      html += '</div>';
-    });
-    html += '</div>';
-    body.innerHTML = html;
+    var events = (results[0].events || []).filter(makesafePlannerEventIsMakesafe);
+    var allMakesafes = makesafePlannerFlattenMakesafes(results[1].columns || {});
+    var jobsById = {};
+    allMakesafes.forEach(function(j) { if (j && j.id) jobsById[j.id] = j; });
+    _makesafeCrewPlannerCache = { days: days, events: events, allMakesafes: allMakesafes, jobsById: jobsById };
+    renderMakesafeCrewWeek(_makesafeCrewPlannerCache);
   } catch(e) {
-    body.innerHTML = '<div style="color:var(--sw-red);padding:16px;">Crew day failed: ' + escapeHtml(e.message || String(e)) + '</div>';
+    body.innerHTML = '<div style="color:var(--sw-red);padding:16px;">Crew week planner failed: ' + escapeHtml(e.message || String(e)) + '</div>';
   }
 }
 
