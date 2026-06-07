@@ -3791,8 +3791,8 @@
           html += '<div class="job-card" data-type="' + type + '" onclick="' + openAction + '(\'' + job.id + '\', \'' + a.id + '\')">';
           html += '  <div class="job-card-top">';
           html += '    <div>';
-          html += '      <div class="job-card-client">' + esc(job.client_name || 'Unknown') + '</div>';
-          html += '      <div class="job-card-address">' + esc(job.site_suburb || job.site_address || '');
+          html += '      <div class="job-card-client">' + esc(getTradeCardTitle(job, type)) + '</div>';
+          html += '      <div class="job-card-address">' + esc(getTradeCardLine(job, type));
           if (job.job_number) html += ' <span style="color:var(--sw-mid);font-size:12px">' + esc(job.job_number) + '</span>';
           html += '</div>';
           html += '    </div>';
@@ -3874,8 +3874,8 @@
         html += '<div class="job-card' + todayClass + '" data-type="' + type + '" onclick="' + openAction + '(\'' + job.id + '\', \'' + a.id + '\')">';
         html += '  <div class="job-card-top">';
         html += '    <div>';
-        html += '      <div class="job-card-client">' + esc(job.client_name || 'Unknown') + '</div>';
-        html += '      <div class="job-card-address">' + esc(job.site_suburb || job.site_address || '');
+        html += '      <div class="job-card-client">' + esc(getTradeCardTitle(job, type)) + '</div>';
+        html += '      <div class="job-card-address">' + esc(getTradeCardLine(job, type));
         if (job.job_number) html += ' <span style="color:var(--sw-mid);font-size:12px">' + esc(job.job_number) + '</span>';
         html += '</div>';
         html += '    </div>';
@@ -4056,6 +4056,51 @@
     _reportDirectToJobs = true;
     showView('report');
   };
+
+  function getTradeDocOpenUrl(doc) {
+    if (!doc) return '';
+    var candidates = [doc.pdf_url, doc.public_url, doc.signed_url, doc.download_url, doc.url, doc.file_url, doc.storage_url];
+    for (var i = 0; i < candidates.length; i++) {
+      var url = candidates[i];
+      if (url && /^https?:\/\//i.test(String(url))) return String(url);
+    }
+    return '';
+  }
+
+  function tradeMakesafeTextFromValue(value) {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) return value.map(tradeMakesafeTextFromValue).filter(Boolean).join(' ');
+    if (typeof value === 'object') {
+      return [value.type, value.job_type, value.makesafe_type, value.scope_type, value.category, value.title, value.name, value.description, value.summary, value.scope, value.notes]
+        .map(tradeMakesafeTextFromValue).filter(Boolean).join(' ');
+    }
+    return String(value || '');
+  }
+
+  function getTradeMakesafeTypeLabel(job) {
+    var md = job.metadata || job.makesafe_details || {};
+    var direct = job.makesafe_type || job.job_type || job.scope_type || job.work_type || job.service_type || md.makesafe_type || md.job_type || md.scope_type || md.work_type || md.service_type || md.damage_type || md.category;
+    var text = tradeMakesafeTextFromValue(direct) || tradeMakesafeTextFromValue(md.scope) || tradeMakesafeTextFromValue(md.scope_json) || tradeMakesafeTextFromValue(job.scope_json) || tradeMakesafeTextFromValue(job.description) || tradeMakesafeTextFromValue(job.notes) || '';
+    var lower = text.toLowerCase();
+    if (/temp(orary)?\s+fenc|make\s*safe\s*fenc|\bfenc(e|ing)?\b/.test(lower)) return 'Temp fence';
+    if (/roof|tile|tarp|sheeting|water ingress/.test(lower)) return 'Roof make safe';
+    if (/ceiling|collapse|cornice|gyprock|plaster/.test(lower)) return 'Ceiling collapse';
+    if (/board[-\s]?up|board up|window|glazier|glass|door/.test(lower)) return 'Board up';
+    if (/tree|storm|impact|structural|prop|brace/.test(lower)) return 'Structural make safe';
+    if (typeof direct === 'string' && direct.trim()) return direct.trim().replace(/[_-]+/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+    return 'Make Safe';
+  }
+
+  function getTradeCardTitle(job, type) {
+    if (type === 'makesafe') return getTradeMakesafeTypeLabel(job) + ' · ' + (job.site_suburb || job.site_address || 'Site TBC');
+    return job.client_name || 'Unknown';
+  }
+
+  function getTradeCardLine(job, type) {
+    if (type === 'makesafe') return job.client_name || 'MakeSafe';
+    return job.site_suburb || job.site_address || '';
+  }
   // Open a job and auto-switch to a specific tab (e.g. 'comms') after it loads
   window.openJobToTab = function(jobId, assignmentId, tabName) {
     _pendingJobTab = tabName || null;
@@ -5417,8 +5462,8 @@
   function renderTradeDocuments(data, phase) {
     if (phase === 'travelling' || phase === 'end_of_day') return '';
     var docs = (data.documents || []).filter(function(d) {
-      // Only show visible docs that aren't site_photo (those go in gallery) and have a URL
-      return d.visible_to_trades && d.type !== 'site_photo' && (d.storage_url || d.pdf_url);
+      // Only show visible docs that aren't site_photo (those go in gallery) and have a browser-safe URL
+      return d.visible_to_trades && d.type !== 'site_photo' && getTradeDocOpenUrl(d);
     });
     if (docs.length === 0) return '';
 
@@ -5437,8 +5482,7 @@
     h += '<h3>Approvals &amp; Documents</h3>';
 
     docs.forEach(function(d) {
-      var rawUrl = d.pdf_url || d.storage_url || '';
-      var url = /^https?:\/\//.test(rawUrl) ? rawUrl : (d.pdf_url || d.storage_url || '');
+      var url = getTradeDocOpenUrl(d);
       var cfg = typeLabels[d.type] || typeLabels.general;
       var name = d.file_name || cfg.label;
       var isPdf = /\.pdf$/i.test(name) || (d.pdf_url && !d.storage_url);
@@ -5590,10 +5634,11 @@
 
     // ── Work Order PDF (pre_confirm, confirmed, complete) ──
     var workOrderDoc = docs.find(function(d) { return d.type === 'work_order'; });
-    if (workOrderDoc && (phase === 'pre_confirm' || phase === 'confirmed' || isJobDone(phase))) {
+    var workOrderUrl = getTradeDocOpenUrl(workOrderDoc);
+    if (workOrderDoc && workOrderUrl && (phase === 'pre_confirm' || phase === 'confirmed' || isJobDone(phase))) {
       h += '<div class="detail-section">';
       h += '  <h3>Work Order PDF</h3>';
-      h += '  <a href="' + esc(workOrderDoc.pdf_url) + '" target="_blank" class="btn btn-secondary">View Work Order (v' + workOrderDoc.version + ')</a>';
+      h += '  <a href="' + esc(workOrderUrl) + '" target="_blank" class="btn btn-secondary">View Work Order (v' + workOrderDoc.version + ')</a>';
       h += '</div>';
     }
 
@@ -6706,8 +6751,8 @@
       h += '<div class="detail-section">';
       h += '  <h3>Documents</h3>';
       otherDocs.forEach(function(d) {
-        var docUrl = d.pdf_url || d.storage_url || '#';
-        if (!/^https?:\/\//.test(docUrl)) docUrl = d.pdf_url || '#';
+        var docUrl = getTradeDocOpenUrl(d);
+        if (!docUrl) return;
         h += '<a href="' + esc(docUrl) + '" target="_blank" style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--sw-light);border-radius:8px;text-decoration:none;margin-bottom:4px">';
         h += '<svg width="18" height="18" viewBox="0 0 24 24" fill="var(--sw-mid)"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z"/></svg>';
         h += '<div style="flex:1;font-size:13px;color:var(--sw-dark)">' + esc(d.file_name || d.type || 'Document') + '</div>';
