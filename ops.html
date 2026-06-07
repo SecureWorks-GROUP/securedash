@@ -8435,21 +8435,52 @@ function buildMakesafeColumns(columns) {
   });
   return out;
 }
+function getMakesafeAssignmentRows(j) {
+  var rows = [];
+  if (Array.isArray(j.assignments)) rows = rows.concat(j.assignments);
+  if (Array.isArray(j.job_assignments)) rows = rows.concat(j.job_assignments);
+  if (j.assignment && typeof j.assignment === 'object') rows.push(j.assignment);
+  return rows.filter(Boolean);
+}
+function makesafeAssignmentName(v) {
+  if (!v) return '';
+  if (typeof v === 'string') return v;
+  return v.crew_label || v.crew_name || v.assigned_trade || v.assigned_to || v.trade_name || v.user_name || v.name || (v.user && (v.user.name || v.user.email)) || '';
+}
 function getMakesafeCrewLabel(j) {
   var names = [];
-  if (Array.isArray(j.assigned_trades)) names = names.concat(j.assigned_trades);
+  if (Array.isArray(j.assigned_trades)) names = names.concat(j.assigned_trades.map(makesafeAssignmentName));
   if (Array.isArray(j.trade_names)) names = names.concat(j.trade_names);
   if (Array.isArray(j.user_names)) names = names.concat(j.user_names);
+  if (Array.isArray(j.crew_members)) names = names.concat(j.crew_members.map(makesafeAssignmentName));
+  getMakesafeAssignmentRows(j).forEach(function(a) { names.push(makesafeAssignmentName(a)); });
+  if (j.crew_label) names.push(j.crew_label);
   if (j.assigned_trade) names.push(j.assigned_trade);
   if (j.crew_name) names.push(j.crew_name);
   if (j.assigned_crew) names.push(j.assigned_crew);
-  names = names.filter(Boolean).map(String).filter(function(v, i, a) { return a.indexOf(v) === i; });
+  names = names.filter(Boolean).map(function(v) { return String(v).trim(); }).filter(Boolean);
+  names = names.filter(function(v, i, a) { return a.indexOf(v) === i; });
   return names.join(' + ');
 }
+function getMakesafeAssignmentCount(j) {
+  var count = Number(j.assignment_count || j.assignments_count || 0);
+  if (!count && Array.isArray(j.assignments)) count = j.assignments.length;
+  if (!count && Array.isArray(j.job_assignments)) count = j.job_assignments.length;
+  if (!count && Array.isArray(j.crew_members)) count = j.crew_members.length;
+  if (!count && getMakesafeCrewLabel(j)) count = 1;
+  return count;
+}
 function getMakesafeDayLabel(j) {
-  var d = j.scheduled_date || j.first_scheduled_date || j.next_scheduled_date || '';
-  if (!d) return '';
-  return fmtDate(String(d).slice(0, 10));
+  var dates = [];
+  ['scheduled_date', 'first_scheduled_date', 'next_scheduled_date', 'assignment_date'].forEach(function(k) { if (j[k]) dates.push(j[k]); });
+  getMakesafeAssignmentRows(j).forEach(function(a) {
+    ['scheduled_date', 'scheduled_start', 'date'].forEach(function(k) { if (a[k]) dates.push(a[k]); });
+  });
+  dates = dates.filter(Boolean).map(function(d) { return String(d).slice(0, 10); }).filter(Boolean);
+  dates = dates.filter(function(v, i, a) { return a.indexOf(v) === i; }).sort();
+  if (!dates.length) return '';
+  if (dates.length === 1) return fmtDate(dates[0]);
+  return fmtDate(dates[0]) + ' +' + (dates.length - 1);
 }
 function getMakesafeReportLabel(j, status) {
   var sub = getMakesafeSubstatus(j);
@@ -8518,7 +8549,8 @@ function renderMakesafeCard(j, status) {
   html += '<div style="font-size:11px;color:var(--sw-text);margin-top:6px;display:flex;flex-direction:column;gap:2px;">';
   html += '<span>Intake: <strong>' + escapeHtml(intakeLabel) + '</strong></span>';
   html += '<span>Crew/day: <strong>' + escapeHtml([crew || 'unallocated', day].filter(Boolean).join(' · ')) + '</strong></span>';
-  if (j.assignment_count > 0) html += '<span>Individuals: <strong>' + escapeHtml(crew || (j.assignment_count + ' assigned')) + '</strong></span>';
+  var assignmentCount = getMakesafeAssignmentCount(j);
+  if (assignmentCount > 1) html += '<span>Individuals: <strong>' + escapeHtml(crew || (assignmentCount + ' assigned')) + '</strong></span>';
   html += '</div>';
 
   html += '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;">';
@@ -8550,7 +8582,9 @@ async function advanceMakesafeSubstatus(jobId, newSubstatus) {
 async function openQuickAllocateModal(jobId, clientName) {
   document.getElementById('quickAllocateJobId').value = jobId;
   document.getElementById('quickAllocateJobLabel').textContent = clientName || 'Make-Safe Job';
-  document.getElementById('quickAllocateDate').value = new Date().toISOString().slice(0, 10);
+  var tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  document.getElementById('quickAllocateDate').value = localDateStr(tomorrow);
   document.getElementById('quickAllocateTime').value = '07:00';
   document.getElementById('quickAllocateNotes').value = '';
   document.getElementById('quickAllocateSubmitBtn').disabled = false;
