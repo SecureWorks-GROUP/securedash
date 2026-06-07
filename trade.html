@@ -3971,23 +3971,28 @@
         // Scope summary line (always show — fallback to type name)
         var scopeSummary = type === 'makesafe' ? getTradeMakesafeTypeLabel(job) : (job.scope_summary || buildScopeSummary(job.scope_json, type));
         html += '  <div style="font-size:12px;color:var(--sw-mid);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(scopeSummary) + '</div>';
-        html += '  <div class="job-card-meta">';
-        html += '    <span>' + formatDate(a.scheduled_date) + '</span>';
-        html += '    <span data-weather-date="' + (a.scheduled_date || '') + '"></span>';
-        if (a.start_time) {
-          html += '<span style="font-weight:600">' + a.start_time.slice(0, 5) + '</span>';
-        } else {
-          html += '<span style="color:var(--sw-yellow);font-weight:600">No time set</span>';
-        }
         if (a._makesafePool) {
-          html += '<span style="color:var(--sw-red);font-weight:700">Open to all trades</span>';
-        } else if (a.crew_name) {
-          html += '<span>&#128100; ' + esc(a.crew_name) + '</span>';
+          html += '  <div class="job-card-meta" style="gap:8px;align-items:center;flex-wrap:wrap">';
+          html += '    <span style="background:#E8F4FD;color:var(--sw-blue);font-weight:700;padding:3px 8px;border-radius:999px">Open report</span>';
+          html += '    <span style="background:#F3F4F6;color:var(--sw-text-sec);font-weight:700;padding:3px 8px;border-radius:999px">All MakeSafe trades</span>';
+          html += '  </div>';
         } else {
-          html += '<span style="color:var(--sw-yellow)">No crew</span>';
+          html += '  <div class="job-card-meta">';
+          html += '    <span>' + formatDate(a.scheduled_date) + '</span>';
+          html += '    <span data-weather-date="' + (a.scheduled_date || '') + '"></span>';
+          if (a.start_time) {
+            html += '<span style="font-weight:600">' + a.start_time.slice(0, 5) + '</span>';
+          } else {
+            html += '<span style="color:var(--sw-yellow);font-weight:600">No time set</span>';
+          }
+          if (a.crew_name) {
+            html += '<span>&#128100; ' + esc(a.crew_name) + '</span>';
+          } else {
+            html += '<span style="color:var(--sw-yellow)">No crew</span>';
+          }
+          html += '    <span class="status-pill ' + statusClass + '">' + (a.status || 'scheduled').replace(/_/g, ' ') + '</span>';
+          html += '  </div>';
         }
-        html += '    <span class="status-pill ' + statusClass + '">' + (a.status || 'scheduled').replace(/_/g, ' ') + '</span>';
-        html += '  </div>';
         // Financial display (Tier 3 only)
         if (canSeeFullPricing() && (job.quoted_amount || job.invoiced_amount)) {
           html += '  <div class="job-card-financial">';
@@ -4000,18 +4005,16 @@
         // Quick action buttons (Call, Text, Navigate)
         html += '  <div style="display:flex;gap:6px;margin-top:8px">';
         var cardPhone = getTradeCardPhone(job);
-        if (cardPhone && canCall()) {
+        if (cardPhone) {
           html += '    <a href="tel:' + esc(cardPhone) + '" onclick="event.stopPropagation()" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-green);color:#fff;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700">';
           html += '      <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>';
           html += '      Call</a>';
         }
-        if (canMessage()) {
+        if (cardPhone) {
           if (type === 'makesafe') {
-            if (cardPhone) {
               html += '    <a href="sms:' + esc(cardPhone) + '" onclick="event.stopPropagation()" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-blue);color:#fff;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700">';
               html += '      <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>';
               html += '      Text</a>';
-            }
           } else {
             html += '    <button onclick="event.stopPropagation();openJobToTab(\'' + esc(job.id) + '\', \'' + esc(a.id) + '\', \'comms\')" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-blue);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">';
             html += '      <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>';
@@ -4244,8 +4247,12 @@
     job = job || {};
     var detail = job.makesafe_details || {};
     var md = job.metadata || {};
+    var client = job.client || job.contact || {};
     return job.client_phone || job.phone || job.mobile || job.contact_phone || job.contact_mobile || job.client_mobile || job.site_phone ||
-      detail.client_phone || detail.phone || detail.contact_phone || detail.mobile || md.client_phone || md.phone || md.contact_phone || md.mobile || '';
+      job.clientPhone || job.contactPhone || job.mobile_phone || job.customer_phone ||
+      detail.client_phone || detail.phone || detail.contact_phone || detail.mobile || detail.clientPhone || detail.contactPhone ||
+      md.client_phone || md.phone || md.contact_phone || md.mobile || md.clientPhone || md.contactPhone ||
+      client.phone || client.mobile || client.client_phone || client.contact_phone || '';
   }
   // Open a job and auto-switch to a specific tab (e.g. 'comms') after it loads
   window.openJobToTab = function(jobId, assignmentId, tabName) {
@@ -7497,7 +7504,7 @@
       return;
     }
 
-    h += renderMakesafeWorkOrderInline(data);
+    if (!container || container.id !== 'makesafeReportDirectContent') h += renderMakesafeWorkOrderInline(data);
     h += '<div style="font-size:15px;font-weight:700;color:var(--sw-dark);margin-bottom:8px;">Make-Safe Report</div>';
     h += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:10px;line-height:1.4;">Open the work order above, then complete the report before moving to the next MakeSafe.</div>';
     h += '<div style="background:#FFF7ED;border:1px solid #FDBA74;border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;color:#9A3412;line-height:1.4;"><strong>Quick rule:</strong> date/time, what failed, what you made safe, labour, materials and clear photos.</div>';
