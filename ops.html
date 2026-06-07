@@ -2792,6 +2792,7 @@
         <button class="btn btn-sm" id="btnNewMakesafe" onclick="openNewMakesafeModal()" style="display:none;background:#D97706;color:#fff;font-weight:600;font-size:11px;padding:4px 12px;border:none;border-radius:4px;cursor:pointer;">+ New Make-Safe</button>
         <button class="btn btn-sm" id="btnMakesafeIntake" onclick="loadMakesafeIntake()" style="display:none;background:#4C6A7C;color:#fff;font-weight:600;font-size:11px;padding:4px 12px;border:none;border-radius:4px;cursor:pointer;">Intake</button>
         <button class="btn btn-sm" id="btnMakesafeMap" onclick="toggleMakesafeMap()" style="display:none;background:#293C46;color:#fff;font-weight:600;font-size:11px;padding:4px 12px;border:none;border-radius:4px;cursor:pointer;">Map</button>
+        <button class="btn btn-sm" id="btnMakesafeCrewDay" onclick="toggleMakesafeCrewDay()" style="display:none;background:#4C6A7C;color:#fff;font-weight:600;font-size:11px;padding:4px 12px;border:none;border-radius:4px;cursor:pointer;">Crew Day</button>
         <div style="flex:1;"></div>
         <div id="jobsDateDisplay" style="font-size:12px;font-weight:600;color:var(--sw-text-sec);letter-spacing:0.3px;white-space:nowrap;"></div>
         <button class="btn btn-secondary btn-sm" id="btnKanban" onclick="setJobView('kanban')" style="font-weight:600;">Kanban</button>
@@ -7841,12 +7842,17 @@ function setPipelineTab(tab) {
   var btnNew = document.getElementById('btnNewMakesafe');
   var btnIntake = document.getElementById('btnMakesafeIntake');
   var btnMap = document.getElementById('btnMakesafeMap');
+  var btnCrewDay = document.getElementById('btnMakesafeCrewDay');
   if (btnNew) btnNew.style.display = isMakesafe ? '' : 'none';
   if (btnIntake) btnIntake.style.display = isMakesafe ? '' : 'none';
   if (btnMap) btnMap.style.display = isMakesafe ? '' : 'none';
-  // Close map if switching away from makesafes
+  if (btnCrewDay) btnCrewDay.style.display = isMakesafe ? '' : 'none';
+  // Close make-safe overlays if switching away from makesafes
   if (!isMakesafe && document.getElementById('makesafeMapContainer')) {
     document.getElementById('makesafeMapContainer').remove();
+  }
+  if (!isMakesafe && document.getElementById('makesafeCrewDayContainer')) {
+    document.getElementById('makesafeCrewDayContainer').remove();
   }
   loadJobs();
 }
@@ -8789,36 +8795,66 @@ async function rejectIntakeDraft(draftId) {
   }
 }
 
-// ── Make-Safe Map View ──
+// ── Make-Safe Map + Crew Allocation Views ──
 var _makesafeMapInstance = null;
+var _makesafeMapFilter = 'active';
+var _makesafeCrewDayDate = (function() { var d = new Date(localDateStr(new Date()) + 'T00:00:00'); d.setDate(d.getDate() + 1); return localDateStr(d); })();
+
+function getMakesafeMapVisual(j) {
+  var stage = getMakesafeStage(j, j.status || j._makesafe_raw_status || '');
+  var age = getMakesafeAgeParts(j, stage);
+  var crew = getMakesafeCrewLabel(j) || j.assigned_trade || '';
+  var assigned = !!crew && crew.toLowerCase() !== 'unallocated';
+  var colors = { new: '#3498DB', allocated: '#E67E22', report_ready: '#9B59B6', to_invoice: '#27AE60', completed: '#7F8C8D' };
+  var color = colors[stage] || '#8FA4B2';
+  if (!assigned && stage !== 'completed') color = '#E74C3C';
+  if (j.on_road) color = '#111827';
+  return { stage: stage, age: age, crew: crew || 'Unallocated', assigned: assigned, color: color };
+}
+
+function closeMakesafeMapIfOpen() {
+  var existing = document.getElementById('makesafeMapContainer');
+  if (existing) existing.remove();
+  if (_makesafeMapInstance) { _makesafeMapInstance.remove(); _makesafeMapInstance = null; }
+}
+function closeMakesafeCrewDayIfOpen() {
+  var existing = document.getElementById('makesafeCrewDayContainer');
+  if (existing) existing.remove();
+}
+
+function makesafeCommandHeader(title, subtitle, closeFn) {
+  return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:10px 12px;border-bottom:1px solid var(--sw-border);background:#fff;">'
+    + '<div><div style="font-size:15px;font-weight:850;color:var(--sw-dark);">' + escapeHtml(title) + '</div>'
+    + '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:2px;">' + escapeHtml(subtitle || '') + '</div></div>'
+    + '<button onclick="' + closeFn + '" style="background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--sw-text-sec);">&times;</button>'
+    + '</div>';
+}
+
 function toggleMakesafeMap() {
   var existing = document.getElementById('makesafeMapContainer');
-  if (existing) {
-    existing.remove();
-    if (_makesafeMapInstance) { _makesafeMapInstance.remove(); _makesafeMapInstance = null; }
-    return;
-  }
+  if (existing) { closeMakesafeMapIfOpen(); return; }
+  closeMakesafeCrewDayIfOpen();
   var container = document.getElementById('jobsBody');
   var mapDiv = document.createElement('div');
   mapDiv.id = 'makesafeMapContainer';
-  mapDiv.style.cssText = 'position:absolute;inset:0;z-index:100;background:#fff;';
-  mapDiv.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--sw-border);">'
-    + '<div style="display:flex;gap:6px;">'
+  mapDiv.style.cssText = 'position:absolute;inset:0;z-index:100;background:#fff;display:flex;flex-direction:column;';
+  mapDiv.innerHTML = makesafeCommandHeader('MakeSafe allocation map', 'Use the map to group jobs by area, age and allocation state. Geocode is a live action, so it stays separate.', 'toggleMakesafeMap()')
+    + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--sw-border);background:var(--sw-light);">'
     + '<button onclick="loadMakesafeMapData(\'active\')" class="btn btn-sm" style="font-size:11px;">All Active</button>'
     + '<button onclick="loadMakesafeMapData(\'today\')" class="btn btn-sm" style="font-size:11px;">Today</button>'
     + '<button onclick="loadMakesafeMapData(\'unassigned\')" class="btn btn-sm" style="font-size:11px;">Unassigned</button>'
     + '<button onclick="loadMakesafeMapData(\'waiting_report\')" class="btn btn-sm" style="font-size:11px;">Waiting Report</button>'
     + '<button onclick="loadMakesafeMapData(\'to_invoice\')" class="btn btn-sm" style="font-size:11px;">To Invoice</button>'
-    + '<button onclick="geocodeMissingMakesafes()" class="btn btn-sm" style="font-size:11px;background:#3498DB;color:#fff;margin-left:auto;">Geocode All</button>'
+    + '<span style="flex:1;"></span>'
+    + '<button onclick="geocodeMissingMakesafes()" class="btn btn-sm" style="font-size:11px;background:#3498DB;color:#fff;">Geocode Missing</button>'
     + '</div>'
-    + '<button onclick="toggleMakesafeMap()" style="background:none;border:none;font-size:20px;cursor:pointer;">&times;</button>'
-    + '</div>'
-    + '<div id="makesafeMapView" style="height:calc(100% - 40px);"></div>'
-    + '<div id="makesafeNoLocation" style="position:absolute;bottom:50px;left:0;right:0;max-height:120px;overflow-y:auto;background:rgba(255,255,255,0.95);border-top:1px solid var(--sw-border);padding:8px;font-size:12px;display:none;z-index:500;"></div>';
+    + '<div style="display:flex;min-height:0;flex:1;">'
+    + '<div id="makesafeMapView" style="flex:1;min-height:360px;"></div>'
+    + '<div id="makesafeMapSidePanel" style="width:330px;max-width:38vw;border-left:1px solid var(--sw-border);overflow:auto;background:#fff;"></div>'
+    + '</div>';
   container.style.position = 'relative';
   container.appendChild(mapDiv);
 
-  // Load Leaflet if not already loaded
   if (!window.L) {
     var link = document.createElement('link');
     link.rel = 'stylesheet';
@@ -8834,79 +8870,223 @@ function toggleMakesafeMap() {
 }
 
 function initMakesafeMap() {
-  var map = L.map('makesafeMapView').setView([-31.9505, 115.8605], 11); // Perth
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap',
-    maxZoom: 18,
-  }).addTo(map);
+  var map = L.map('makesafeMapView').setView([-31.9505, 115.8605], 11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap', maxZoom: 18 }).addTo(map);
   _makesafeMapInstance = map;
-  loadMakesafeMapData('active');
+  loadMakesafeMapData(_makesafeMapFilter || 'active');
+}
+
+function renderMakesafeMapSidePanel(jobs, noLocation, filter) {
+  var panel = document.getElementById('makesafeMapSidePanel');
+  if (!panel) return;
+  var counts = { unassigned: 0, allocated: 0, urgent: 0, report: 0, invoice: 0, onRoad: 0 };
+  var suburbs = {};
+  var onRoadJobs = [];
+  (jobs || []).forEach(function(j) {
+    var v = getMakesafeMapVisual(j);
+    if (!v.assigned && v.stage !== 'completed') counts.unassigned++;
+    if (v.assigned) counts.allocated++;
+    if (v.age.health === 'red' && v.stage !== 'completed') counts.urgent++;
+    if (v.stage === 'allocated') counts.report++;
+    if (v.stage === 'to_invoice') counts.invoice++;
+    if (j.on_road) { counts.onRoad++; onRoadJobs.push(j); }
+    var sub = j.site_suburb || j.suburb || 'Suburb TBC';
+    if (!suburbs[sub]) suburbs[sub] = [];
+    suburbs[sub].push(j);
+  });
+  var html = '<div style="padding:12px;">';
+  html += '<div style="font-size:12px;font-weight:850;color:var(--sw-mid);text-transform:uppercase;margin-bottom:8px;">Allocation picture</div>';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">';
+  [ ['Unassigned', counts.unassigned, '#E74C3C'], ['Allocated', counts.allocated, '#E67E22'], ['On road', counts.onRoad, '#111827'], ['To invoice', counts.invoice, '#27AE60'] ].forEach(function(c) {
+    html += '<div style="background:var(--sw-light);border-radius:8px;padding:8px;border-left:4px solid ' + c[2] + ';"><div style="font-size:20px;font-weight:850;color:' + c[2] + ';">' + c[1] + '</div><div style="font-size:11px;color:var(--sw-text-sec);">' + c[0] + '</div></div>';
+  });
+  html += '</div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;font-size:11px;">'
+    + '<span style="color:#E74C3C;font-weight:800;">● Unassigned</span>'
+    + '<span style="color:#E67E22;font-weight:800;">● Allocated</span>'
+    + '<span style="color:#9B59B6;font-weight:800;">● Report ready</span>'
+    + '<span style="color:#27AE60;font-weight:800;">● To invoice</span>'
+    + '<span style="color:#111827;font-weight:800;">● On road</span>'
+    + '</div>';
+
+  if (onRoadJobs.length) {
+    html += '<div style="background:#F3F4F6;border-radius:8px;padding:8px;margin-bottom:12px;border-left:4px solid #111827;">';
+    html += '<div style="font-size:12px;font-weight:850;color:#111827;margin-bottom:5px;">Active / on road (' + onRoadJobs.length + ')</div>';
+    onRoadJobs.slice(0, 8).forEach(function(j) {
+      var v = getMakesafeMapVisual(j);
+      html += '<div style="font-size:12px;margin-bottom:5px;line-height:1.25;"><a onclick="openJobDetail(\'' + j.id + '\');toggleMakesafeMap();" style="cursor:pointer;color:#111827;font-weight:850;">' + escapeHtml(j.site_suburb || j.suburb || j.job_number || 'Job') + '</a><div style="color:var(--sw-text-sec);">' + escapeHtml(v.crew) + ' · ' + escapeHtml(getMakesafeTypeLabel(j)) + '</div></div>';
+    });
+    html += '</div>';
+  }
+
+  var noLoc = noLocation || [];
+  if (noLoc.length) {
+    html += '<div style="background:#FEF3C7;border-radius:8px;padding:8px;margin-bottom:12px;">';
+    html += '<div style="font-size:12px;font-weight:850;color:#92400E;margin-bottom:5px;">No map location (' + noLoc.length + ')</div>';
+    noLoc.slice(0, 12).forEach(function(j) {
+      html += '<div style="font-size:12px;margin-bottom:4px;"><a onclick="openJobDetail(\'' + j.id + '\');toggleMakesafeMap();" style="cursor:pointer;color:#92400E;font-weight:800;">' + escapeHtml(j.job_number || j.client_name || 'Job') + '</a></div>';
+    });
+    html += '</div>';
+  }
+
+  html += '<div style="font-size:12px;font-weight:850;color:var(--sw-mid);text-transform:uppercase;margin:8px 0 3px;">Area groups</div>';
+  html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-bottom:5px;">Use this to batch nearby jobs into one day without adding route-planning scope yet.</div>';
+  Object.keys(suburbs).sort(function(a, b) { return suburbs[b].length - suburbs[a].length || a.localeCompare(b); }).slice(0, 18).forEach(function(sub) {
+    var group = suburbs[sub];
+    var unassigned = group.filter(function(j) { return !getMakesafeMapVisual(j).assigned; }).length;
+    html += '<div style="border-bottom:1px solid var(--sw-border);padding:7px 0;">';
+    html += '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;"><strong>' + escapeHtml(sub) + '</strong><span>' + group.length + ' job' + (group.length === 1 ? '' : 's') + (unassigned ? ' · <span style="color:#E74C3C;font-weight:800;">' + unassigned + ' unassigned</span>' : '') + '</span></div>';
+    html += '</div>';
+  });
+  html += '</div>';
+  panel.innerHTML = html;
 }
 
 async function loadMakesafeMapData(filter) {
   if (!_makesafeMapInstance) return;
+  _makesafeMapFilter = filter || 'active';
   try {
-    var data = await opsFetch('makesafe_map', { filter: filter });
-    // Clear existing markers
+    var data = await opsFetch('makesafe_map', { filter: _makesafeMapFilter });
     _makesafeMapInstance.eachLayer(function(layer) {
-      if (layer instanceof L.Marker || layer instanceof L.CircleMarker) {
-        _makesafeMapInstance.removeLayer(layer);
-      }
+      if (layer instanceof L.Marker || layer instanceof L.CircleMarker) _makesafeMapInstance.removeLayer(layer);
     });
 
-    var STATUS_COLORS = {
-      accepted: '#3498DB',
-      scheduled: '#E67E22',
-      in_progress: '#F15A29',
-      complete: '#27AE60',
-      invoiced: '#7F8C8D',
-    };
-
+    var bounds = [];
     (data.jobs || []).forEach(function(j) {
-      var color = STATUS_COLORS[j.status] || '#8FA4B2';
-      if (j.on_road) color = '#E74C3C';
-      var marker = L.circleMarker([j.site_lat, j.site_lng], {
-        radius: j.on_road ? 10 : 7,
-        fillColor: color,
-        color: '#fff',
-        weight: 2,
-        fillOpacity: 0.9,
-      }).addTo(_makesafeMapInstance);
-
-      var mapStage = getMakesafeStage(j, j.status || j._makesafe_raw_status || '');
+      var v = getMakesafeMapVisual(j);
+      var marker = L.circleMarker([j.site_lat, j.site_lng], { radius: j.on_road ? 11 : (v.assigned ? 8 : 10), fillColor: v.color, color: '#fff', weight: v.assigned ? 2 : 3, fillOpacity: 0.92 }).addTo(_makesafeMapInstance);
+      bounds.push([j.site_lat, j.site_lng]);
       var mapBuilder = getMakesafeBuilder(j) || j.requesting_company || 'Builder TBC';
-      var mapAge = getMakesafeAgeParts(j, mapStage);
-      var mapCrew = getMakesafeCrewLabel(j) || j.assigned_trade || 'Unallocated';
-      var popup = '<div style="min-width:220px;">'
-        + '<div style="font-size:10px;font-weight:800;color:#D97706;text-transform:uppercase;letter-spacing:0.35px;">Make Safe</div>'
-        + '<strong style="font-size:15px;">' + escapeHtml(j.site_suburb || 'Suburb TBC') + '</strong><br>'
-        + '<span style="font-size:12px;color:#D97706;font-weight:700;">' + escapeHtml(mapBuilder) + '</span><br>'
-        + '<span style="font-size:12px;">Stage: ' + escapeHtml(makesafeUiStageLabel(mapStage)) + '</span><br>'
-        + '<span style="font-size:12px;">Crew: ' + escapeHtml(mapCrew) + '</span><br>'
-        + '<span style="font-size:12px;color:' + mapAge.color + ';font-weight:700;">Age: ' + escapeHtml(mapAge.label) + '</span><br>';
+      var typeLabel = getMakesafeTypeLabel(j);
+      var allocButton = (!v.assigned && v.stage !== 'completed')
+        ? '<button onclick="openQuickAllocateModal(\'' + j.id + '\',\'' + escapeHtml((j.site_suburb || j.client_name || 'MakeSafe').replace(/'/g, '')) + '\')" style="margin-top:6px;background:#E67E22;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;font-weight:800;">Allocate</button> '
+        : '';
+      var popup = '<div style="min-width:230px;">'
+        + '<div style="font-size:10px;font-weight:850;color:#D97706;text-transform:uppercase;letter-spacing:0.35px;">' + escapeHtml(typeLabel) + '</div>'
+        + '<strong style="font-size:16px;">' + escapeHtml(j.site_suburb || 'Suburb TBC') + '</strong><br>'
+        + '<span style="font-size:12px;color:#D97706;font-weight:800;">' + escapeHtml(mapBuilder) + '</span><br>'
+        + '<span style="font-size:12px;">Stage: <strong>' + escapeHtml(makesafeUiStageLabel(v.stage)) + '</strong></span><br>'
+        + '<span style="font-size:12px;">Crew: <strong>' + escapeHtml(v.crew) + '</strong></span><br>'
+        + '<span style="font-size:12px;color:' + v.age.color + ';font-weight:800;">Age: ' + escapeHtml(v.age.label) + '</span><br>';
       if (j.external_ref || j.job_number) popup += '<span style="font-size:12px;">Ref: ' + escapeHtml([j.external_ref, j.job_number].filter(Boolean).join(' · ')) + '</span><br>';
       if (j.site_address) popup += '<span style="font-size:11px;color:var(--sw-text-sec);">' + escapeHtml(j.site_address) + '</span><br>';
-      if (j.client_name) popup += '<span style="font-size:11px;color:var(--sw-text-sec);">Client: ' + escapeHtml(j.client_name) + '</span><br>';
-      if (j.on_road) popup += '<span style="font-size:12px;color:#E74C3C;font-weight:600;">ON ROAD</span><br>';
-      popup += '<button onclick="openJobDetail(\'' + j.id + '\');toggleMakesafeMap();" style="margin-top:6px;background:#293C46;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;">Open Job</button>';
+      if (j.on_road) popup += '<span style="font-size:12px;color:#111827;font-weight:850;">ON ROAD</span><br>';
+      popup += allocButton + '<button onclick="openJobDetail(\'' + j.id + '\');toggleMakesafeMap();" style="margin-top:6px;background:#293C46;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;">Open Job</button>';
       popup += '</div>';
       marker.bindPopup(popup);
     });
-
-    // Show no-location jobs
-    var noLocDiv = document.getElementById('makesafeNoLocation');
-    if (data.no_location && data.no_location.length > 0) {
-      noLocDiv.style.display = '';
-      noLocDiv.innerHTML = '<strong style="color:#E74C3C;">No Location (' + data.no_location.length + '):</strong> '
-        + data.no_location.map(function(j) {
-          return '<span style="cursor:pointer;text-decoration:underline;" onclick="openJobDetail(\'' + j.id + '\');toggleMakesafeMap();">' + escapeHtml(j.job_number || j.client_name) + '</span>';
-        }).join(', ')
-        + ' <button onclick="geocodeMissingMakesafes()" class="btn btn-sm" style="margin-left:8px;font-size:10px;background:#3498DB;color:#fff;">Geocode All</button>';
-    } else {
-      noLocDiv.style.display = 'none';
-    }
+    if (bounds.length) _makesafeMapInstance.fitBounds(bounds, { padding: [28, 28], maxZoom: 13 });
+    renderMakesafeMapSidePanel(data.jobs || [], data.no_location || [], _makesafeMapFilter);
   } catch (e) {
     showToast('Map data failed: ' + (e.message || e), 'warning');
+  }
+}
+
+function toggleMakesafeCrewDay() {
+  var existing = document.getElementById('makesafeCrewDayContainer');
+  if (existing) { closeMakesafeCrewDayIfOpen(); return; }
+  closeMakesafeMapIfOpen();
+  var container = document.getElementById('jobsBody');
+  var panel = document.createElement('div');
+  panel.id = 'makesafeCrewDayContainer';
+  panel.style.cssText = 'position:absolute;inset:0;z-index:100;background:#fff;display:flex;flex-direction:column;';
+  panel.innerHTML = makesafeCommandHeader('MakeSafe crew day', 'Pick a date and see who has what, plus what still needs allocation.', 'toggleMakesafeCrewDay()')
+    + '<div style="display:flex;gap:8px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--sw-border);background:var(--sw-light);">'
+    + '<label style="font-size:12px;font-weight:800;color:var(--sw-text-sec);">Date</label>'
+    + '<input id="makesafeCrewDayDate" type="date" value="' + escapeHtml(_makesafeCrewDayDate) + '" onchange="loadMakesafeCrewDay(this.value)" style="padding:6px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:13px;">'
+    + '<button class="btn btn-sm" onclick="loadMakesafeCrewDay(localDateStr(new Date()))" style="font-size:11px;">Today</button>'
+    + '<button class="btn btn-sm" onclick="var d=new Date(localDateStr(new Date())+\'T00:00:00\');d.setDate(d.getDate()+1);loadMakesafeCrewDay(localDateStr(d))" style="font-size:11px;">Tomorrow</button>'
+    + '</div><div id="makesafeCrewDayBody" style="flex:1;overflow:auto;padding:12px;background:#FAFAF8;"></div>';
+  container.style.position = 'relative';
+  container.appendChild(panel);
+  loadMakesafeCrewDay(_makesafeCrewDayDate);
+}
+
+function renderMakesafeCrewJobPill(j, source) {
+  var stage = getMakesafeStage(j, j.status || j._makesafe_raw_status || '');
+  var age = getMakesafeAgeParts(j, stage);
+  var typeLabel = getMakesafeTypeLabel(j);
+  var builder = getMakesafeBuilder(j) || 'Builder TBC';
+  var suburb = j.site_suburb || j.suburb || 'Suburb TBC';
+  return '<div onclick="openJobDetail(\'' + j.id + '\')" style="cursor:pointer;background:#fff;border-left:4px solid ' + age.color + ';border-radius:8px;padding:8px 10px;margin-bottom:7px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">'
+    + '<div style="display:flex;justify-content:space-between;gap:8px;"><div style="font-size:10px;font-weight:850;color:#D97706;text-transform:uppercase;">' + escapeHtml(typeLabel) + '</div><span style="font-size:10px;color:' + age.color + ';font-weight:850;">' + escapeHtml(age.label) + '</span></div>'
+    + '<div style="font-size:14px;font-weight:850;color:var(--sw-dark);">' + escapeHtml(suburb) + '</div>'
+    + '<div style="font-size:12px;color:#D97706;font-weight:800;">' + escapeHtml(builder) + '</div>'
+    + '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:2px;">' + escapeHtml([j.external_ref, j.job_number].filter(Boolean).join(' · ')) + '</div>'
+    + (source ? '<div style="font-size:10px;color:var(--sw-text-sec);margin-top:4px;">' + escapeHtml(source) + '</div>' : '')
+    + '</div>';
+}
+
+async function loadMakesafeCrewDay(dateStr) {
+  _makesafeCrewDayDate = dateStr || localDateStr(new Date());
+  var input = document.getElementById('makesafeCrewDayDate');
+  if (input) input.value = _makesafeCrewDayDate;
+  var body = document.getElementById('makesafeCrewDayBody');
+  if (!body) return;
+  body.innerHTML = '<div class="loading" style="padding:24px;text-align:center;">Loading crew day...</div>';
+  try {
+    await loadCrewList();
+    var results = await Promise.all([
+      opsFetch('calendar', { from: _makesafeCrewDayDate, to: _makesafeCrewDayDate }),
+      opsFetch('makesafe_pipeline', {})
+    ]);
+    var events = (results[0].events || []).filter(function(ev) {
+      var t = ev.job_type || ev.type || ev.division || '';
+      return ev.job_id && (t === 'makesafe' || t === 'makesafes' || /make.?safe/i.test(String(ev.label || ev.job_number || '')));
+    });
+    var allMakesafes = [];
+    var cols = results[1].columns || {};
+    Object.keys(cols).forEach(function(k) { allMakesafes = allMakesafes.concat(cols[k] || []); });
+    var byId = {};
+    allMakesafes.forEach(function(j) { byId[j.id] = j; });
+    var crewRows = {};
+    _crewList.forEach(function(u) { crewRows[u.name] = { user: u, jobs: [] }; });
+    crewRows['Unassigned'] = { user: null, jobs: [] };
+
+    events.forEach(function(ev) {
+      var crew = 'Unassigned';
+      if (ev.user_id) {
+        var match = _crewList.find(function(u) { return u.id === ev.user_id; });
+        crew = match ? match.name : (cleanCrewName(ev.crew_name || ev.assigned_to) || 'Unassigned');
+      } else crew = cleanCrewName(ev.crew_name || ev.assigned_to) || 'Unassigned';
+      if (!crewRows[crew]) crewRows[crew] = { user: null, jobs: [] };
+      var j = byId[ev.job_id] || { id: ev.job_id, job_number: ev.job_number, external_ref: ev.external_ref, site_suburb: ev.site_suburb, site_address: ev.site_address, client_name: ev.client_name, type: 'makesafe', status: ev.job_status || ev.status, crew_name: crew, scheduled_date: ev.scheduled_date };
+      crewRows[crew].jobs.push({ job: j, event: ev });
+    });
+
+    allMakesafes.forEach(function(j) {
+      var stage = getMakesafeStage(j, j.status || j._makesafe_raw_status || '');
+      if (stage === 'completed') return;
+      var crew = getMakesafeCrewLabel(j);
+      var day = (j.scheduled_date || j.first_scheduled_date || j.next_scheduled_date || '').slice(0, 10);
+      if (!crew && (!day || day === _makesafeCrewDayDate)) {
+        crewRows['Unassigned'].jobs.push({ job: j, event: null });
+      }
+    });
+
+    var names = Object.keys(crewRows).sort(function(a,b) { if (a === 'Unassigned') return -1; if (b === 'Unassigned') return 1; return a.localeCompare(b); });
+    var assignedCount = names.reduce(function(n, c) { return n + (c === 'Unassigned' ? 0 : crewRows[c].jobs.length); }, 0);
+    var unassignedCount = crewRows['Unassigned'] ? crewRows['Unassigned'].jobs.length : 0;
+    var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin-bottom:12px;">'
+      + '<div style="background:#fff;border-left:4px solid #E67E22;border-radius:8px;padding:10px;"><div style="font-size:22px;font-weight:850;">' + assignedCount + '</div><div style="font-size:12px;color:var(--sw-text-sec);">assigned MakeSafes on date</div></div>'
+      + '<div style="background:#fff;border-left:4px solid #E74C3C;border-radius:8px;padding:10px;"><div style="font-size:22px;font-weight:850;color:#E74C3C;">' + unassignedCount + '</div><div style="font-size:12px;color:var(--sw-text-sec);">need allocation</div></div>'
+      + '<div style="background:#fff;border-left:4px solid #293C46;border-radius:8px;padding:10px;"><div style="font-size:22px;font-weight:850;">' + _crewList.length + '</div><div style="font-size:12px;color:var(--sw-text-sec);">known crew rows</div></div>'
+      + '</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;align-items:start;">';
+    names.forEach(function(name) {
+      var row = crewRows[name];
+      var color = name === 'Unassigned' ? '#E74C3C' : crewColor(name);
+      var initial = name.charAt(0).toUpperCase();
+      html += '<div style="background:var(--sw-card);border-radius:10px;padding:10px;box-shadow:var(--sw-shadow);min-height:96px;">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;"><div style="display:flex;align-items:center;gap:8px;"><span style="width:28px;height:28px;border-radius:50%;background:' + color + ';color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:850;">' + initial + '</span><strong>' + escapeHtml(name) + '</strong></div><span style="font-size:12px;color:var(--sw-text-sec);font-weight:800;">' + row.jobs.length + '</span></div>';
+      if (!row.jobs.length) html += '<div style="font-size:12px;color:var(--sw-text-sec);padding:8px 0;">No MakeSafes assigned for this date.</div>';
+      row.jobs.forEach(function(item) { html += renderMakesafeCrewJobPill(item.job, item.event ? 'Calendar assignment' : 'Needs allocation'); });
+      html += '</div>';
+    });
+    html += '</div>';
+    body.innerHTML = html;
+  } catch(e) {
+    body.innerHTML = '<div style="color:var(--sw-red);padding:16px;">Crew day failed: ' + escapeHtml(e.message || String(e)) + '</div>';
   }
 }
 
