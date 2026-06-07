@@ -7281,7 +7281,9 @@
         var cl = report.checklist_json;
         if (cl.arrival_time) h += '<div style="margin-bottom:8px;"><strong>Arrival:</strong> ' + esc(cl.arrival_time) + '</div>';
         if (cl.labour_hours) h += '<div style="margin-bottom:8px;"><strong>Labour:</strong> ' + cl.labour_hours + ' hrs x ' + (cl.trade_count || 1) + ' trades</div>';
-        if (cl.damage_description) h += '<div style="margin-bottom:8px;"><strong>Damage:</strong><br><span style="font-size:13px;">' + esc(cl.damage_description) + '</span></div>';
+        var submittedJobTypeMatch = /^Make-safe type:\s*([^\n]+)\nDamage:\s*/i.exec(cl.damage_description || '');
+        if (submittedJobTypeMatch) h += '<div style="margin-bottom:8px;"><strong>Type:</strong> ' + esc(submittedJobTypeMatch[1]) + '</div>';
+        if (cl.damage_description) h += '<div style="margin-bottom:8px;"><strong>Damage:</strong><br><span style="font-size:13px;">' + esc((cl.damage_description || '').replace(/^Make-safe type:\s*[^\n]+\nDamage:\s*/i, '')) + '</span></div>';
         if (cl.damage_cause) h += '<div style="margin-bottom:8px;"><strong>Cause:</strong> ' + esc(cl.damage_cause) + '</div>';
         if (cl.work_done) h += '<div style="margin-bottom:8px;"><strong>Rectification:</strong><br><span style="font-size:13px;">' + esc(cl.work_done) + '</span></div>';
         if (cl.materials_used && cl.materials_used.length) h += '<div style="margin-bottom:8px;"><strong>Materials:</strong> ' + esc(Array.isArray(cl.materials_used) ? cl.materials_used.join(', ') : cl.materials_used) + '</div>';
@@ -7293,10 +7295,26 @@
       return;
     }
 
-    h += '<div style="font-size:15px;font-weight:700;color:var(--sw-dark);margin-bottom:12px;">Make-Safe Completion Report</div>';
-    h += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:16px;">Complete this report after finishing the make-safe work.</div>';
+    h += '<div style="font-size:15px;font-weight:700;color:var(--sw-dark);margin-bottom:8px;">Make-Safe Report + Invoice Notes</div>';
+    h += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:10px;line-height:1.4;">No WhatsApp report needed. Fill this once so admin can draft the client report and invoice.</div>';
+    h += '<div style="background:#FFF7ED;border:1px solid #FDBA74;border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;color:#9A3412;line-height:1.4;"><strong>Quick rule:</strong> record what was damaged, what you made safe, labour/trade count, charge notes and clear before/after photos.</div>';
 
     var cl = (report && report.checklist_json) || {};
+
+    // Make-safe type
+    h += '<div style="margin-bottom:14px;">';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Make-safe type *</label>';
+    h += '<select id="msrJobType" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;background:#fff;">';
+    var jobTypeMatch = /^Make-safe type:\s*([^\n]+)\nDamage:\s*/i.exec(cl.damage_description || '');
+    var selectedJobType = String(cl.job_type || (jobTypeMatch && jobTypeMatch[1]) || msDetails.makesafe_type || msDetails.damage_type || job.makesafe_type || 'Temporary fencing').trim();
+    var jobTypes = ['Temporary fencing', 'Roof / tarp', 'Ceiling / water ingress', 'Fence damage', 'Patio / structure', 'Debris / cleanup', 'Other'];
+    jobTypes.forEach(function(t) {
+      var sel = (selectedJobType === t) ? ' selected' : '';
+      h += '<option value="' + esc(t) + '"' + sel + '>' + esc(t) + '</option>';
+    });
+    h += '</select>';
+    h += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:4px;">Pick the closest type. Admin will polish the final wording.</div>';
+    h += '</div>';
 
     // Time of arrival
     h += '<div style="margin-bottom:14px;">';
@@ -7306,23 +7324,24 @@
 
     // Labour
     h += '<div style="display:flex;gap:12px;margin-bottom:14px;">';
-    h += '<div style="flex:1;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Hours per Trade</label>';
-    h += '<input id="msrHours" type="number" step="0.5" min="0" value="' + (cl.labour_hours || '') + '" placeholder="3" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
-    h += '<div style="flex:1;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Number of Trades</label>';
+    h += '<div style="flex:1;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Hours each trade *</label>';
+    h += '<input id="msrHours" type="number" step="0.5" min="0" value="' + (cl.labour_hours || '') + '" placeholder="e.g. 3" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
+    h += '<div style="flex:1;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Trades on site *</label>';
     h += '<input id="msrTradeCount" type="number" min="1" value="' + (cl.trade_count || '2') + '" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
     h += '</div>';
 
     // Description of damage
+    var cleanDamageDescription = (cl.damage_description || '').replace(/^Make-safe type:\s*[^\n]+\nDamage:\s*/i, '');
     h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Description of Damage *</label>';
-    h += '<textarea id="msrDamageDesc" rows="3" placeholder="e.g. Hardie fence panels blown down, 3 panels collapsed across boundary..." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.damage_description || '') + '</textarea>';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Damage found *</label>';
+    h += '<textarea id="msrDamageDesc" rows="3" placeholder="Plain notes: what failed, where, how many panels/areas, any safety risk." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cleanDamageDescription) + '</textarea>';
     h += '</div>';
 
     // Cause of damage
     h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Cause of Damage</label>';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Cause / trigger *</label>';
     h += '<select id="msrDamageCause" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;background:#fff;">';
-    var causes = ['Wind / Storm', 'Impact (vehicle/tree)', 'Age / Wear', 'Water / Flood', 'Fire', 'Other'];
+    var causes = ['Storm / wind', 'Vehicle / tree impact', 'Water ingress', 'Fire', 'Existing damage / wear', 'Unknown', 'Other'];
     causes.forEach(function(c) {
       var sel = (cl.damage_cause === c) ? ' selected' : '';
       h += '<option value="' + esc(c) + '"' + sel + '>' + esc(c) + '</option>';
@@ -7332,32 +7351,32 @@
 
     // Rectification / Action taken (was "Work Done")
     h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Rectification / Action Taken *</label>';
-    h += '<textarea id="msrWorkDone" rows="3" placeholder="e.g. Removed fallen panels, stacked neatly on site, installed 6x temp fence panels with cement bases..." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.work_done || '') + '</textarea>';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Work completed *</label>';
+    h += '<textarea id="msrWorkDone" rows="3" placeholder="What you did: moved/stacked fallen material, tarped, installed temp fence, made area safe." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.work_done || '') + '</textarea>';
     h += '</div>';
 
     // Materials used
     h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Materials Used</label>';
-    h += '<textarea id="msrMaterials" rows="2" placeholder="e.g. 6x temp fence panels, 3x cement bases, star pickets, cable ties..." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc((cl.materials_used || []).join ? (cl.materials_used || []).join(', ') : (cl.materials_used || '')) + '</textarea>';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Materials / temp fence *</label>';
+    h += '<textarea id="msrMaterials" rows="2" placeholder="e.g. 6 temp panels, 3 bases, star pickets, cable ties, tarp, silicone, or None." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc((cl.materials_used || []).join ? (cl.materials_used || []).join(', ') : (cl.materials_used || '')) + '</textarea>';
     h += '</div>';
 
     // Access issues
     h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Access Issues / Problems</label>';
-    h += '<textarea id="msrAccess" rows="2" placeholder="Any access problems, issues found, follow-up needed..." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.access_issues || '') + '</textarea>';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Follow-up or site issues</label>';
+    h += '<textarea id="msrAccess" rows="2" placeholder="Permanent repair needed, unsafe area, asbestos observed, access issue, return visit, or None." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.access_issues || '') + '</textarea>';
     h += '</div>';
 
     // Invoice notes
     h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Invoice Notes</label>';
-    h += '<textarea id="msrInvoiceNotes" rows="2" placeholder="Notes for admin when invoicing (e.g. charge 3hrs x 2 trades + 6 temp panels)..." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.invoice_notes || '') + '</textarea>';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Invoice notes for admin</label>';
+    h += '<textarea id="msrInvoiceNotes" rows="2" placeholder="Billing notes: hours, trades, travel/pickup, materials, temp fence count, disposal if material left site." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.invoice_notes || '') + '</textarea>';
     h += '</div>';
 
     // Follow-up required
     h += '<div style="margin-bottom:16px;display:flex;align-items:center;gap:8px;">';
     h += '<input type="checkbox" id="msrFollowUp" ' + (cl.follow_up_required ? 'checked' : '') + ' style="width:18px;height:18px;">';
-    h += '<label for="msrFollowUp" style="font-size:13px;font-weight:600;">Follow-up required (permanent repair needed)</label>';
+    h += '<label for="msrFollowUp" style="font-size:13px;font-weight:600;">Follow-up needed after make-safe</label>';
     h += '</div>';
 
     // ── Photo Upload Sections ──
@@ -7367,7 +7386,7 @@
     window._msrPhotoCounts = { before: beforePhotos.length, after: afterPhotos.length };
 
     h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">Before Photos (' + beforePhotos.length + ')</label>';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">Before / damage photos (' + beforePhotos.length + ')</label>';
     if (beforePhotos.length > 0) {
       h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;">';
       beforePhotos.forEach(function(p) {
@@ -7377,14 +7396,14 @@
     }
     h += '<div class="upload-area" onclick="document.getElementById(\'msrBeforeInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;">';
     h += '<svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg>';
-    h += '<p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Tap to add before photos</p>';
+    h += '<p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Add before/damage photos</p>';
     h += '</div>';
     h += '<input type="file" id="msrBeforeInput" accept="image/*" capture="environment" multiple style="display:none" onchange="handleMsrPhotoUpload(this, \'scope\')">';
     h += '<div class="upload-progress" id="msrBeforeProgress" style="display:none"><span id="msrBeforeProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrBeforeProgressFill"></div></div></div>';
     h += '</div>';
 
     h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">After Photos (' + afterPhotos.length + ')</label>';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">After / completed photos (' + afterPhotos.length + ')</label>';
     if (afterPhotos.length > 0) {
       h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;">';
       afterPhotos.forEach(function(p) {
@@ -7394,7 +7413,7 @@
     }
     h += '<div class="upload-area" onclick="document.getElementById(\'msrAfterInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;">';
     h += '<svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg>';
-    h += '<p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Tap to add after photos</p>';
+    h += '<p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Add after/completed photos</p>';
     h += '</div>';
     h += '<input type="file" id="msrAfterInput" accept="image/*" capture="environment" multiple style="display:none" onchange="handleMsrPhotoUpload(this, \'completion\')">';
     h += '<div class="upload-progress" id="msrAfterProgress" style="display:none"><span id="msrAfterProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrAfterProgressFill"></div></div></div>';
@@ -7404,11 +7423,11 @@
     var beforeOk = beforePhotos.length >= 2;
     var afterOk = afterPhotos.length >= 2;
     h += '<div style="background:' + (beforeOk && afterOk ? '#E8F8EF' : '#FEF3C7') + ';border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;color:' + (beforeOk && afterOk ? '#155724' : '#92400E') + ';">';
-    h += '<strong>Photo minimum required:</strong> 2 before + 2 after. Current: before ' + beforePhotos.length + '/2, after ' + afterPhotos.length + '/2.';
+    h += '<strong>Photo gate:</strong> add at least 2 before/damage and 2 after/completed photos before submitting. Current: before ' + beforePhotos.length + '/2, after ' + afterPhotos.length + '/2.';
     h += '</div>';
 
     // Submit button
-    h += '<button onclick="submitMakesafeReport()" style="width:100%;background:var(--sw-orange);color:#fff;border:none;padding:14px;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;min-height:50px;">Submit Make-Safe Report</button>';
+    h += '<button onclick="submitMakesafeReport()" style="width:100%;background:var(--sw-orange);color:#fff;border:none;padding:14px;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;min-height:50px;">Submit report notes</button>';
 
     container.innerHTML = h;
   }
@@ -7420,12 +7439,14 @@
     if (hours <= 0) { toast('Please enter labour hours'); return; }
     var tradeCount = parseInt((document.getElementById('msrTradeCount') || {}).value) || 0;
     if (tradeCount <= 0) { toast('Please enter number of trades'); return; }
+    var jobType = ((document.getElementById('msrJobType') || {}).value || '').trim();
+    if (!jobType) { toast('Please choose make-safe type'); return; }
     var damageDesc = document.getElementById('msrDamageDesc');
     if (!damageDesc || !damageDesc.value.trim()) { toast('Please describe the damage'); return; }
     var damageCause = ((document.getElementById('msrDamageCause') || {}).value || '').trim();
     if (!damageCause) { toast('Please select cause of damage'); return; }
     var workDone = document.getElementById('msrWorkDone');
-    if (!workDone || !workDone.value.trim()) { toast('Please describe the rectification / action taken'); return; }
+    if (!workDone || !workDone.value.trim()) { toast('Please describe the work completed'); return; }
 
     var materialsRaw = (document.getElementById('msrMaterials') || {}).value || '';
     if (!materialsRaw.trim()) { toast('Please enter materials used, or write None'); return; }
@@ -7439,7 +7460,7 @@
     var payload = {
       job_id: _currentJobId,
       arrival_time: arrival,
-      damage_description: damageDesc.value.trim(),
+      damage_description: 'Make-safe type: ' + jobType + '\nDamage: ' + damageDesc.value.trim(),
       damage_cause: damageCause,
       work_done: workDone.value.trim(),
       materials_used: materials,
