@@ -8363,6 +8363,29 @@ function getMakesafeBuilder(j) {
   if (company && typeof company === 'object') return company.name || company.company_name || '';
   return j.requesting_company || j.requesting_company_name || company || '';
 }
+function _makesafeTextFromValue(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(_makesafeTextFromValue).filter(Boolean).join(' ');
+  if (typeof value === 'object') {
+    return [value.type, value.job_type, value.makesafe_type, value.scope_type, value.category, value.title, value.name, value.description, value.summary, value.scope, value.notes]
+      .map(_makesafeTextFromValue).filter(Boolean).join(' ');
+  }
+  return String(value || '');
+}
+function getMakesafeTypeLabel(j, mdOverride) {
+  var md = mdOverride || j.makesafe_details || j.metadata || {};
+  var direct = j.makesafe_type || j.job_type || j.scope_type || j.work_type || j.service_type || md.makesafe_type || md.job_type || md.scope_type || md.work_type || md.service_type || md.damage_type || md.category;
+  var text = _makesafeTextFromValue(direct) || _makesafeTextFromValue(md.scope) || _makesafeTextFromValue(md.scope_json) || _makesafeTextFromValue(j.scope_json) || _makesafeTextFromValue(j.description) || _makesafeTextFromValue(j.notes) || '';
+  var lower = text.toLowerCase();
+  if (/temp(orary)?\s+fenc|make\s*safe\s*fenc|\bfenc(e|ing)?\b/.test(lower)) return 'Temp fence';
+  if (/roof|tile|tarp|sheeting|water ingress/.test(lower)) return 'Roof make safe';
+  if (/ceiling|collapse|cornice|gyprock|plaster/.test(lower)) return 'Ceiling collapse';
+  if (/board[-\s]?up|board up|window|glazier|glass|door/.test(lower)) return 'Board up';
+  if (/tree|storm|impact|structural|prop|brace/.test(lower)) return 'Structural make safe';
+  if (typeof direct === 'string' && direct.trim()) return direct.trim().replace(/[_-]+/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+  return 'Make Safe';
+}
 function getMakesafeIntakeDate(j) {
   return j.intake_date || j.received_at || j.created_at || j.accepted_at || '';
 }
@@ -8474,7 +8497,8 @@ function renderMakesafeCard(j, status) {
 
   html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">';
   html += '<div style="min-width:0;flex:1;">';
-  html += '<div style="font-size:10px;font-weight:800;color:#D97706;text-transform:uppercase;letter-spacing:0.35px;">Make Safe</div>';
+  var typeLabel = getMakesafeTypeLabel(j);
+  html += '<div style="font-size:10px;font-weight:800;color:#D97706;text-transform:uppercase;letter-spacing:0.35px;">' + escapeHtml(typeLabel) + '</div>';
   html += '<div style="font-weight:800;font-size:15px;color:var(--sw-dark);line-height:1.15;">' + escapeHtml(suburb || 'Suburb TBC') + '</div>';
   html += '</div>';
   html += renderMakesafeTinyBadge(age.label, age.color);
@@ -10659,13 +10683,24 @@ function renderSitePlanPanel(scope_json, compact) {
 }
 
 // ── Document Links by Type ──
+function getDocOpenUrl(doc) {
+  if (!doc) return '';
+  var candidates = [doc.pdf_url, doc.public_url, doc.signed_url, doc.download_url, doc.url, doc.file_url, doc.storage_url];
+  for (var i = 0; i < candidates.length; i++) {
+    var url = candidates[i];
+    if (url && /^https?:\/\//i.test(String(url))) return String(url);
+  }
+  // Some MakeSafe uploads store storage_url as a Supabase object path, not a browser URL.
+  // Do not open that relative path directly because GitHub Pages resolves it to a 404.
+  return '';
+}
 function renderDocumentLinks(documents, types, heading) {
   var docs = (documents || []).filter(function(d) { return types.indexOf(d.type) >= 0; });
   if (docs.length === 0) return '';
   var html = '<div style="margin-top:12px;">';
   html += '<div style="font-size:11px;font-weight:700;color:var(--sw-mid);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">' + heading + '</div>';
   docs.forEach(function(doc) {
-    var url = doc.storage_url || doc.pdf_url;
+    var url = getDocOpenUrl(doc);
     var name = doc.file_name || doc.type || 'Document';
     html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--sw-border);font-size:13px;">';
     html += '<span style="font-size:16px;">&#128196;</span>';
@@ -10872,6 +10907,17 @@ var _currentJobId = null;
 var _jobDetailRequestSeq = 0;
 var _jobDetailAbort = null;
 
+function configureJobDetailTabsForJob(job) {
+  var isMakesafe = job && job.type === 'makesafe';
+  var labels = { overview: isMakesafe ? 'MakeSafe' : 'Overview', money: 'Money', build: 'Build', files: 'Files', comms: 'Comms', history: 'History', jarvis: 'JARVIS' };
+  ['overview', 'money', 'build', 'files', 'comms', 'history', 'jarvis'].forEach(function(tab) {
+    var btn = document.querySelector('[data-jd-tab="' + tab + '"]');
+    if (!btn) return;
+    btn.textContent = labels[tab];
+    btn.style.display = (isMakesafe && ['money', 'build', 'jarvis'].indexOf(tab) >= 0) ? 'none' : '';
+  });
+}
+
 // Open full-page job detail by UUID
 async function openJobDetail(jobId) {
   // Race-condition guards
@@ -10910,6 +10956,7 @@ async function openJobDetail(jobId) {
     }
 
     _currentJobData = data;
+    configureJobDetailTabsForJob(data.job || {});
 
     // Update URL hash
     var jobNum = data.job.job_number || jobId.slice(0, 8);
@@ -10963,6 +11010,7 @@ function closeJobDetail(skipHistory) {
   document.querySelector('.container').style.display = '';
   _currentJobData = null;
   _currentJobId = null;
+  configureJobDetailTabsForJob(null);
   stopCommsPoll();
 
   if (!skipHistory && history.pushState) {
@@ -11715,6 +11763,17 @@ async function saveClientName(jobId) {
   }
 }
 
+function renderMakesafeDocPreview(doc) {
+  var url = getDocOpenUrl(doc);
+  var name = doc.file_name || doc.name || doc.type || 'Document';
+  var html = '<div style="font-size:12px;margin-bottom:6px;display:flex;align-items:center;gap:6px;min-width:0;">';
+  html += '<span style="font-size:15px;">📄</span>';
+  if (url) html += '<a href="' + escapeHtml(url) + '" target="_blank" style="color:var(--sw-mid);font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(name) + '</a>';
+  else html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(name) + '</span><span style="font-size:10px;color:#F39C12;font-weight:800;">link missing</span>';
+  html += '</div>';
+  return html;
+}
+
 function renderMakesafeOpsDetail(data) {
   var j = data.job || {};
   var md = data.makesafe_details || j.makesafe_details || j.metadata || {};
@@ -11723,66 +11782,89 @@ function renderMakesafeOpsDetail(data) {
   var age = getMakesafeAgeParts(j, stage);
   var builder = getMakesafeBuilder(Object.assign({}, j, { makesafe_details: md })) || 'Builder TBC';
   var suburb = j.site_suburb || j.suburb || 'Suburb TBC';
+  var typeLabel = getMakesafeTypeLabel(j, md);
   var docs = data.documents || [];
   var workOrders = data.work_orders || [];
   var workOrderDocs = docs.filter(function(d) { return d.type === 'work_order' || d.type === 'supplier_work_order'; });
   var reports = data.service_reports || (data.serviceReport ? [data.serviceReport] : []);
   var report = reports[0] || null;
   var checklist = report && report.checklist_json ? report.checklist_json : null;
+  var reportDocs = docs.filter(function(d) { return d.type === 'service_report' || d.type === 'report' || d.type === 'makesafe_report'; });
   var invoices = (data.invoices || []).filter(function(inv) { return inv.invoice_type === 'ACCREC' && ['VOIDED','DELETED'].indexOf(inv.status) < 0; });
+  var invoiceDocs = docs.filter(function(d) { return d.type === 'invoice' || d.type === 'tax_invoice'; });
+  var intake = getMakesafeIntakeDate(j);
+  var crew = getMakesafeCrewLabel(j) || 'unallocated';
+  var day = getMakesafeDayLabel(j);
 
   var html = '<div style="padding-bottom:16px;">';
   html += '<div style="background:var(--sw-card);padding:16px;margin-bottom:12px;box-shadow:var(--sw-shadow);border-left:5px solid ' + age.color + ';">';
-  html += '<div style="font-size:10px;font-weight:800;color:#D97706;text-transform:uppercase;letter-spacing:0.4px;">Make Safe</div>';
-  html += '<div style="font-size:22px;font-weight:800;color:var(--sw-dark);line-height:1.15;">' + escapeHtml(suburb) + '</div>';
-  html += '<div style="font-size:14px;color:#D97706;font-weight:800;margin-top:4px;">' + escapeHtml(builder) + '</div>';
-  html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">';
+  html += '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">';
+  html += '<div style="min-width:240px;flex:1;">';
+  html += '<div style="font-size:10px;font-weight:800;color:#D97706;text-transform:uppercase;letter-spacing:0.4px;">' + escapeHtml(typeLabel) + '</div>';
+  html += '<div style="font-size:24px;font-weight:850;color:var(--sw-dark);line-height:1.1;">' + escapeHtml(suburb) + '</div>';
+  html += '<div style="font-size:14px;color:#D97706;font-weight:850;margin-top:4px;">' + escapeHtml(builder) + '</div>';
+  html += '</div>';
+  html += '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">';
   html += renderMakesafeTinyBadge(makesafeUiStageLabel(stage), age.color);
   html += renderMakesafeTinyBadge(age.label, age.color);
   if (j.job_number) html += renderMakesafeTinyBadge(j.job_number, '#8FA4B2');
   if (md.external_ref || j.external_ref) html += renderMakesafeTinyBadge('Ref ' + (md.external_ref || j.external_ref), '#8FA4B2');
+  html += '</div></div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:12px;font-size:12px;color:var(--sw-text);">';
+  if (j.site_address) html += '<div><strong>Site</strong><br>' + escapeHtml(j.site_address) + '</div>';
+  if (j.client_name) html += '<div><strong>Client</strong><br>' + escapeHtml(j.client_name) + '</div>';
+  html += '<div><strong>Intake</strong><br>' + escapeHtml(intake ? fmtDate(String(intake).slice(0, 10)) : 'not set') + '</div>';
+  html += '<div><strong>Crew/day</strong><br>' + escapeHtml([crew, day].filter(Boolean).join(' · ')) + '</div>';
   html += '</div>';
-  if (j.site_address) html += '<div style="font-size:13px;color:var(--sw-text);margin-top:10px;">' + escapeHtml(j.site_address) + '</div>';
-  if (j.client_name) html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:2px;">Client: ' + escapeHtml(j.client_name) + '</div>';
+  html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;">';
+  html += '<button onclick="showJobSubView(\'comms\')" class="btn btn-secondary btn-sm">Comms</button>';
+  html += '<button onclick="showJobSubView(\'files\')" class="btn btn-secondary btn-sm">All files</button>';
+  html += '<button onclick="showJobSubView(\'history\')" class="btn btn-secondary btn-sm">History</button>';
+  if (j.site_address) html += '<a href="https://maps.google.com/?q=' + encodeURIComponent((j.site_address||'') + (suburb ? ', ' + suburb : '')) + '" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">Navigate</a>';
+  html += '</div>';
   html += '</div>';
 
-  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:12px;">';
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:12px;">';
 
-  html += '<div style="background:var(--sw-card);padding:14px;box-shadow:var(--sw-shadow);">';
-  html += '<div style="font-size:11px;font-weight:800;color:var(--sw-mid);text-transform:uppercase;margin-bottom:8px;">Work Order</div>';
+  html += '<div style="background:var(--sw-card);padding:14px;box-shadow:var(--sw-shadow);min-height:128px;">';
+  html += '<div style="font-size:11px;font-weight:850;color:var(--sw-mid);text-transform:uppercase;margin-bottom:8px;">Builder work order</div>';
   if (workOrders.length || workOrderDocs.length) {
-    html += '<div style="font-size:14px;font-weight:800;color:var(--sw-green);margin-bottom:6px;">Available</div>';
-    workOrders.slice(0, 2).forEach(function(wo) { html += '<div style="font-size:12px;color:var(--sw-text);margin-bottom:4px;">' + escapeHtml(wo.wo_number || 'Work order') + (wo.status ? ' · ' + escapeHtml(wo.status) : '') + '</div>'; });
-    workOrderDocs.slice(0, 2).forEach(function(doc) { var url = doc.storage_url || doc.pdf_url || ''; html += '<div style="font-size:12px;margin-bottom:4px;">📄 ' + (url ? '<a href="' + escapeHtml(url) + '" target="_blank" style="color:var(--sw-mid);font-weight:700;">' + escapeHtml(doc.file_name || 'Work order') + '</a>' : escapeHtml(doc.file_name || 'Work order')) + '</div>'; });
+    html += '<div style="font-size:14px;font-weight:850;color:var(--sw-green);margin-bottom:6px;">Available</div>';
+    workOrders.slice(0, 3).forEach(function(wo) { html += '<div style="font-size:12px;color:var(--sw-text);margin-bottom:4px;"><strong>' + escapeHtml(wo.wo_number || 'Work order') + '</strong>' + (wo.status ? ' · ' + escapeHtml(wo.status) : '') + '</div>'; });
+    workOrderDocs.slice(0, 4).forEach(function(doc) { html += renderMakesafeDocPreview(doc); });
   } else {
-    html += '<div style="font-size:14px;font-weight:800;color:#F39C12;margin-bottom:6px;">Not attached yet</div>';
-    html += '<div style="font-size:12px;color:var(--sw-text-sec);">Upload or generate the work order when available.</div>';
+    html += '<div style="font-size:14px;font-weight:850;color:#F39C12;margin-bottom:6px;">Work order missing</div>';
+    html += '<div style="font-size:12px;color:var(--sw-text-sec);">No corresponding builder work order is attached yet.</div>';
   }
   html += '</div>';
 
-  html += '<div style="background:var(--sw-card);padding:14px;box-shadow:var(--sw-shadow);">';
-  html += '<div style="font-size:11px;font-weight:800;color:var(--sw-mid);text-transform:uppercase;margin-bottom:8px;">Report</div>';
-  if (checklist) {
-    html += '<div style="font-size:14px;font-weight:800;color:var(--sw-green);margin-bottom:6px;">Received from trade</div>';
-    if (report.submitted_at) html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:6px;">Submitted ' + fmtDate(String(report.submitted_at).slice(0, 10)) + '</div>';
-    if (checklist.work_done) html += '<div style="font-size:12px;color:var(--sw-text);white-space:pre-wrap;">' + escapeHtml(String(checklist.work_done).slice(0, 220)) + '</div>';
-    if (checklist.invoice_notes) html += '<div style="font-size:12px;background:rgba(39,174,96,0.08);padding:6px 8px;margin-top:8px;">Invoice notes: ' + escapeHtml(checklist.invoice_notes) + '</div>';
+  html += '<div style="background:var(--sw-card);padding:14px;box-shadow:var(--sw-shadow);min-height:128px;">';
+  html += '<div style="font-size:11px;font-weight:850;color:var(--sw-mid);text-transform:uppercase;margin-bottom:8px;">Trade report</div>';
+  if (checklist || reportDocs.length) {
+    html += '<div style="font-size:14px;font-weight:850;color:var(--sw-green);margin-bottom:6px;">Received from trade</div>';
+    if (report && report.submitted_at) html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:6px;">Submitted ' + fmtDate(String(report.submitted_at).slice(0, 10)) + '</div>';
+    if (checklist && checklist.work_done) html += '<div style="font-size:12px;color:var(--sw-text);white-space:pre-wrap;max-height:86px;overflow:auto;">' + escapeHtml(String(checklist.work_done).slice(0, 360)) + '</div>';
+    if (checklist && checklist.invoice_notes) html += '<div style="font-size:12px;background:rgba(39,174,96,0.08);padding:6px 8px;margin-top:8px;">Invoice notes: ' + escapeHtml(checklist.invoice_notes) + '</div>';
+    reportDocs.slice(0, 3).forEach(function(doc) { html += renderMakesafeDocPreview(doc); });
   } else {
-    html += '<div style="font-size:14px;font-weight:800;color:#F39C12;margin-bottom:6px;">Waiting for report</div>';
-    html += '<div style="font-size:12px;color:var(--sw-text-sec);">Trade app opens MakeSafe jobs directly into the report flow.</div>';
+    html += '<div style="font-size:14px;font-weight:850;color:#F39C12;margin-bottom:6px;">Waiting for report</div>';
+    html += '<div style="font-size:12px;color:var(--sw-text-sec);">The trade app opens this job directly into the MakeSafe report flow.</div>';
   }
   html += '</div>';
 
-  html += '<div style="background:var(--sw-card);padding:14px;box-shadow:var(--sw-shadow);">';
-  html += '<div style="font-size:11px;font-weight:800;color:var(--sw-mid);text-transform:uppercase;margin-bottom:8px;">Invoice</div>';
+  html += '<div style="background:var(--sw-card);padding:14px;box-shadow:var(--sw-shadow);min-height:128px;">';
+  html += '<div style="font-size:11px;font-weight:850;color:var(--sw-mid);text-transform:uppercase;margin-bottom:8px;">Invoice</div>';
   if (invoices.length) {
     var inv = invoices[0];
-    html += '<div style="font-size:14px;font-weight:800;color:var(--sw-green);margin-bottom:6px;">' + escapeHtml(inv.invoice_number || inv.status || 'Invoice created') + '</div>';
+    html += '<div style="font-size:14px;font-weight:850;color:var(--sw-green);margin-bottom:6px;">' + escapeHtml(inv.invoice_number || inv.status || 'Invoice created') + '</div>';
     html += '<div style="font-size:12px;color:var(--sw-text);">' + fmt$(inv.total || 0) + (inv.status ? ' · ' + escapeHtml(inv.status) : '') + '</div>';
-    if (inv.amount_due > 0) html += '<div style="font-size:12px;color:var(--sw-red);font-weight:700;margin-top:4px;">Due: ' + fmt$(inv.amount_due) + '</div>';
+    if (inv.amount_due > 0) html += '<div style="font-size:12px;color:var(--sw-red);font-weight:800;margin-top:4px;">Due: ' + fmt$(inv.amount_due) + '</div>';
+  } else if (invoiceDocs.length) {
+    html += '<div style="font-size:14px;font-weight:850;color:var(--sw-green);margin-bottom:6px;">Invoice document attached</div>';
+    invoiceDocs.slice(0, 3).forEach(function(doc) { html += renderMakesafeDocPreview(doc); });
   } else {
-    html += '<div style="font-size:14px;font-weight:800;color:' + (stage === 'to_invoice' ? 'var(--sw-green)' : '#8FA4B2') + ';margin-bottom:6px;">' + (stage === 'to_invoice' ? 'Ready to invoice' : 'No invoice yet') + '</div>';
-    html += '<div style="font-size:12px;color:var(--sw-text-sec);">Invoice once report is sent/approved.</div>';
+    html += '<div style="font-size:14px;font-weight:850;color:' + (stage === 'to_invoice' ? 'var(--sw-green)' : '#8FA4B2') + ';margin-bottom:6px;">' + (stage === 'to_invoice' ? 'Ready to invoice' : 'No invoice yet') + '</div>';
+    html += '<div style="font-size:12px;color:var(--sw-text-sec);">Invoice once the trade report is reviewed.</div>';
   }
   html += '</div>';
   html += '</div>';
@@ -11793,14 +11875,12 @@ function renderMakesafeOpsDetail(data) {
   if (sub === 'admin_to_send_report') subActions.push({ to: 'ready_to_invoice', label: 'Ready to invoice', color: '#27AE60' });
   if (sub === 'ready_to_invoice') subActions.push({ to: 'complete', label: 'Completed', color: '#7F8C8D' });
   html += '<div style="background:var(--sw-card);padding:14px;margin-bottom:12px;box-shadow:var(--sw-shadow);">';
-  html += '<div style="font-size:11px;font-weight:800;color:var(--sw-mid);text-transform:uppercase;margin-bottom:8px;">Next step</div>';
+  html += '<div style="font-size:11px;font-weight:850;color:var(--sw-mid);text-transform:uppercase;margin-bottom:8px;">Next step</div>';
   if (subActions.length) {
     subActions.forEach(function(sa) { html += '<button onclick="advanceMakesafeSubstatus(\'' + j.id + '\',\'' + sa.to + '\')" class="btn btn-sm" style="background:' + sa.color + ';color:#fff;margin-right:6px;margin-bottom:6px;">' + sa.label + '</button>'; });
   } else {
-    html += '<div style="font-size:13px;color:var(--sw-green);font-weight:700;">MakeSafe flow complete.</div>';
+    html += '<div style="font-size:13px;color:var(--sw-green);font-weight:800;">MakeSafe flow complete.</div>';
   }
-  html += '<button onclick="showJobSubView(\'files\')" class="btn btn-secondary btn-sm" style="margin-right:6px;margin-bottom:6px;">Files</button>';
-  html += '<button onclick="showJobSubView(\'history\')" class="btn btn-secondary btn-sm" style="margin-bottom:6px;">History</button>';
   html += '</div>';
   html += '</div>';
   return html;
@@ -13541,7 +13621,7 @@ function renderFilesView(data) {
   if (allDocs.length > 0) {
     html += '<div style="font-size:14px;font-weight:700;margin-top:16px;margin-bottom:8px;">Documents (' + allDocs.length + ')</div>';
     allDocs.forEach(function(doc) {
-      var url = doc.storage_url || doc.pdf_url;
+      var url = getDocOpenUrl(doc);
       var name = doc.file_name || doc.quote_number || ((doc.type || 'document').replace(/_/g, ' ') + (doc.version > 1 ? ' v' + doc.version : ''));
       var isVisible = doc.visible_to_trades;
 
