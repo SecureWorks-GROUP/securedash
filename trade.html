@@ -3969,7 +3969,7 @@
           }
         }
         // Scope summary line (always show — fallback to type name)
-        var scopeSummary = job.scope_summary || buildScopeSummary(job.scope_json, type);
+        var scopeSummary = type === 'makesafe' ? getTradeMakesafeTypeLabel(job) : (job.scope_summary || buildScopeSummary(job.scope_json, type));
         html += '  <div style="font-size:12px;color:var(--sw-mid);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(scopeSummary) + '</div>';
         html += '  <div class="job-card-meta">';
         html += '    <span>' + formatDate(a.scheduled_date) + '</span>';
@@ -3999,15 +3999,16 @@
         }
         // Quick action buttons (Call, Text, Navigate)
         html += '  <div style="display:flex;gap:6px;margin-top:8px">';
-        if (job.client_phone && canCall()) {
-          html += '    <a href="tel:' + esc(job.client_phone) + '" onclick="event.stopPropagation()" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-green);color:#fff;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700">';
+        var cardPhone = getTradeCardPhone(job);
+        if (cardPhone && canCall()) {
+          html += '    <a href="tel:' + esc(cardPhone) + '" onclick="event.stopPropagation()" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-green);color:#fff;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700">';
           html += '      <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>';
           html += '      Call</a>';
         }
         if (canMessage()) {
           if (type === 'makesafe') {
-            if (job.client_phone) {
-              html += '    <a href="sms:' + esc(job.client_phone) + '" onclick="event.stopPropagation()" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-blue);color:#fff;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700">';
+            if (cardPhone) {
+              html += '    <a href="sms:' + esc(cardPhone) + '" onclick="event.stopPropagation()" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-blue);color:#fff;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700">';
               html += '      <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>';
               html += '      Text</a>';
             }
@@ -4160,7 +4161,7 @@
     if (typeof value === 'string') return value;
     if (Array.isArray(value)) return value.map(tradeMakesafeTextFromValue).filter(Boolean).join(' ');
     if (typeof value === 'object') {
-      return [value.type, value.job_type, value.makesafe_type, value.scope_type, value.category, value.title, value.name, value.description, value.summary, value.scope, value.notes]
+      return [value.type, value.job_type, value.makesafe_type, value.scope_type, value.work_type, value.service_type, value.damage_type, value.category, value.title, value.name, value.description, value.summary, value.scope, value.notes, value.make_safe_type, value.report_type]
         .map(tradeMakesafeTextFromValue).filter(Boolean).join(' ');
     }
     return String(value || '');
@@ -4212,9 +4213,13 @@
   }
 
   function getTradeMakesafeTypeLabel(job) {
-    var md = job.metadata || job.makesafe_details || {};
-    var direct = job.makesafe_type || job.job_type || job.scope_type || job.work_type || job.service_type || md.makesafe_type || md.job_type || md.scope_type || md.work_type || md.service_type || md.damage_type || md.category;
-    var text = tradeMakesafeTextFromValue(direct) || tradeMakesafeTextFromValue(md.scope) || tradeMakesafeTextFromValue(md.scope_json) || tradeMakesafeTextFromValue(job.scope_json) || tradeMakesafeTextFromValue(job.description) || tradeMakesafeTextFromValue(job.notes) || '';
+    job = job || {};
+    var detail = job.makesafe_details || {};
+    var md = job.metadata || {};
+    var direct = job.makesafe_type || job.job_type || job.scope_type || job.work_type || job.service_type || job.damage_type || job.make_safe_type ||
+      detail.makesafe_type || detail.job_type || detail.scope_type || detail.work_type || detail.service_type || detail.damage_type || detail.category || detail.make_safe_type ||
+      md.makesafe_type || md.job_type || md.scope_type || md.work_type || md.service_type || md.damage_type || md.category || md.make_safe_type;
+    var text = tradeMakesafeTextFromValue(direct) || tradeMakesafeTextFromValue(detail) || tradeMakesafeTextFromValue(md.scope) || tradeMakesafeTextFromValue(md.scope_json) || tradeMakesafeTextFromValue(job.scope_json) || tradeMakesafeTextFromValue(job.description) || tradeMakesafeTextFromValue(job.notes) || '';
     var lower = text.toLowerCase();
     if (/temp(orary)?\s+fenc|make\s*safe\s*fenc|\bfenc(e|ing)?\b/.test(lower)) return 'Temp fence';
     if (/roof|tile|tarp|sheeting|water ingress/.test(lower)) return 'Roof make safe';
@@ -4233,6 +4238,14 @@
   function getTradeCardLine(job, type) {
     if (type === 'makesafe') return job.client_name || 'MakeSafe';
     return job.site_suburb || job.site_address || '';
+  }
+
+  function getTradeCardPhone(job) {
+    job = job || {};
+    var detail = job.makesafe_details || {};
+    var md = job.metadata || {};
+    return job.client_phone || job.phone || job.mobile || job.contact_phone || job.contact_mobile || job.client_mobile || job.site_phone ||
+      detail.client_phone || detail.phone || detail.contact_phone || detail.mobile || md.client_phone || md.phone || md.contact_phone || md.mobile || '';
   }
   // Open a job and auto-switch to a specific tab (e.g. 'comms') after it loads
   window.openJobToTab = function(jobId, assignmentId, tabName) {
@@ -7061,8 +7074,14 @@
     var files = Array.from(input.files || []);
     if (files.length === 0 || _uploading) return;
     _uploading = true;
-    var prefix = phase === 'scope' ? 'msrBefore' : 'msrAfter';
-    var phaseLabel = phase === 'scope' ? 'before' : 'after';
+    var phaseMeta = {
+      front_elevation: { prefix: 'msrFront', label: 'front elevation' },
+      scope: { prefix: 'msrBefore', label: 'before' },
+      completion: { prefix: 'msrAfter', label: 'after' }
+    };
+    var meta = phaseMeta[phase] || { prefix: 'msrAfter', label: phase || 'job' };
+    var prefix = meta.prefix;
+    var phaseLabel = meta.label;
     var progress = document.getElementById(prefix + 'Progress');
     var progressText = document.getElementById(prefix + 'ProgressText');
     var progressFill = document.getElementById(prefix + 'ProgressFill');
@@ -7118,7 +7137,8 @@
       _uploading = false;
       if (progress) progress.style.display = 'none';
       toast(files.length + ' ' + phaseLabel + ' photo(s) uploaded');
-      window._msrPhotoCounts = window._msrPhotoCounts || { before: 0, after: 0 };
+      window._msrPhotoCounts = window._msrPhotoCounts || { front: 0, before: 0, after: 0 };
+      if (phase === 'front_elevation') window._msrPhotoCounts.front += files.length;
       if (phase === 'scope') window._msrPhotoCounts.before += files.length;
       if (phase === 'completion') window._msrPhotoCounts.after += files.length;
       input.value = '';
@@ -7409,6 +7429,46 @@
     var msDetails = data.makesafe_details || {};
     var h = '';
 
+    function msrTodayDate() {
+      var d = new Date();
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      return d.toISOString().slice(0, 10);
+    }
+    function parseArrival(value) {
+      var raw = String(value || '');
+      var dateMatch = raw.match(/\d{4}-\d{2}-\d{2}/);
+      var timeMatch = raw.match(/\b\d{2}:\d{2}\b/);
+      return { date: dateMatch ? dateMatch[0] : msrTodayDate(), time: timeMatch ? timeMatch[0] : raw };
+    }
+    function renderMaterialRows(materials) {
+      var rows = Array.isArray(materials) ? materials.slice() : String(materials || '').split(',').map(function(v) { return v.trim(); }).filter(Boolean);
+      var defaults = ['Temp fence panels', 'Bases / feet', 'Tarps / roof materials', 'Fixings / consumables', 'Other / none'];
+      while (rows.length < 5) rows.push(defaults[rows.length] || '');
+      var out = '';
+      rows.slice(0, 6).forEach(function(row, idx) {
+        var item = String(row || '');
+        var qty = '';
+        var m = item.match(/^(.*?)(?:\s+x\s+|\s+qty\s+)([\d.]+.*)$/i);
+        if (m) { item = m[1]; qty = m[2]; }
+        out += '<tr data-msr-material-row>';
+        out += '<td style="padding:6px 4px;"><input data-msr-material-item value="' + esc(item) + '" placeholder="Material/equipment" style="width:100%;padding:9px;border:1px solid var(--sw-border);border-radius:8px;font-size:13px;box-sizing:border-box;"></td>';
+        out += '<td style="padding:6px 4px;width:92px;"><input data-msr-material-qty value="' + esc(qty) + '" placeholder="Qty" style="width:100%;padding:9px;border:1px solid var(--sw-border);border-radius:8px;font-size:13px;box-sizing:border-box;"></td>';
+        out += '</tr>';
+      });
+      return out;
+    }
+    function renderPhotoThumbs(photos) {
+      var out = '';
+      if (photos.length > 0) {
+        out += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;">';
+        photos.forEach(function(p) {
+          out += '<img src="' + esc(p.thumbnail_url || p.storage_url) + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="openLightbox(\'' + esc(p.storage_url) + '\')">';
+        });
+        out += '</div>';
+      }
+      return out;
+    }
+
     if (report && report.status === 'submitted') {
       h += '<div style="background:#D4EDDA;border:1px solid #C3E6CB;border-radius:8px;padding:12px;margin-bottom:12px;">';
       h += '<div style="font-weight:700;color:#155724;">Report Submitted</div>';
@@ -7416,27 +7476,34 @@
       h += '</div>';
       if (report.checklist_json) {
         var cl = report.checklist_json;
-        if (cl.arrival_time) h += '<div style="margin-bottom:8px;"><strong>Arrival:</strong> ' + esc(cl.arrival_time) + '</div>';
+        var arrivalParts = parseArrival(cl.arrival_time);
+        if (cl.arrival_time) h += '<div style="margin-bottom:8px;"><strong>Arrival:</strong> ' + esc(arrivalParts.date + (arrivalParts.time ? ' at ' + arrivalParts.time : '')) + '</div>';
         if (cl.labour_hours) h += '<div style="margin-bottom:8px;"><strong>Labour:</strong> ' + cl.labour_hours + ' hrs x ' + (cl.trade_count || 1) + ' trades</div>';
         var submittedJobTypeMatch = /^Make-safe type:\s*([^\n]+)\nDamage:\s*/i.exec(cl.damage_description || '');
         if (submittedJobTypeMatch) h += '<div style="margin-bottom:8px;"><strong>Type:</strong> ' + esc(submittedJobTypeMatch[1]) + '</div>';
         if (cl.damage_description) h += '<div style="margin-bottom:8px;"><strong>Damage:</strong><br><span style="font-size:13px;">' + esc((cl.damage_description || '').replace(/^Make-safe type:\s*[^\n]+\nDamage:\s*/i, '')) + '</span></div>';
         if (cl.damage_cause) h += '<div style="margin-bottom:8px;"><strong>Cause:</strong> ' + esc(cl.damage_cause) + '</div>';
-        if (cl.work_done) h += '<div style="margin-bottom:8px;"><strong>Rectification:</strong><br><span style="font-size:13px;">' + esc(cl.work_done) + '</span></div>';
-        if (cl.materials_used && cl.materials_used.length) h += '<div style="margin-bottom:8px;"><strong>Materials:</strong> ' + esc(Array.isArray(cl.materials_used) ? cl.materials_used.join(', ') : cl.materials_used) + '</div>';
-        if (cl.access_issues) h += '<div style="margin-bottom:8px;"><strong>Access Issues:</strong> ' + esc(cl.access_issues) + '</div>';
-        if (cl.invoice_notes) h += '<div style="margin-bottom:8px;"><strong>Invoice Notes:</strong> ' + esc(cl.invoice_notes) + '</div>';
-        if (cl.follow_up_required) h += '<div style="margin-bottom:8px;color:var(--sw-red);"><strong>Follow-up required</strong></div>';
+        if (cl.work_done) h += '<div style="margin-bottom:8px;"><strong>Work completed:</strong><br><span style="font-size:13px;">' + esc(cl.work_done) + '</span></div>';
+        var mats = Array.isArray(cl.materials_used) ? cl.materials_used : String(cl.materials_used || '').split(',').map(function(v) { return v.trim(); }).filter(Boolean);
+        if (mats.length) {
+          h += '<div style="margin-bottom:8px;"><strong>Materials/equipment:</strong><table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:13px;">';
+          mats.forEach(function(m) { h += '<tr><td style="border-bottom:1px solid var(--sw-border);padding:5px 0;">' + esc(m) + '</td></tr>'; });
+          h += '</table></div>';
+        }
+        var extra = cl.extra_notes || cl.access_issues || cl.invoice_notes || '';
+        if (extra) h += '<div style="margin-bottom:8px;"><strong>Extra notes:</strong> ' + esc(extra) + '</div>';
       }
       container.innerHTML = h;
       return;
     }
 
-    h += '<div style="font-size:15px;font-weight:700;color:var(--sw-dark);margin-bottom:8px;">Make-Safe Report + Invoice Notes</div>';
-    h += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:10px;line-height:1.4;">No WhatsApp report needed. Fill this once so admin can draft the client report and invoice.</div>';
-    h += '<div style="background:#FFF7ED;border:1px solid #FDBA74;border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;color:#9A3412;line-height:1.4;"><strong>Quick rule:</strong> record what was damaged, what you made safe, labour/trade count, charge notes and clear before/after photos.</div>';
+    h += renderMakesafeWorkOrderInline(data);
+    h += '<div style="font-size:15px;font-weight:700;color:var(--sw-dark);margin-bottom:8px;">Make-Safe Report</div>';
+    h += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:10px;line-height:1.4;">Open the work order above, then complete the report before moving to the next MakeSafe.</div>';
+    h += '<div style="background:#FFF7ED;border:1px solid #FDBA74;border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;color:#9A3412;line-height:1.4;"><strong>Quick rule:</strong> date/time, what failed, what you made safe, labour, materials and clear photos.</div>';
 
     var cl = (report && report.checklist_json) || {};
+    var arrivalParts = parseArrival(cl.arrival_time);
 
     // Make-safe type
     h += '<div style="margin-bottom:14px;">';
@@ -7450,128 +7517,89 @@
       h += '<option value="' + esc(t) + '"' + sel + '>' + esc(t) + '</option>';
     });
     h += '</select>';
-    h += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:4px;">Pick the closest type. Admin will polish the final wording.</div>';
     h += '</div>';
 
-    // Time of arrival
-    h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Time of Arrival</label>';
-    h += '<input id="msrArrivalTime" type="time" value="' + (cl.arrival_time || '') + '" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;">';
-    h += '</div>';
-
-    // Labour
     h += '<div style="display:flex;gap:12px;margin-bottom:14px;">';
-    h += '<div style="flex:1;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Hours each trade *</label>';
-    h += '<input id="msrHours" type="number" step="0.5" min="0" value="' + (cl.labour_hours || '') + '" placeholder="e.g. 3" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
-    h += '<div style="flex:1;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Trades on site *</label>';
-    h += '<input id="msrTradeCount" type="number" min="1" value="' + (cl.trade_count || '2') + '" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
+    h += '<div style="flex:1;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Arrival date *</label><input id="msrArrivalDate" type="date" value="' + esc(arrivalParts.date) + '" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
+    h += '<div style="flex:1;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Arrival time *</label><input id="msrArrivalTime" type="time" value="' + esc(arrivalParts.time) + '" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
     h += '</div>';
 
-    // Description of damage
+    h += '<div style="display:flex;gap:12px;margin-bottom:14px;">';
+    h += '<div style="flex:1;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Hours each trade *</label><input id="msrHours" type="number" step="0.5" min="0" value="' + (cl.labour_hours || '') + '" placeholder="e.g. 3" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
+    h += '<div style="flex:1;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Trades on site *</label><input id="msrTradeCount" type="number" min="1" value="' + (cl.trade_count || '2') + '" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
+    h += '</div>';
+
     var cleanDamageDescription = (cl.damage_description || '').replace(/^Make-safe type:\s*[^\n]+\nDamage:\s*/i, '');
-    h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Damage found *</label>';
-    h += '<textarea id="msrDamageDesc" rows="3" placeholder="Plain notes: what failed, where, how many panels/areas, any safety risk." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cleanDamageDescription) + '</textarea>';
-    h += '</div>';
+    h += '<div style="margin-bottom:14px;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Damage found *</label><textarea id="msrDamageDesc" rows="3" placeholder="Plain notes: what failed, where, how many panels/areas, any safety risk." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cleanDamageDescription) + '</textarea></div>';
 
-    // Cause of damage
+    var savedCause = String(cl.damage_cause || '');
+    var causeOther = /^Other:\s*(.+)$/i.exec(savedCause);
     h += '<div style="margin-bottom:14px;">';
     h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Cause / trigger *</label>';
-    h += '<select id="msrDamageCause" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;background:#fff;">';
+    h += '<select id="msrDamageCause" onchange="var w=document.getElementById(\'msrDamageCauseOtherWrap\');if(w)w.style.display=this.value===\'Other\'?\'block\':\'none\';" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;background:#fff;">';
     var causes = ['Storm / wind', 'Vehicle / tree impact', 'Water ingress', 'Fire', 'Existing damage / wear', 'Unknown', 'Other'];
     causes.forEach(function(c) {
-      var sel = (cl.damage_cause === c) ? ' selected' : '';
+      var sel = (savedCause === c || (c === 'Other' && causeOther)) ? ' selected' : '';
       h += '<option value="' + esc(c) + '"' + sel + '>' + esc(c) + '</option>';
     });
     h += '</select>';
+    h += '<div id="msrDamageCauseOtherWrap" style="display:' + (causeOther ? 'block' : 'none') + ';margin-top:8px;"><input id="msrDamageCauseOther" value="' + esc(causeOther ? causeOther[1] : '') + '" placeholder="Write the cause / trigger" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
     h += '</div>';
 
-    // Rectification / Action taken (was "Work Done")
+    h += '<div style="margin-bottom:14px;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Work completed *</label><textarea id="msrWorkDone" rows="3" placeholder="What you did: moved/stacked fallen material, tarped, installed temp fence, made area safe." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.work_done || '') + '</textarea></div>';
+
     h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Work completed *</label>';
-    h += '<textarea id="msrWorkDone" rows="3" placeholder="What you did: moved/stacked fallen material, tarped, installed temp fence, made area safe." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.work_done || '') + '</textarea>';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Materials / equipment used *</label>';
+    h += '<table style="width:100%;border-collapse:collapse;"><thead><tr><th style="text-align:left;font-size:11px;color:var(--sw-text-sec);padding:0 4px 4px;">Item</th><th style="text-align:left;font-size:11px;color:var(--sw-text-sec);padding:0 4px 4px;width:92px;">Qty</th></tr></thead><tbody>' + renderMaterialRows(cl.materials_used || []) + '</tbody></table>';
+    h += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:4px;">If nothing was used, write “None” in the item column.</div>';
     h += '</div>';
 
-    // Materials used
-    h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Materials / temp fence *</label>';
-    h += '<textarea id="msrMaterials" rows="2" placeholder="e.g. 6 temp panels, 3 bases, star pickets, cable ties, tarp, silicone, or None." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc((cl.materials_used || []).join ? (cl.materials_used || []).join(', ') : (cl.materials_used || '')) + '</textarea>';
-    h += '</div>';
-
-    // Access issues
-    h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Follow-up or site issues</label>';
-    h += '<textarea id="msrAccess" rows="2" placeholder="Permanent repair needed, unsafe area, asbestos observed, access issue, return visit, or None." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.access_issues || '') + '</textarea>';
-    h += '</div>';
-
-    // Invoice notes
-    h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Invoice notes for admin</label>';
-    h += '<textarea id="msrInvoiceNotes" rows="2" placeholder="Billing notes: hours, trades, travel/pickup, materials, temp fence count, disposal if material left site." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(cl.invoice_notes || '') + '</textarea>';
-    h += '</div>';
-
-    // Follow-up required
-    h += '<div style="margin-bottom:16px;display:flex;align-items:center;gap:8px;">';
-    h += '<input type="checkbox" id="msrFollowUp" ' + (cl.follow_up_required ? 'checked' : '') + ' style="width:18px;height:18px;">';
-    h += '<label for="msrFollowUp" style="font-size:13px;font-weight:600;">Follow-up needed after make-safe</label>';
-    h += '</div>';
+    var extraNotes = cl.extra_notes || cl.access_issues || cl.invoice_notes || '';
+    h += '<div style="margin-bottom:16px;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Extra notes</label><textarea id="msrExtraNotes" rows="2" placeholder="Anything admin needs to know: access issue, unsafe area, return visit, invoice detail, or None." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(extraNotes) + '</textarea></div>';
 
     // ── Photo Upload Sections ──
     var allMedia = data.media || [];
+    var frontPhotos = allMedia.filter(function(m) { return m.phase === 'front_elevation' || m.phase === 'front'; });
     var beforePhotos = allMedia.filter(function(m) { return m.phase === 'scope'; });
     var afterPhotos = allMedia.filter(function(m) { return m.phase === 'completion'; });
-    window._msrPhotoCounts = { before: beforePhotos.length, after: afterPhotos.length };
+    window._msrPhotoCounts = { front: frontPhotos.length, before: beforePhotos.length, after: afterPhotos.length };
 
     h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">Before / damage photos (' + beforePhotos.length + ')</label>';
-    if (beforePhotos.length > 0) {
-      h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;">';
-      beforePhotos.forEach(function(p) {
-        h += '<img src="' + esc(p.thumbnail_url || p.storage_url) + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="openLightbox(\'' + esc(p.storage_url) + '\')">';
-      });
-      h += '</div>';
-    }
-    h += '<div class="upload-area" onclick="document.getElementById(\'msrBeforeInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;">';
-    h += '<svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg>';
-    h += '<p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Add before/damage photos</p>';
-    h += '</div>';
-    h += '<input type="file" id="msrBeforeInput" accept="image/*" capture="environment" multiple style="display:none" onchange="handleMsrPhotoUpload(this, \'scope\')">';
-    h += '<div class="upload-progress" id="msrBeforeProgress" style="display:none"><span id="msrBeforeProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrBeforeProgressFill"></div></div></div>';
+    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">Front elevation photo (' + frontPhotos.length + ')</label>';
+    h += renderPhotoThumbs(frontPhotos);
+    h += '<div class="upload-area" onclick="document.getElementById(\'msrFrontInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;"><svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg><p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Add front elevation photo</p></div>';
+    h += '<input type="file" id="msrFrontInput" accept="image/*" capture="environment" style="display:none" onchange="handleMsrPhotoUpload(this, \'front_elevation\')">';
+    h += '<div class="upload-progress" id="msrFrontProgress" style="display:none"><span id="msrFrontProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrFrontProgressFill"></div></div></div>';
     h += '</div>';
 
-    h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">After / completed photos (' + afterPhotos.length + ')</label>';
-    if (afterPhotos.length > 0) {
-      h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;">';
-      afterPhotos.forEach(function(p) {
-        h += '<img src="' + esc(p.thumbnail_url || p.storage_url) + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="openLightbox(\'' + esc(p.storage_url) + '\')">';
-      });
-      h += '</div>';
-    }
-    h += '<div class="upload-area" onclick="document.getElementById(\'msrAfterInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;">';
-    h += '<svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg>';
-    h += '<p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Add after/completed photos</p>';
-    h += '</div>';
-    h += '<input type="file" id="msrAfterInput" accept="image/*" capture="environment" multiple style="display:none" onchange="handleMsrPhotoUpload(this, \'completion\')">';
-    h += '<div class="upload-progress" id="msrAfterProgress" style="display:none"><span id="msrAfterProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrAfterProgressFill"></div></div></div>';
+    h += '<div style="margin-bottom:14px;border:1px solid var(--sw-border);border-radius:10px;padding:10px;">';
+    h += '<div style="font-size:13px;font-weight:700;margin-bottom:4px;">Before / after evidence photos</div>';
+    h += '<div style="font-size:11px;color:var(--sw-text-sec);margin-bottom:10px;">Upload 3–4 before photos and 3–4 after photos. You can select multiple from the phone.</div>';
+    h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Before / damage (' + beforePhotos.length + ')</label>' + renderPhotoThumbs(beforePhotos);
+    h += '<div class="upload-area" onclick="document.getElementById(\'msrBeforeInput\').click()" style="padding:14px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;margin-bottom:8px;"><p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Add before/damage photos</p></div>';
+    h += '<input type="file" id="msrBeforeInput" accept="image/*" capture="environment" multiple style="display:none" onchange="handleMsrPhotoUpload(this, \'scope\')"><div class="upload-progress" id="msrBeforeProgress" style="display:none"><span id="msrBeforeProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrBeforeProgressFill"></div></div></div>';
+    h += '<label style="font-size:12px;font-weight:600;display:block;margin:10px 0 6px;">After / completed (' + afterPhotos.length + ')</label>' + renderPhotoThumbs(afterPhotos);
+    h += '<div class="upload-area" onclick="document.getElementById(\'msrAfterInput\').click()" style="padding:14px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;margin-bottom:8px;"><p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Add after/completed photos</p></div>';
+    h += '<input type="file" id="msrAfterInput" accept="image/*" capture="environment" multiple style="display:none" onchange="handleMsrPhotoUpload(this, \'completion\')"><div class="upload-progress" id="msrAfterProgress" style="display:none"><span id="msrAfterProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrAfterProgressFill"></div></div></div>';
     h += '</div>';
 
-    // Photo submission gate summary
-    var beforeOk = beforePhotos.length >= 2;
-    var afterOk = afterPhotos.length >= 2;
-    h += '<div style="background:' + (beforeOk && afterOk ? '#E8F8EF' : '#FEF3C7') + ';border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;color:' + (beforeOk && afterOk ? '#155724' : '#92400E') + ';">';
-    h += '<strong>Photo gate:</strong> add at least 2 before/damage and 2 after/completed photos before submitting. Current: before ' + beforePhotos.length + '/2, after ' + afterPhotos.length + '/2.';
+    var frontOk = frontPhotos.length >= 1;
+    var beforeOk = beforePhotos.length >= 3;
+    var afterOk = afterPhotos.length >= 3;
+    h += '<div style="background:' + (frontOk && beforeOk && afterOk ? '#E8F8EF' : '#FEF3C7') + ';border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;color:' + (frontOk && beforeOk && afterOk ? '#155724' : '#92400E') + ';">';
+    h += '<strong>Photo gate:</strong> front ' + frontPhotos.length + '/1, before ' + beforePhotos.length + '/3, after ' + afterPhotos.length + '/3.';
     h += '</div>';
 
-    // Submit button
-    h += '<button onclick="submitMakesafeReport()" style="width:100%;background:var(--sw-orange);color:#fff;border:none;padding:14px;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;min-height:50px;">Submit report notes</button>';
+    h += '<button onclick="submitMakesafeReport()" style="width:100%;background:var(--sw-orange);color:#fff;border:none;padding:14px;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;min-height:50px;">Submit MakeSafe report</button>';
 
     container.innerHTML = h;
   }
 
   window.submitMakesafeReport = function() {
-    var arrival = ((document.getElementById('msrArrivalTime') || {}).value || '').trim();
-    if (!arrival) { toast('Please enter arrival time'); return; }
+    var arrivalDate = ((document.getElementById('msrArrivalDate') || {}).value || '').trim();
+    var arrivalTime = ((document.getElementById('msrArrivalTime') || {}).value || '').trim();
+    if (!arrivalDate) { toast('Please enter arrival date'); return; }
+    if (!arrivalTime) { toast('Please enter arrival time'); return; }
     var hours = parseFloat((document.getElementById('msrHours') || {}).value) || 0;
     if (hours <= 0) { toast('Please enter labour hours'); return; }
     var tradeCount = parseInt((document.getElementById('msrTradeCount') || {}).value) || 0;
@@ -7582,30 +7610,43 @@
     if (!damageDesc || !damageDesc.value.trim()) { toast('Please describe the damage'); return; }
     var damageCause = ((document.getElementById('msrDamageCause') || {}).value || '').trim();
     if (!damageCause) { toast('Please select cause of damage'); return; }
+    if (damageCause === 'Other') {
+      var otherCause = ((document.getElementById('msrDamageCauseOther') || {}).value || '').trim();
+      if (!otherCause) { toast('Please write the other cause / trigger'); return; }
+      damageCause = 'Other: ' + otherCause;
+    }
     var workDone = document.getElementById('msrWorkDone');
     if (!workDone || !workDone.value.trim()) { toast('Please describe the work completed'); return; }
 
-    var materialsRaw = (document.getElementById('msrMaterials') || {}).value || '';
-    if (!materialsRaw.trim()) { toast('Please enter materials used, or write None'); return; }
-    var materials = materialsRaw.split(',').map(function(m) { return m.trim(); }).filter(Boolean);
-    var photoCounts = window._msrPhotoCounts || { before: 0, after: 0 };
-    if (photoCounts.before < 2 || photoCounts.after < 2) {
-      toast('Please add at least 2 before and 2 after photos');
+    var materials = [];
+    document.querySelectorAll('[data-msr-material-row]').forEach(function(row) {
+      var itemEl = row.querySelector('[data-msr-material-item]');
+      var qtyEl = row.querySelector('[data-msr-material-qty]');
+      var item = itemEl ? itemEl.value.trim() : '';
+      var qty = qtyEl ? qtyEl.value.trim() : '';
+      if (item || qty) materials.push(item + (qty ? ' x ' + qty : ''));
+    });
+    if (!materials.length) { toast('Please enter materials/equipment used, or write None'); return; }
+
+    var photoCounts = window._msrPhotoCounts || { front: 0, before: 0, after: 0 };
+    if (photoCounts.front < 1 || photoCounts.before < 3 || photoCounts.after < 3) {
+      toast('Please add front, 3 before and 3 after photos');
       return;
     }
 
+    var extraNotes = ((document.getElementById('msrExtraNotes') || {}).value || '').trim();
     var payload = {
       job_id: _currentJobId,
-      arrival_time: arrival,
+      arrival_time: arrivalDate + ' ' + arrivalTime,
       damage_description: 'Make-safe type: ' + jobType + '\nDamage: ' + damageDesc.value.trim(),
       damage_cause: damageCause,
       work_done: workDone.value.trim(),
       materials_used: materials,
       labour_hours: hours,
       trade_count: tradeCount,
-      access_issues: ((document.getElementById('msrAccess') || {}).value || '').trim(),
-      follow_up_required: document.getElementById('msrFollowUp') ? document.getElementById('msrFollowUp').checked : false,
-      invoice_notes: ((document.getElementById('msrInvoiceNotes') || {}).value || '').trim(),
+      access_issues: extraNotes,
+      follow_up_required: false,
+      invoice_notes: extraNotes,
       status: 'submitted',
     };
 
@@ -8168,6 +8209,14 @@
     h += '<div style="font-size:17px;font-weight:800;color:var(--sw-dark)">' + esc(job.job_number || wo.wo_number || 'MakeSafe') + '</div></div>';
     if (woUrl) h += '<a href="' + esc(woUrl) + '" target="_blank" rel="noopener" style="flex:0 0 auto;background:var(--sw-dark);color:#fff;border-radius:8px;padding:9px 12px;text-decoration:none;font-size:12px;font-weight:800;min-height:44px;display:flex;align-items:center">Open full WO ↗</a>';
     h += '</div>';
+    if (woUrl) {
+      h += '<div style="background:#fff;border:1px solid #FDBA74;border-radius:10px;overflow:hidden;margin:8px 0 12px;box-shadow:0 1px 3px rgba(0,0,0,.08)">';
+      h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;background:#FFEDD5;border-bottom:1px solid #FDBA74;font-size:12px;color:#9A3412;font-weight:800">';
+      h += '<span>Work order PDF</span><a href="' + esc(woUrl) + '" target="_blank" rel="noopener" style="color:#9A3412;text-decoration:underline">Full screen</a></div>';
+      h += '<iframe title="Builder work order PDF" src="' + esc(woUrl) + '" style="width:100%;height:430px;border:0;background:#fff;display:block"></iframe>';
+      h += '<div style="font-size:11px;color:var(--sw-text-sec);padding:7px 10px;background:#fff">If the PDF preview does not load on this phone, use Full screen above.</div>';
+      h += '</div>';
+    }
     var addr = [job.site_address, job.site_suburb].filter(Boolean).join(', ');
     if (addr) h += '<div style="font-size:13px;color:var(--sw-text);margin-bottom:6px"><strong>Site:</strong> ' + esc(addr) + '</div>';
     var company = ms.requesting_company_name || (ms.requesting_company && ms.requesting_company.name) || (ms.makesafe_companies && ms.makesafe_companies.name) || job.client_name || '';
