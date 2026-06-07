@@ -2645,6 +2645,7 @@
   var _currentJobLoaded = null;  // last loaded jobId (cache key)
   var _reportLoadedForJob = null; // prevent report form reload when switching tabs
   var _reportDirty = false;       // unsaved changes in report form
+  var _reportDirectToJobs = false; // makesafe cards open report directly and back returns to Jobs
   var _invoiceBuilderOpen = false; // true when invoice builder is active
   var _opsApiBase = '';
   var _cachedMyJobs = [];    // flat array of all assignments for Camera/Schedule views
@@ -3019,10 +3020,12 @@
 
   // Refresh session when app comes back from background (screen unlock, tab switch)
   document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'hidden') persistTradeState();
     if (document.visibilityState === 'visible' && cloud && cloud.supabase && _user) {
       cloud.supabase.auth.refreshSession().catch(function() {});
     }
   });
+  window.addEventListener('pagehide', persistTradeState);
 
   // Periodic refresh every 20 minutes to prevent expiry during long on-site sessions
   setInterval(function() {
@@ -3403,11 +3406,17 @@
         var saved = JSON.parse(sessionStorage.getItem('sw_trade_state') || 'null');
         if (saved && (Date.now() - saved.ts) < 14400000) { // 4-hour expiry
           if (saved.view === 'job' && saved.jobId) {
+            _pendingJobTab = saved.jobTab || null;
+            _currentJobTab = saved.jobTab || null;
             openJob(saved.jobId, saved.assignmentId);
+            restoreScrollSoon(saved.scrollY || 0);
             _restored = true;
           } else if (['hours','activity','schedule','profile','report'].indexOf(saved.view) !== -1) {
             if (saved.jobId) { _currentJobId = saved.jobId; _currentAssignment = saved.assignmentId || null; }
+            _currentJobTab = saved.jobTab || _currentJobTab;
+            _reportDirectToJobs = !!saved.reportDirectToJobs;
             showView(saved.view);
+            restoreScrollSoon(saved.scrollY || 0);
             _restored = true;
           }
         }
@@ -3474,12 +3483,9 @@
     _currentView = view;
     _lastViewChangeTime = Date.now();
 
-    // Persist navigation state so app can resume after background kill
-    try {
-      sessionStorage.setItem('sw_trade_state', JSON.stringify({
-        view: view, jobId: _currentJobId, assignmentId: _currentAssignment, ts: Date.now()
-      }));
-    } catch(e) {}
+    // Persist navigation state so app can resume after background kill without dropping
+    // the trade back to the root job screen.
+    persistTradeState();
 
     document.querySelectorAll('.view').forEach(function(el) { el.classList.remove('active'); });
     document.querySelectorAll('.bottom-nav button').forEach(function(el) { el.classList.remove('active'); });
@@ -3535,7 +3541,12 @@
 
   window.goBack = function() {
     if (_currentView === 'report') {
-      showView('job');
+      if (_reportDirectToJobs) {
+        _reportDirectToJobs = false;
+        showView('myJobs');
+      } else {
+        showView('job');
+      }
     } else {
       showView('myJobs');
     }
@@ -3777,7 +3788,8 @@
           var statusClass = 'status-' + (a.status || 'scheduled');
           if (!job.id) return;
           var type = job.type || 'patio';
-          html += '<div class="job-card" data-type="' + type + '" onclick="openJob(\'' + job.id + '\', \'' + a.id + '\')">';
+          var openAction = type === 'makesafe' ? 'openJobReport' : 'openJob';
+          html += '<div class="job-card" data-type="' + type + '" onclick="' + openAction + '(\'' + job.id + '\', \'' + a.id + '\')">';
           html += '  <div class="job-card-top">';
           html += '    <div>';
           html += '      <div class="job-card-client">' + esc(job.client_name || 'Unknown') + '</div>';
@@ -3859,7 +3871,8 @@
         }
 
         var type = job.type || 'patio';
-        html += '<div class="job-card' + todayClass + '" data-type="' + type + '" onclick="openJob(\'' + job.id + '\', \'' + a.id + '\')">';
+        var openAction = type === 'makesafe' ? 'openJobReport' : 'openJob';
+        html += '<div class="job-card' + todayClass + '" data-type="' + type + '" onclick="' + openAction + '(\'' + job.id + '\', \'' + a.id + '\')">';
         html += '  <div class="job-card-top">';
         html += '    <div>';
         html += '      <div class="job-card-client">' + esc(job.client_name || 'Unknown') + '</div>';
@@ -3996,12 +4009,46 @@
   };
 
   var _pendingJobTab = null;
+  var _currentJobTab = null;
+
+  function persistTradeState() {
+    try {
+      sessionStorage.setItem('sw_trade_state', JSON.stringify({
+        view: _currentView,
+        jobId: _currentJobId,
+        assignmentId: _currentAssignment,
+        jobTab: _currentJobTab,
+        scrollY: window.scrollY || 0,
+        reportDirectToJobs: _reportDirectToJobs,
+        ts: Date.now()
+      }));
+    } catch(e) {}
+  }
+
+  function restoreScrollSoon(y) {
+    if (!y) return;
+    setTimeout(function() { try { window.scrollTo(0, y); } catch(e) {} }, 150);
+    setTimeout(function() { try { window.scrollTo(0, y); } catch(e) {} }, 600);
+  }
+
   window.openJob = function(jobId, assignmentId) {
     _currentJobId = jobId;
     _currentJobLoaded = null; // force reload
     _reportLoadedForJob = null; // force report reload for new job
     _currentAssignment = assignmentId || null;
+    _currentJobTab = _pendingJobTab || null; // normal opens use this job's saved tab; deep opens can force one
+    _reportDirectToJobs = false;
     showView('job');
+  };
+
+  // Makesafes are field-report jobs: skip the normal job-detail layer and open the report flow.
+  window.openJobReport = function(jobId, assignmentId) {
+    _currentJobId = jobId;
+    _currentJobLoaded = null; // keep job detail clean if user later opens full job
+    _reportLoadedForJob = null; // force report reload for this job
+    _currentAssignment = assignmentId || null;
+    _reportDirectToJobs = true;
+    showView('report');
   };
   // Open a job and auto-switch to a specific tab (e.g. 'comms') after it loads
   window.openJobToTab = function(jobId, assignmentId, tabName) {
@@ -4027,12 +4074,7 @@
       _currentJob = data;
       _currentJobLoaded = jobId;
       renderJobDetail(data);
-      // Auto-switch to pending tab if set (e.g. opened from SMS button → comms)
-      if (_pendingJobTab) {
-        var tab = _pendingJobTab;
-        _pendingJobTab = null;
-        setTimeout(function() { switchJobTab(tab); }, 100);
-      }
+      if (_pendingJobTab) _pendingJobTab = null;
       // Check for stale clock-on from previous day — debounced to avoid blocking render
       setTimeout(function() { if (_currentJobId === jobId) checkStaleClock(); }, 1500);
     }).catch(function(err) {
@@ -5893,10 +5935,12 @@
 
     // ── Activate last-used tab (or default to workorder for Tier 2+, scope for Tier 1) ──
     var defaultTab = canMessage() ? 'workorder' : 'scope';
-    var lastTab = defaultTab;
-    try { lastTab = localStorage.getItem('sw_last_tab_' + _currentJobId) || defaultTab; } catch(e) {}
-    // If saved tab is workorder but user is Tier 1, fall back to scope
-    if (lastTab === 'workorder' && !canMessage()) lastTab = 'scope';
+    var lastTab = _pendingJobTab || _currentJobTab || defaultTab;
+    try {
+      if (!_pendingJobTab && !_currentJobTab) lastTab = localStorage.getItem('sw_last_tab_' + _currentJobId) || defaultTab;
+    } catch(e) {}
+    // If saved tab is workorder/comms but user is Tier 1, fall back to scope
+    if ((lastTab === 'workorder' || lastTab === 'comms') && !canMessage()) lastTab = 'scope';
     switchJobTab(lastTab);
 
     // ── Timer system (unchanged) ──
@@ -5996,10 +6040,13 @@
         }
       }
     }
-    // Remember last tab per job
+    // Remember last tab per job and in session state, so returning from Maps/Phone/Photos
+    // does not reset the trade back to the root job tab.
+    _currentJobTab = tabName;
     if (_currentJobId) {
       try { localStorage.setItem('sw_last_tab_' + _currentJobId, tabName); } catch(e) {}
     }
+    persistTradeState();
   };
 
   // Force-refresh a specific tab (e.g. after photo upload)
@@ -7632,8 +7679,8 @@
     _reportLoadedForJob = _currentJobId;
     _reportDirty = false;
 
-    // Store report for print/share functions
-    if (report) _currentJob.serviceReport = report;
+    // Store report for print/share functions when full job detail is already loaded.
+    if (report && _currentJob) _currentJob.serviceReport = report;
 
     // If already submitted, show success state
     if (report && (report.status === 'submitted' || report.status === 'approved')) {
@@ -9525,7 +9572,8 @@
       // Check availability conflict
       var hasConflict = a.scheduled_date && !isDateAvailable(a.scheduled_date);
 
-      html += '<div class="' + cardClass + '" onclick="openJob(\'' + job.id + '\', \'' + a.id + '\')">';
+      var openAction = (job.type || 'patio') === 'makesafe' ? 'openJobReport' : 'openJob';
+      html += '<div class="' + cardClass + '" onclick="' + openAction + '(\'' + job.id + '\', \'' + a.id + '\')">';
       html += '  <div style="display:flex;justify-content:space-between;align-items:start">';
       html += '    <div>';
       html += '      <div style="font-size:14px;font-weight:700;color:var(--sw-dark)">' + esc(job.client_name || 'Unknown') + '</div>';
@@ -10249,7 +10297,7 @@
     if (_invRows.length === 0) {
       // Start with one blank row
       var defRate = (_hoursData && _hoursData.rate) || _tradeRate || 0;
-      _invRows.push({ date: new Date().toISOString().slice(0, 10), job_id: null, job_text: '', description: '', division: '', hours: 0, rate: defRate, amount: 0 });
+      _invRows.push({ date: new Date().toISOString().slice(0, 10), job_id: null, job_text: '', description: '', division: '', hours: 0, rate: defRate, amount: 0, _source: 'manual' });
     }
     _invoiceBuilderOpen = true;
     renderInvoiceBuilder();
@@ -10277,12 +10325,14 @@
           division: l.division || _divFromJobNum(l.job_number) || 'General Labour',
           hours: l.quantity || l.total_hours || 0,
           rate: l.unit_rate || l.hourly_rate || 0,
-          amount: l.line_total_ex || 0
+          amount: l.line_total_ex || 0,
+          _source: l.line_type === 'labour' ? 'clock' : 'manual',
+          _misc: l.line_type !== 'labour'
         });
       });
       if (_invRows.length === 0) {
         var defRate = (_hoursData && _hoursData.rate) || _tradeRate || 0;
-        _invRows.push({ date: new Date().toISOString().slice(0, 10), job_id: null, job_text: '', description: '', division: '', hours: 0, rate: defRate, amount: 0 });
+        _invRows.push({ date: new Date().toISOString().slice(0, 10), job_id: null, job_text: '', description: '', division: '', hours: 0, rate: defRate, amount: 0, _source: 'manual' });
       }
       _invoiceBuilderOpen = true;
       renderInvoiceBuilder();
@@ -10480,6 +10530,34 @@
     return { subtotal: subtotal, gst: 0, total: Math.round(subtotal * 100) / 100 };
   }
 
+  function _manualInvoiceRows(rows) {
+    return (rows || []).filter(function(r) {
+      if (!r) return false;
+      if (r._source === 'clock' || r._source === 'server_labour') return false;
+      return r._misc || r._source === 'manual' || r._source === 'edited' || !r._source;
+    });
+  }
+
+  function _rowToExtraItem(r) {
+    var desc = r.description || '';
+    if (r.job_text) desc = r.job_text + ' — ' + desc;
+    if (r.client_name && !r.job_text) desc = r.client_name + ', ' + (r.site_address || '') + ' — ' + desc;
+    return {
+      type: r.division || 'General Labour',
+      description: desc,
+      quantity: r.hours,
+      unit: 'hr',
+      rate: r.rate,
+      date: r.date,
+      job_id: r.job_id,
+      job_number: r.job_text,
+      division: r.division,
+      client_name: r.client_name,
+      site_address: r.site_address,
+      source: r._source || (r._misc ? 'manual' : 'manual')
+    };
+  }
+
   function _updateInvTotals() {
     var t = _calcInvTotals();
     var te = document.getElementById('invTotal');
@@ -10511,19 +10589,24 @@
     var i = row._idx;
     var h = '';
     var rowBg = row._source === 'clock' ? 'rgba(52,152,219,0.06)' : row._source === 'edited' ? 'rgba(241,90,41,0.06)' : '';
+    var isClockRow = row._source === 'clock';
+    var roAttr = isClockRow ? ' readonly tabindex="-1"' : '';
+    var disAttr = isClockRow ? ' disabled' : '';
+    var readonlyStyle = isClockRow ? ';background:rgba(52,152,219,0.04);color:var(--sw-mid)' : '';
     var hasKnownJob = row.job_text && _knownJobNumbers && _knownJobNumbers.indexOf(row.job_text) >= 0;
     h += '<div class="inv-line" style="padding:8px 10px;overflow:hidden' + (rowBg ? ';background:' + rowBg : '') + '">';
 
     // Line 1: Job + Delete (+ optional date for misc rows)
     h += '<div style="display:flex;gap:6px;margin-bottom:5px;align-items:center">';
     if (showDate) h += '<input type="date" id="ir_date_' + i + '" value="' + (row.date || '') + '" style="flex:0 0 110px;padding:5px 4px;border:1px solid var(--sw-border);border-radius:6px;font-size:11px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
-    h += '<input type="text" id="ir_job_' + i + '" value="' + esc(row.job_text || '') + '" list="invJobList" placeholder="Job # (or leave blank)" onchange="invJobChanged(' + i + ')" style="flex:1;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
-    h += '<button onclick="deleteInvRow(' + i + ')" style="flex:0 0 26px;height:26px;background:none;border:1px solid var(--sw-border);border-radius:6px;color:var(--sw-red);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center" title="Delete">&times;</button>';
+    h += '<input type="text" id="ir_job_' + i + '" value="' + esc(row.job_text || '') + '" list="invJobList" placeholder="Job # (or leave blank)" onchange="invJobChanged(' + i + ')"' + roAttr + ' style="flex:1;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box' + readonlyStyle + '">';
+    if (isClockRow) h += '<span style="flex:0 0 auto;font-size:10px;font-weight:700;color:#2980b9;background:rgba(52,152,219,0.12);border-radius:999px;padding:4px 7px">CLOCKED</span>';
+    else h += '<button onclick="deleteInvRow(' + i + ')" style="flex:0 0 26px;height:26px;background:none;border:1px solid var(--sw-border);border-radius:6px;color:var(--sw-red);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center" title="Delete">&times;</button>';
     h += '</div>';
 
     // Line 2: Division (full width, prominent)
     var noDivSelected = !row.division;
-    h += '<select id="ir_div_' + i + '" style="width:100%;padding:7px 10px;margin-bottom:5px;border:2px solid ' + (noDivSelected ? 'var(--sw-orange)' : 'var(--sw-border)') + ';border-radius:6px;font-size:13px;font-weight:600;font-family:var(--sw-font);color:' + (noDivSelected ? 'var(--sw-text-sec)' : 'var(--sw-dark)') + ';background:#fff;box-sizing:border-box">';
+    h += '<select id="ir_div_' + i + '"' + disAttr + ' style="width:100%;padding:7px 10px;margin-bottom:5px;border:2px solid ' + (noDivSelected ? 'var(--sw-orange)' : 'var(--sw-border)') + ';border-radius:6px;font-size:13px;font-weight:600;font-family:var(--sw-font);color:' + (noDivSelected ? 'var(--sw-text-sec)' : 'var(--sw-dark)') + ';background:#fff;box-sizing:border-box' + readonlyStyle + '">';
     h += '<option value=""' + (noDivSelected ? ' selected' : '') + ' disabled>Select type of work...</option>';
     [['Patio','Patio'],['Fencing','Fencing'],['Decking','Decking'],['Make Safe','Make Safe'],['General Labour','General Labour']].forEach(function(dv) {
       h += '<option value="' + dv[0] + '"' + (row.division === dv[0] ? ' selected' : '') + '>' + dv[1] + '</option>';
@@ -10542,12 +10625,12 @@
     }
 
     // Line 4: Description (full width)
-    h += '<input type="text" id="ir_desc_' + i + '" value="' + esc(row.description || '') + '" placeholder="Description of work *" style="width:100%;padding:5px 8px;margin-bottom:5px;border:1px solid ' + (!row.description ? 'var(--sw-orange)' : 'var(--sw-border)') + ';border-radius:6px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
+    h += '<input type="text" id="ir_desc_' + i + '" value="' + esc(row.description || '') + '" placeholder="Description of work *"' + roAttr + ' style="width:100%;padding:5px 8px;margin-bottom:5px;border:1px solid ' + (!row.description ? 'var(--sw-orange)' : 'var(--sw-border)') + ';border-radius:6px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box' + readonlyStyle + '">';
 
     // Line 5: Hours + Rate + Amount
     h += '<div style="display:flex;gap:5px;align-items:center">';
-    h += '<input type="number" id="ir_hrs_' + i + '" value="' + (row.hours || '') + '" step="0.25" min="0" placeholder="Hrs" oninput="invRowChanged(' + i + ')" style="flex:1;padding:5px 4px;border:1px solid var(--sw-border);border-radius:6px;font-size:13px;font-weight:600;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box;text-align:center">';
-    h += '<input type="number" id="ir_rate_' + i + '" value="' + (row.rate || '') + '" step="0.01" min="0" placeholder="$/hr" oninput="invRowChanged(' + i + ')" style="flex:1;padding:5px 4px;border:1px solid var(--sw-border);border-radius:6px;font-size:13px;font-weight:600;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box;text-align:center">';
+    h += '<input type="number" id="ir_hrs_' + i + '" value="' + (row.hours || '') + '" step="0.25" min="0" placeholder="Hrs" oninput="invRowChanged(' + i + ')"' + roAttr + ' style="flex:1;padding:5px 4px;border:1px solid var(--sw-border);border-radius:6px;font-size:13px;font-weight:600;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box;text-align:center' + readonlyStyle + '">';
+    h += '<input type="number" id="ir_rate_' + i + '" value="' + (row.rate || '') + '" step="0.01" min="0" placeholder="$/hr" oninput="invRowChanged(' + i + ')"' + roAttr + ' style="flex:1;padding:5px 4px;border:1px solid var(--sw-border);border-radius:6px;font-size:13px;font-weight:600;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box;text-align:center' + readonlyStyle + '">';
     var amtDisplay = row.amount > 0 ? '$' + row.amount.toFixed(2) : '—';
     h += '<div id="ir_amt_' + i + '" style="flex:1;text-align:right;font-size:14px;font-weight:700;color:' + (row.amount > 0 ? 'var(--sw-dark)' : 'var(--sw-text-sec)') + '">' + amtDisplay + '</div>';
     h += '</div></div>';
@@ -10602,14 +10685,14 @@
     _syncRowsFromDOM();
     var today = new Date().toISOString().slice(0, 10);
     var defRate = (_hoursData && _hoursData.rate) || _tradeRate || 0;
-    _invRows.push({ date: today, job_id: null, job_text: '', description: '', division: '', hours: 0, rate: defRate, amount: 0, _misc: true });
+    _invRows.push({ date: today, job_id: null, job_text: '', description: '', division: '', hours: 0, rate: defRate, amount: 0, _misc: true, _source: 'manual' });
     renderInvoiceBuilder();
   };
 
   window.addInvRowForDay = function(dateStr) {
     _syncRowsFromDOM();
     var defRate = (_hoursData && _hoursData.rate) || _tradeRate || 0;
-    _invRows.push({ date: dateStr, job_id: null, job_text: '', description: '', division: '', hours: 0, rate: defRate, amount: 0 });
+    _invRows.push({ date: dateStr, job_id: null, job_text: '', description: '', division: '', hours: 0, rate: defRate, amount: 0, _source: 'manual' });
     renderInvoiceBuilder();
   };
 
@@ -10710,6 +10793,7 @@
 
     // ── 7-Day Timesheet (Mon–Sun) ──
     html += '<div class="inv-section-label" style="margin-top:16px">Your Hours</div>';
+    if (!isExpense) html += '<div style="font-size:11px;color:var(--sw-text-sec);margin:-2px 0 8px">Clocked rows are review-only and are calculated by SecureWorks. Use Additional / Miscellaneous for extras or adjustments.</div>';
 
     var dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     var shortDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -10893,9 +10977,7 @@
 
     api('save_trade_invoice_draft', null, {
       week_start: isExpense ? null : (_hoursWeekStart || null),
-      extra_items: _invRows.filter(function(r) { return r.hours > 0 || r.description; }).map(function(r) {
-        return { type: r.division || 'General Labour', description: (r.job_text ? r.job_text + ' — ' : '') + (r.description || ''), quantity: r.hours, unit: 'hr', rate: r.rate, date: r.date, job_id: r.job_id, job_number: r.job_text, division: r.division };
-      }),
+      extra_items: _manualInvoiceRows(_invRows).filter(function(r) { return r.hours > 0 || r.description; }).map(_rowToExtraItem),
       notes: _invNotes,
       labour_lines: []
     }).then(function(res) {
@@ -10910,16 +10992,18 @@
     _syncRowsFromDOM();
     var isExpense = _invoiceBuilderMode === 'expense';
     var validRows = _invRows.filter(function(r) { return r.hours > 0 || r.description || r.job_text; });
+    var manualRows = _manualInvoiceRows(validRows);
     if (validRows.length === 0) { toast('Add at least one line item with hours or a description', true); return; }
-    // Validate each row
+    // Validate only manual extras/adjustments. Clocked rows are server-owned base labour.
     var errors = [];
-    validRows.forEach(function(r, idx) {
-      if (!r.division) errors.push('Row ' + (idx + 1) + ': select type of work');
-      if (!r.description) errors.push('Row ' + (idx + 1) + ': enter a description');
+    manualRows.forEach(function(r, idx) {
+      if (r._source === 'edited') errors.push('Edited clocked rows cannot be submitted as base hours — add a misc adjustment instead');
+      if (!r.division) errors.push('Extra row ' + (idx + 1) + ': select type of work');
+      if (!r.description) errors.push('Extra row ' + (idx + 1) + ': enter a description');
       // If no job number selected, require client name + address
       var hasJob = r.job_text && _knownJobNumbers && _knownJobNumbers.indexOf(r.job_text) >= 0;
-      if (!hasJob && !r.client_name) errors.push('Row ' + (idx + 1) + ': enter client name (no job selected)');
-      if (!hasJob && !r.site_address) errors.push('Row ' + (idx + 1) + ': enter site address (no job selected)');
+      if (!hasJob && !r.client_name) errors.push('Extra row ' + (idx + 1) + ': enter client name (no job selected)');
+      if (!hasJob && !r.site_address) errors.push('Extra row ' + (idx + 1) + ': enter site address (no job selected)');
     });
     if (errors.length > 0) { toast(errors[0], true); return; }
 
@@ -10936,18 +11020,13 @@
       var container = document.getElementById('hoursContent');
       container.innerHTML = '<div class="loading-screen"><div class="spinner"></div>Submitting invoice...</div>';
 
-      var extraItems = validRows.map(function(r) {
-        var desc = r.description || '';
-        if (r.job_text) desc = r.job_text + ' — ' + desc;
-        if (r.client_name && !r.job_text) desc = r.client_name + ', ' + (r.site_address || '') + ' — ' + desc;
-        return { type: r.division || 'General Labour', description: desc, quantity: r.hours, unit: 'hr', rate: r.rate, date: r.date, job_id: r.job_id, job_number: r.job_text, division: r.division, client_name: r.client_name, site_address: r.site_address };
-      });
+      var extraItems = manualRows.map(_rowToExtraItem);
 
       api('generate_trade_invoice', {}, {
         week_start: isExpense ? undefined : (_hoursWeekStart || undefined),
+        draft_id: _draftInvoiceId || undefined,
         extra_items: extraItems,
-        notes: _invNotes,
-        gst_registered: false
+        notes: _invNotes
       }).then(function(result) {
         if (result.error) { toast(result.error, true); loadHoursView(); return; }
 
@@ -11004,7 +11083,8 @@
         if (!navigator.onLine) {
           queueOfflineAction('generate_trade_invoice', {
             week_start: isExpense ? undefined : (_hoursWeekStart || undefined),
-            extra_items: extraItems, notes: _invNotes, gst_registered: false
+            draft_id: _draftInvoiceId || undefined,
+            extra_items: extraItems, notes: _invNotes
           });
           toast('Offline — invoice queued, will submit when back online');
         } else {
