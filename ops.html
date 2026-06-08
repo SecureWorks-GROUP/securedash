@@ -8381,7 +8381,9 @@ function _makesafeTextFromValue(value) {
 }
 function getMakesafeTypeLabel(j, mdOverride) {
   var md = mdOverride || j.makesafe_details || j.metadata || {};
-  var direct = j.makesafe_type || j.job_type || j.scope_type || j.work_type || j.service_type || md.makesafe_type || md.job_type || md.scope_type || md.work_type || md.service_type || md.damage_type || md.category;
+  var direct = j.makesafe_type_detail || j.makesafe_type_other || j.custom_makesafe_type || j.make_safe_type_detail || j.makesafe_type || j.job_type || j.scope_type || j.work_type || j.service_type || md.makesafe_type_detail || md.makesafe_type_other || md.custom_makesafe_type || md.make_safe_type_detail || md.makesafe_type || md.job_type || md.scope_type || md.work_type || md.service_type || md.damage_type || md.category;
+  var customType = md.makesafe_type_detail || md.makesafe_type_other || md.custom_makesafe_type || md.make_safe_type_detail || '';
+  if (/^other$/i.test(String(direct || '').trim()) && customType) direct = customType;
   var text = _makesafeTextFromValue(direct) || _makesafeTextFromValue(md.scope) || _makesafeTextFromValue(md.scope_json) || _makesafeTextFromValue(j.scope_json) || _makesafeTextFromValue(j.description) || _makesafeTextFromValue(j.notes) || '';
   var lower = text.toLowerCase();
   if (/temp(orary)?\s+fenc|make\s*safe\s*fenc|\bfenc(e|ing)?\b/.test(lower)) return 'Temp fence';
@@ -12304,6 +12306,20 @@ function renderMakesafeOpsDetail(data) {
   var intake = getMakesafeIntakeDate(j);
   var crew = getMakesafeCrewLabel(j) || 'unallocated';
   var day = getMakesafeDayLabel(j);
+  function makesafeAdminNoteText(ev) {
+    var d = ev && ev.detail_json;
+    var text = typeof d === 'string' ? d : (d && (d.text || d.note || d.note_text)) || '';
+    return String(text || '');
+  }
+  var adminNotes = (data.events || []).filter(function(ev) {
+    var text = makesafeAdminNoteText(ev);
+    var visibility = ev && ev.detail_json && ev.detail_json.visibility;
+    return ev && ev.event_type === 'note' && (/^Trade admin note:/i.test(text) || visibility === 'internal_only');
+  });
+  var media = data.media || [];
+  var frontPhotos = media.filter(function(m) { return m.phase === 'front_elevation' || m.phase === 'front'; });
+  var beforePhotos = media.filter(function(m) { return m.phase === 'scope'; });
+  var afterPhotos = media.filter(function(m) { return m.phase === 'completion'; });
 
   var html = '<div style="padding-bottom:16px;">';
   html += '<div style="background:var(--sw-card);padding:16px;margin-bottom:12px;box-shadow:var(--sw-shadow);border-left:5px solid ' + age.color + ';">';
@@ -12317,6 +12333,7 @@ function renderMakesafeOpsDetail(data) {
   html += renderMakesafeTinyBadge(makesafeUiStageLabel(stage), age.color);
   html += renderMakesafeTinyBadge(age.label, age.color);
   if (j.job_number) html += renderMakesafeTinyBadge(j.job_number, '#8FA4B2');
+  if (adminNotes.length) html += renderMakesafeTinyBadge('Admin note ' + adminNotes.length, '#7C3AED');
   if (md.external_ref || j.external_ref) html += renderMakesafeTinyBadge('Ref ' + (md.external_ref || j.external_ref), '#8FA4B2');
   html += '</div></div>';
   html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:12px;font-size:12px;color:var(--sw-text);">';
@@ -12332,6 +12349,17 @@ function renderMakesafeOpsDetail(data) {
   if (j.site_address) html += '<a href="https://maps.google.com/?q=' + encodeURIComponent((j.site_address||'') + (suburb ? ', ' + suburb : '')) + '" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">Navigate</a>';
   html += '</div>';
   html += '</div>';
+
+  if (adminNotes.length) {
+    html += '<div style="background:#F5F3FF;border:1px solid #DDD6FE;color:#4C1D95;padding:10px 12px;margin-bottom:12px;font-size:12px;box-shadow:var(--sw-shadow);">';
+    html += '<div style="font-weight:900;margin-bottom:4px;">&#128221; Note for admin from trade</div>';
+    adminNotes.slice(0, 2).forEach(function(ev) {
+      var t = makesafeAdminNoteText(ev).replace(/^Trade admin note:\s*/i, '');
+      html += '<div style="white-space:pre-wrap;margin-top:3px;">' + escapeHtml(t) + '</div>';
+    });
+    if (adminNotes.length > 2) html += '<div style="font-size:11px;margin-top:4px;">+' + (adminNotes.length - 2) + ' more in History</div>';
+    html += '</div>';
+  }
 
   html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:12px;">';
 
@@ -12352,8 +12380,18 @@ function renderMakesafeOpsDetail(data) {
   if (checklist || reportDocs.length) {
     html += '<div style="font-size:14px;font-weight:850;color:var(--sw-green);margin-bottom:6px;">Report attached</div>';
     if (report && report.submitted_at) html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:6px;">Submitted ' + fmtDate(String(report.submitted_at).slice(0, 10)) + '</div>';
+    var submittedType = checklist && (checklist.job_type === 'Other' ? (checklist.job_type_detail || checklist.makesafe_type_detail || 'Other') : checklist.job_type);
+    if (submittedType) html += '<div style="font-size:12px;color:var(--sw-text);margin-bottom:6px;"><strong>Type:</strong> ' + escapeHtml(submittedType) + '</div>';
     if (checklist && checklist.work_done) html += '<div style="font-size:12px;color:var(--sw-text);white-space:pre-wrap;max-height:86px;overflow:auto;">' + escapeHtml(String(checklist.work_done).slice(0, 360)) + '</div>';
     if (checklist && checklist.invoice_notes) html += '<div style="font-size:12px;background:rgba(39,174,96,0.08);padding:6px 8px;margin-top:8px;">Invoice notes: ' + escapeHtml(checklist.invoice_notes) + '</div>';
+    var photoCounts = 'Front ' + frontPhotos.length + '/1 · Before ' + beforePhotos.length + '/3 · After ' + afterPhotos.length + '/3';
+    html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:8px;font-weight:800;">Photos: ' + escapeHtml(photoCounts) + '</div>';
+    var reportPhotoPreview = frontPhotos.concat(beforePhotos).concat(afterPhotos).slice(0, 6);
+    if (reportPhotoPreview.length) {
+      html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:6px;">';
+      reportPhotoPreview.forEach(function(m) { html += '<img src="' + escapeHtml(m.thumbnail_url || m.storage_url || '') + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:5px;cursor:pointer;" onclick="openLightbox([{storage_url:\'' + escapeHtml(m.storage_url || m.thumbnail_url || '') + '\',label:\'MakeSafe photo\'}],0)">'; });
+      html += '</div>';
+    }
     reportDocs.slice(0, 3).forEach(function(doc) { html += renderMakesafeDocPreview(doc); });
   } else {
     html += '<div style="font-size:14px;font-weight:850;color:#F39C12;margin-bottom:6px;">Waiting for report</div>';
@@ -12486,6 +12524,8 @@ function renderOverviewView(data) {
     var subLabels = { pending_allocation: 'Needs Allocation', waiting_on_trade_report: 'Waiting on Trade Report', admin_to_send_report: 'Admin to Send Report', ready_to_invoice: 'Ready to Invoice', complete: 'Complete' };
     var subColors = { pending_allocation: '#3498DB', waiting_on_trade_report: '#F39C12', admin_to_send_report: '#9B59B6', ready_to_invoice: '#27AE60', complete: '#8FA4B2' };
     html += '<div style="margin-bottom:12px;"><span style="font-size:12px;padding:4px 12px;border-radius:10px;background:' + (subColors[msSub] || '#8FA4B2') + ';color:#fff;font-weight:600;">' + (subLabels[msSub] || msSub) + '</span></div>';
+    var msAdminNotes = (data.events || []).filter(function(ev) { var d = ev.detail_json || {}; var t = typeof d === 'string' ? d : (d.text || d.note || d.note_text || ''); return ev.event_type === 'note' && (/^Trade admin note:/i.test(String(t)) || d.visibility === 'internal_only'); });
+    if (msAdminNotes.length) html += '<div style="display:inline-block;background:#F5F3FF;color:#6D28D9;border:1px solid #DDD6FE;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:800;margin-bottom:8px;">&#128221; Admin note ' + msAdminNotes.length + '</div>';
 
     // Company info
     if (msDetails.makesafe_companies) {
@@ -12514,6 +12554,9 @@ function renderOverviewView(data) {
     if (msChecklist) {
       html += '<div style="border-top:1px solid var(--sw-border);padding-top:10px;margin-top:4px;">';
       html += '<div style="font-size:11px;font-weight:700;color:var(--sw-mid);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Trade Report <span style="font-weight:400;color:var(--sw-green);">Submitted ' + (msReport.submitted_at ? fmtDate(msReport.submitted_at.slice(0,10)) : '') + '</span></div>';
+
+      var msSubmittedType = msChecklist.job_type === 'Other' ? (msChecklist.job_type_detail || msChecklist.makesafe_type_detail || 'Other') : msChecklist.job_type;
+      if (msSubmittedType) html += '<div style="font-size:11px;font-weight:600;color:var(--sw-dark);margin-bottom:2px;">Type</div><div style="font-size:12px;color:var(--sw-text);margin-bottom:8px;">' + escapeHtml(msSubmittedType) + '</div>';
 
       if (msChecklist.work_done) {
         html += '<div style="font-size:11px;font-weight:600;color:var(--sw-dark);margin-bottom:2px;">Work Done</div>';
