@@ -12271,6 +12271,17 @@ function renderMakesafeDocPreview(doc) {
   html += '</div>';
   return html;
 }
+function isMakesafeReportDoc(doc) {
+  var type = String((doc && doc.type) || '').toLowerCase();
+  var name = String((doc && (doc.file_name || doc.name)) || '').toLowerCase();
+  return ['service_report', 'report', 'makesafe_report'].indexOf(type) >= 0 ||
+    /make[\s_-]*safe.*report|completion report|service report|trade report/.test(name);
+}
+function isMakesafeInvoiceDoc(doc) {
+  var type = String((doc && doc.type) || '').toLowerCase();
+  var name = String((doc && (doc.file_name || doc.name)) || '').toLowerCase();
+  return ['invoice', 'tax_invoice'].indexOf(type) >= 0 || /invoice|tax invoice|xero/.test(name);
+}
 
 function renderMakesafeOpsDetail(data) {
   var j = data.job || {};
@@ -12287,9 +12298,9 @@ function renderMakesafeOpsDetail(data) {
   var reports = data.service_reports || (data.serviceReport ? [data.serviceReport] : []);
   var report = reports[0] || null;
   var checklist = report && report.checklist_json ? report.checklist_json : null;
-  var reportDocs = docs.filter(function(d) { return d.type === 'service_report' || d.type === 'report' || d.type === 'makesafe_report'; });
+  var reportDocs = docs.filter(isMakesafeReportDoc);
   var invoices = (data.invoices || []).filter(function(inv) { return inv.invoice_type === 'ACCREC' && ['VOIDED','DELETED'].indexOf(inv.status) < 0; });
-  var invoiceDocs = docs.filter(function(d) { return d.type === 'invoice' || d.type === 'tax_invoice'; });
+  var invoiceDocs = docs.filter(isMakesafeInvoiceDoc);
   var intake = getMakesafeIntakeDate(j);
   var crew = getMakesafeCrewLabel(j) || 'unallocated';
   var day = getMakesafeDayLabel(j);
@@ -12339,7 +12350,7 @@ function renderMakesafeOpsDetail(data) {
   html += '<div style="background:var(--sw-card);padding:14px;box-shadow:var(--sw-shadow);min-height:128px;">';
   html += '<div style="font-size:11px;font-weight:850;color:var(--sw-mid);text-transform:uppercase;margin-bottom:8px;">Trade report</div>';
   if (checklist || reportDocs.length) {
-    html += '<div style="font-size:14px;font-weight:850;color:var(--sw-green);margin-bottom:6px;">Received from trade</div>';
+    html += '<div style="font-size:14px;font-weight:850;color:var(--sw-green);margin-bottom:6px;">Report attached</div>';
     if (report && report.submitted_at) html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:6px;">Submitted ' + fmtDate(String(report.submitted_at).slice(0, 10)) + '</div>';
     if (checklist && checklist.work_done) html += '<div style="font-size:12px;color:var(--sw-text);white-space:pre-wrap;max-height:86px;overflow:auto;">' + escapeHtml(String(checklist.work_done).slice(0, 360)) + '</div>';
     if (checklist && checklist.invoice_notes) html += '<div style="font-size:12px;background:rgba(39,174,96,0.08);padding:6px 8px;margin-top:8px;">Invoice notes: ' + escapeHtml(checklist.invoice_notes) + '</div>';
