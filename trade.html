@@ -7108,6 +7108,7 @@
     }).catch(function(err) {
       _uploading = false;
       if (progress) progress.style.display = 'none';
+      if (progressFill) progressFill.style.width = '0%';
       toast('Upload failed — ' + friendlyError(err), true);
       input.value = '';
     });
@@ -7180,6 +7181,7 @@
     }).then(function(results) {
       _uploading = false;
       if (progress) progress.style.display = 'none';
+      if (progressFill) progressFill.style.width = '0%';
       toast(files.length + ' ' + phaseLabel + ' photo(s) uploaded');
       window._msrPhotoCounts = window._msrPhotoCounts || { front: 0, before: 0, after: 0 };
       if (phase === 'front_elevation') window._msrPhotoCounts.front += files.length;
@@ -7195,6 +7197,7 @@
     }).catch(function(err) {
       _uploading = false;
       if (progress) progress.style.display = 'none';
+      if (progressFill) progressFill.style.width = '0%';
       toast('Upload failed — ' + friendlyError(err), true);
       input.value = '';
       // Mark failed photos red
@@ -7505,7 +7508,11 @@
       var idAttr = gridId ? ' id="' + esc(gridId) + '"' : '';
       var out = '<div' + idAttr + ' style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;">';
       (photos || []).forEach(function(p) {
-        out += '<img src="' + esc(p.thumbnail_url || p.storage_url) + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="openLightbox(\'' + esc(p.storage_url) + '\')">';
+        var thumbUrl = p.thumbnail_url || p.storage_url || '';
+        var fullUrl = p.storage_url || p.thumbnail_url || '';
+        var gallerySelector = gridId ? ('#' + String(gridId).replace(/'/g, "\'")) : '';
+        var galleryArg = gallerySelector ? (", '" + gallerySelector + "'") : '';
+        out += '<img src="' + esc(thumbUrl) + '" data-full-url="' + esc(fullUrl) + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="openLightbox(this.getAttribute(\'data-full-url\') || this.src' + galleryArg + ')">';
       });
       out += '</div>';
       return out;
@@ -7624,7 +7631,7 @@
     h += '<option value="front_elevation">Front elevation</option><option value="scope">Before / damage</option><option value="completion">After / completed</option>';
     h += '</select>';
     h += '<div class="upload-area" onclick="document.getElementById(\'msrPhotoInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;"><svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg><p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Select one or more photos</p></div>';
-    h += '<input type="file" id="msrPhotoInput" accept="image/*" capture="environment" multiple style="display:none" onchange="handleMsrPhotoUpload(this, (document.getElementById(\'msrPhotoPhase\')||{}).value || \'scope\')">';
+    h += '<input type="file" id="msrPhotoInput" accept="image/*" multiple style="display:none" onchange="handleMsrPhotoUpload(this, (document.getElementById(\'msrPhotoPhase\')||{}).value || \'scope\')">';
     h += '<div class="upload-progress" id="msrUnifiedProgress" style="display:none"><span id="msrUnifiedProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrUnifiedProgressFill"></div></div></div>';
     h += '</div>';
 
@@ -15505,7 +15512,10 @@
     _lightboxIndex = 0;
     if (gallerySelector) {
       var imgs = document.querySelectorAll(gallerySelector + ' img');
-      imgs.forEach(function(img) { if (img.src) _lightboxPhotos.push(img.src); });
+      imgs.forEach(function(img) {
+        var full = img.getAttribute('data-full-url') || img.src;
+        if (full) _lightboxPhotos.push(full);
+      });
       _lightboxIndex = _lightboxPhotos.indexOf(url);
       if (_lightboxIndex === -1) _lightboxIndex = 0;
     }

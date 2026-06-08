@@ -12389,7 +12389,7 @@ function renderMakesafeOpsDetail(data) {
     var reportPhotoPreview = frontPhotos.concat(beforePhotos).concat(afterPhotos).slice(0, 6);
     if (reportPhotoPreview.length) {
       html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:6px;">';
-      reportPhotoPreview.forEach(function(m) { html += '<img src="' + escapeHtml(m.thumbnail_url || m.storage_url || '') + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:5px;cursor:pointer;" onclick="openLightbox([{storage_url:\'' + escapeHtml(m.storage_url || m.thumbnail_url || '') + '\',label:\'MakeSafe photo\'}],0)">'; });
+      reportPhotoPreview.forEach(function(m) { html += '<img src="' + escapeHtml(m.thumbnail_url || m.storage_url || '') + '" data-full-url="' + escapeHtml(m.storage_url || m.thumbnail_url || '') + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:5px;cursor:pointer;" onclick="openOpsLightbox(this.getAttribute(\'data-full-url\') || this.src)">'; });
       html += '</div>';
     }
     reportDocs.slice(0, 3).forEach(function(doc) { html += renderMakesafeDocPreview(doc); });
