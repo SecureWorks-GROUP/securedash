@@ -3711,7 +3711,17 @@
 
   function isOpenMakesafePoolStatus(status) {
     status = String(status || '').toLowerCase();
-    return ['complete', 'completed', 'cancelled', 'lost', 'archived', 'deleted'].indexOf(status) === -1;
+    return ['complete', 'completed', 'cancelled', 'lost', 'archived', 'deleted', 'invoiced', 'paid', 'closed', 'duplicate', 'duplicated', 'void', 'voided'].indexOf(status) === -1;
+  }
+
+  function isOpenMakesafePoolJob(job) {
+    if (!job || !isOpenMakesafePoolStatus(job.status)) return false;
+    var md = job.makesafe_details || job.metadata || {};
+    var sub = String(job.substatus || job.makesafe_substatus || md.substatus || '').toLowerCase();
+    var reportStatus = String(job.service_report_status || job.report_status || (job.service_report && job.service_report.status) || '').toLowerCase();
+    if (['admin_to_send_report', 'ready_to_invoice', 'complete', 'completed', 'report_ready', 'to_invoice', 'invoiced'].indexOf(sub) !== -1) return false;
+    if (['submitted', 'approved', 'sent'].indexOf(reportStatus) !== -1) return false;
+    return true;
   }
 
   function hasJobInAssignmentGroups(data, jobId) {
@@ -3739,7 +3749,7 @@
         if (!job || !job.id) return;
         if (hasJobInAssignmentGroups(data, job.id)) return;
         if (getTradeJobType(job) !== 'makesafe') return;
-        if (!isOpenMakesafePoolStatus(job.status)) return;
+        if (!isOpenMakesafePoolJob(job)) return;
         pool.push({
           id: 'makesafe_pool_' + job.id,
           scheduled_date: '',
@@ -3757,6 +3767,27 @@
       console.warn('[trade] MakeSafe pool unavailable:', err && (err.message || err));
     });
   }
+
+  function submitTradeAdminNote(jobId) {
+    if (!jobId) return;
+    var text = prompt('Note for Shaun/admin (not sent to the client):');
+    if (text === null) return;
+    text = String(text || '').trim();
+    if (!text) { toast('Note is empty'); return; }
+    if (text.length > 600) text = text.slice(0, 600);
+    api('add_note', null, {
+      jobId: jobId,
+      text: 'Trade admin note: ' + text,
+      visibility: 'internal_only',
+      sync_to_ghl: false,
+      metadata: { source: 'trade_app', kind: 'trade_admin_note', user_name: _user ? _user.name : null }
+    }).then(function() {
+      toast('Note sent to admin');
+    }).catch(function(err) {
+      toast('Could not save admin note: ' + friendlyError(err), true);
+    });
+  }
+  window.submitTradeAdminNote = submitTradeAdminNote;
 
   function matchesFilter(a, filter) {
     if (filter === 'all') return true;
@@ -4021,6 +4052,10 @@
             html += '      Text</button>';
           }
         }
+        if (type === 'makesafe') {
+          html += '    <button onclick="event.stopPropagation();submitTradeAdminNote(\'' + esc(job.id) + '\')" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:#7C3AED;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">';
+          html += '      &#128221; Note for admin</button>';
+        }
         if (job.site_address || job.site_suburb) {
           var navUrl = getMapsUrl(job.site_address, job.site_suburb);
           html += '    <a href="' + navUrl + '" target="_blank" onclick="event.stopPropagation()" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-mid);color:#fff;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700">';
@@ -4219,9 +4254,11 @@
     job = job || {};
     var detail = job.makesafe_details || {};
     var md = job.metadata || {};
-    var direct = job.makesafe_type || job.job_type || job.scope_type || job.work_type || job.service_type || job.damage_type || job.make_safe_type ||
-      detail.makesafe_type || detail.job_type || detail.scope_type || detail.work_type || detail.service_type || detail.damage_type || detail.category || detail.make_safe_type ||
-      md.makesafe_type || md.job_type || md.scope_type || md.work_type || md.service_type || md.damage_type || md.category || md.make_safe_type;
+    var direct = job.makesafe_type_detail || job.makesafe_type_other || job.custom_makesafe_type || job.make_safe_type_detail || job.makesafe_type || job.job_type || job.scope_type || job.work_type || job.service_type || job.damage_type || job.make_safe_type ||
+      detail.makesafe_type_detail || detail.makesafe_type_other || detail.custom_makesafe_type || detail.make_safe_type_detail || detail.makesafe_type || detail.job_type || detail.scope_type || detail.work_type || detail.service_type || detail.damage_type || detail.category || detail.make_safe_type ||
+      md.makesafe_type_detail || md.makesafe_type_other || md.custom_makesafe_type || md.make_safe_type_detail || md.makesafe_type || md.job_type || md.scope_type || md.work_type || md.service_type || md.damage_type || md.category || md.make_safe_type;
+    var customType = detail.makesafe_type_detail || detail.makesafe_type_other || detail.custom_makesafe_type || detail.make_safe_type_detail || md.makesafe_type_detail || md.makesafe_type_other || md.custom_makesafe_type || md.make_safe_type_detail || '';
+    if (/^other$/i.test(String(direct || '').trim()) && customType) direct = customType;
     var text = tradeMakesafeTextFromValue(direct) || tradeMakesafeTextFromValue(detail) || tradeMakesafeTextFromValue(md.scope) || tradeMakesafeTextFromValue(md.scope_json) || tradeMakesafeTextFromValue(job.scope_json) || tradeMakesafeTextFromValue(job.description) || tradeMakesafeTextFromValue(job.notes) || '';
     var lower = text.toLowerCase();
     if (/temp(orary)?\s+fenc|make\s*safe\s*fenc|\bfenc(e|ing)?\b/.test(lower)) return 'Temp fence';
@@ -7071,6 +7108,7 @@
     }).catch(function(err) {
       _uploading = false;
       if (progress) progress.style.display = 'none';
+      if (progressFill) progressFill.style.width = '0%';
       toast('Upload failed — ' + friendlyError(err), true);
       input.value = '';
     });
@@ -7082,9 +7120,9 @@
     if (files.length === 0 || _uploading) return;
     _uploading = true;
     var phaseMeta = {
-      front_elevation: { prefix: 'msrFront', label: 'front elevation' },
-      scope: { prefix: 'msrBefore', label: 'before' },
-      completion: { prefix: 'msrAfter', label: 'after' }
+      front_elevation: { prefix: 'msrUnified', grid: 'msrFrontGrid', label: 'front elevation' },
+      scope: { prefix: 'msrUnified', grid: 'msrBeforeGrid', label: 'before/damage' },
+      completion: { prefix: 'msrUnified', grid: 'msrAfterGrid', label: 'after/completed' }
     };
     var meta = phaseMeta[phase] || { prefix: 'msrAfter', label: phase || 'job' };
     var prefix = meta.prefix;
@@ -7097,7 +7135,7 @@
     if (progressFill) { progressFill.style.width = '0%'; progressFill.style.transition = 'width 0.3s ease'; }
 
     // Create local preview thumbnails immediately with spinner overlay
-    var gridId = prefix + 'Grid';
+    var gridId = meta.grid || (prefix + 'Grid');
     var grid = document.getElementById(gridId);
     if (!grid) {
       var parentDiv = input.parentElement;
@@ -7143,6 +7181,7 @@
     }).then(function(results) {
       _uploading = false;
       if (progress) progress.style.display = 'none';
+      if (progressFill) progressFill.style.width = '0%';
       toast(files.length + ' ' + phaseLabel + ' photo(s) uploaded');
       window._msrPhotoCounts = window._msrPhotoCounts || { front: 0, before: 0, after: 0 };
       if (phase === 'front_elevation') window._msrPhotoCounts.front += files.length;
@@ -7158,6 +7197,7 @@
     }).catch(function(err) {
       _uploading = false;
       if (progress) progress.style.display = 'none';
+      if (progressFill) progressFill.style.width = '0%';
       toast('Upload failed — ' + friendlyError(err), true);
       input.value = '';
       // Mark failed photos red
@@ -7464,15 +7504,17 @@
       });
       return out;
     }
-    function renderPhotoThumbs(photos) {
-      var out = '';
-      if (photos.length > 0) {
-        out += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;">';
-        photos.forEach(function(p) {
-          out += '<img src="' + esc(p.thumbnail_url || p.storage_url) + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="openLightbox(\'' + esc(p.storage_url) + '\')">';
-        });
-        out += '</div>';
-      }
+    function renderPhotoThumbs(photos, gridId) {
+      var idAttr = gridId ? ' id="' + esc(gridId) + '"' : '';
+      var out = '<div' + idAttr + ' style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;">';
+      (photos || []).forEach(function(p) {
+        var thumbUrl = p.thumbnail_url || p.storage_url || '';
+        var fullUrl = p.storage_url || p.thumbnail_url || '';
+        var gallerySelector = gridId ? ('#' + String(gridId).replace(/'/g, "\'")) : '';
+        var galleryArg = gallerySelector ? (", '" + gallerySelector + "'") : '';
+        out += '<img src="' + esc(thumbUrl) + '" data-full-url="' + esc(fullUrl) + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="openLightbox(this.getAttribute(\'data-full-url\') || this.src' + galleryArg + ')">';
+      });
+      out += '</div>';
       return out;
     }
 
@@ -7507,7 +7549,8 @@
     if (!container || container.id !== 'makesafeReportDirectContent') h += renderMakesafeWorkOrderInline(data);
     h += '<div style="font-size:15px;font-weight:700;color:var(--sw-dark);margin-bottom:8px;">Make-Safe Report</div>';
     h += '<div style="font-size:12px;color:var(--sw-text-sec);margin-bottom:10px;line-height:1.4;">Open the work order above, then complete the report before moving to the next MakeSafe.</div>';
-    h += '<div style="background:#FFF7ED;border:1px solid #FDBA74;border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;color:#9A3412;line-height:1.4;"><strong>Quick rule:</strong> date/time, what failed, what you made safe, labour, materials and clear photos.</div>';
+    h += '<div style="background:#FFF7ED;border:1px solid #FDBA74;border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px;color:#9A3412;line-height:1.4;"><strong>Quick rule:</strong> date/time, what failed, what you made safe, labour, materials and clear photos.</div>';
+    h += '<button onclick="submitTradeAdminNote(\'' + esc(job.id) + '\')" style="width:100%;background:#7C3AED;color:#fff;border:none;padding:12px;border-radius:8px;font-size:14px;font-weight:800;cursor:pointer;min-height:44px;margin-bottom:16px;">&#128221; Note for admin</button>';
 
     var cl = (report && report.checklist_json) || {};
     var arrivalParts = parseArrival(cl.arrival_time);
@@ -7515,15 +7558,19 @@
     // Make-safe type
     h += '<div style="margin-bottom:14px;">';
     h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Make-safe type *</label>';
-    h += '<select id="msrJobType" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;background:#fff;">';
+    h += '<select id="msrJobType" onchange="var w=document.getElementById(\'msrJobTypeOtherWrap\');if(w)w.style.display=this.value===\'Other\'?\'block\':\'none\';" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;background:#fff;">';
     var jobTypeMatch = /^Make-safe type:\s*([^\n]+)\nDamage:\s*/i.exec(cl.damage_description || '');
     var selectedJobType = String(cl.job_type || (jobTypeMatch && jobTypeMatch[1]) || msDetails.makesafe_type || msDetails.damage_type || job.makesafe_type || 'Temporary fencing').trim();
+    var savedOtherType = cl.job_type_detail || cl.makesafe_type_detail || msDetails.makesafe_type_detail || '';
+    var otherMatch = /^Other:\s*(.+)$/i.exec(selectedJobType);
+    if (otherMatch) { selectedJobType = 'Other'; savedOtherType = savedOtherType || otherMatch[1]; }
     var jobTypes = ['Temporary fencing', 'Roof / tarp', 'Ceiling / water ingress', 'Fence damage', 'Patio / structure', 'Debris / cleanup', 'Other'];
     jobTypes.forEach(function(t) {
       var sel = (selectedJobType === t) ? ' selected' : '';
       h += '<option value="' + esc(t) + '"' + sel + '>' + esc(t) + '</option>';
     });
     h += '</select>';
+    h += '<div id="msrJobTypeOtherWrap" style="display:' + (selectedJobType === 'Other' ? 'block' : 'none') + ';margin-top:8px;"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">What type of MakeSafe? *</label><input id="msrJobTypeOther" value="' + esc(savedOtherType) + '" placeholder="e.g. fallen tree on fence, garage door board-up" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>';
     h += '</div>';
 
     h += '<div style="display:flex;gap:12px;margin-bottom:14px;">';
@@ -7564,30 +7611,28 @@
     var extraNotes = cl.extra_notes || cl.access_issues || cl.invoice_notes || '';
     h += '<div style="margin-bottom:16px;"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Extra notes</label><textarea id="msrExtraNotes" rows="2" placeholder="Anything admin needs to know: access issue, unsafe area, return visit, invoice detail, or None." style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;resize:vertical;font-family:var(--sw-font);box-sizing:border-box;">' + esc(extraNotes) + '</textarea></div>';
 
-    // ── Photo Upload Sections ──
+    // ── Photo Upload Section (single control, internally categorised) ──
     var allMedia = data.media || [];
     var frontPhotos = allMedia.filter(function(m) { return m.phase === 'front_elevation' || m.phase === 'front'; });
     var beforePhotos = allMedia.filter(function(m) { return m.phase === 'scope'; });
     var afterPhotos = allMedia.filter(function(m) { return m.phase === 'completion'; });
     window._msrPhotoCounts = { front: frontPhotos.length, before: beforePhotos.length, after: afterPhotos.length };
 
-    h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">Front elevation photo (' + frontPhotos.length + ')</label>';
-    h += renderPhotoThumbs(frontPhotos);
-    h += '<div class="upload-area" onclick="document.getElementById(\'msrFrontInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;"><svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg><p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Add front elevation photo</p></div>';
-    h += '<input type="file" id="msrFrontInput" accept="image/*" capture="environment" style="display:none" onchange="handleMsrPhotoUpload(this, \'front_elevation\')">';
-    h += '<div class="upload-progress" id="msrFrontProgress" style="display:none"><span id="msrFrontProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrFrontProgressFill"></div></div></div>';
+    h += '<div style="margin-bottom:14px;border:1px solid var(--sw-border);border-radius:10px;padding:12px;">';
+    h += '<div style="font-size:13px;font-weight:800;margin-bottom:4px;">MakeSafe photos *</div>';
+    h += '<div style="font-size:12px;color:var(--sw-text-sec);line-height:1.4;margin-bottom:10px;">Use one upload control. Required before submit: <strong>1 front elevation</strong>, <strong>3 before/damage</strong>, and <strong>3 after/completed</strong> photos. Choose the category, then select multiple files from the phone.</div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px;color:var(--sw-text);margin-bottom:10px;">';
+    h += '<div><strong>Front (' + frontPhotos.length + ')</strong>' + renderPhotoThumbs(frontPhotos, 'msrFrontGrid') + '</div>';
+    h += '<div><strong>Before (' + beforePhotos.length + ')</strong>' + renderPhotoThumbs(beforePhotos, 'msrBeforeGrid') + '</div>';
+    h += '<div><strong>After (' + afterPhotos.length + ')</strong>' + renderPhotoThumbs(afterPhotos, 'msrAfterGrid') + '</div>';
     h += '</div>';
-
-    h += '<div style="margin-bottom:14px;border:1px solid var(--sw-border);border-radius:10px;padding:10px;">';
-    h += '<div style="font-size:13px;font-weight:700;margin-bottom:4px;">Before / after evidence photos</div>';
-    h += '<div style="font-size:11px;color:var(--sw-text-sec);margin-bottom:10px;">Upload 3–4 before photos and 3–4 after photos. You can select multiple from the phone.</div>';
-    h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Before / damage (' + beforePhotos.length + ')</label>' + renderPhotoThumbs(beforePhotos);
-    h += '<div class="upload-area" onclick="document.getElementById(\'msrBeforeInput\').click()" style="padding:14px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;margin-bottom:8px;"><p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Add before/damage photos</p></div>';
-    h += '<input type="file" id="msrBeforeInput" accept="image/*" capture="environment" multiple style="display:none" onchange="handleMsrPhotoUpload(this, \'scope\')"><div class="upload-progress" id="msrBeforeProgress" style="display:none"><span id="msrBeforeProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrBeforeProgressFill"></div></div></div>';
-    h += '<label style="font-size:12px;font-weight:600;display:block;margin:10px 0 6px;">After / completed (' + afterPhotos.length + ')</label>' + renderPhotoThumbs(afterPhotos);
-    h += '<div class="upload-area" onclick="document.getElementById(\'msrAfterInput\').click()" style="padding:14px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;margin-bottom:8px;"><p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Add after/completed photos</p></div>';
-    h += '<input type="file" id="msrAfterInput" accept="image/*" capture="environment" multiple style="display:none" onchange="handleMsrPhotoUpload(this, \'completion\')"><div class="upload-progress" id="msrAfterProgress" style="display:none"><span id="msrAfterProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrAfterProgressFill"></div></div></div>';
+    h += '<label style="font-size:12px;font-weight:700;display:block;margin-bottom:5px;">Photo category</label>';
+    h += '<select id="msrPhotoPhase" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;background:#fff;box-sizing:border-box;margin-bottom:8px;">';
+    h += '<option value="front_elevation">Front elevation</option><option value="scope">Before / damage</option><option value="completion">After / completed</option>';
+    h += '</select>';
+    h += '<div class="upload-area" onclick="document.getElementById(\'msrPhotoInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;"><svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg><p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Select one or more photos</p></div>';
+    h += '<input type="file" id="msrPhotoInput" accept="image/*" multiple style="display:none" onchange="handleMsrPhotoUpload(this, (document.getElementById(\'msrPhotoPhase\')||{}).value || \'scope\')">';
+    h += '<div class="upload-progress" id="msrUnifiedProgress" style="display:none"><span id="msrUnifiedProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrUnifiedProgressFill"></div></div></div>';
     h += '</div>';
 
     var frontOk = frontPhotos.length >= 1;
@@ -7613,6 +7658,12 @@
     if (tradeCount <= 0) { toast('Please enter number of trades'); return; }
     var jobType = ((document.getElementById('msrJobType') || {}).value || '').trim();
     if (!jobType) { toast('Please choose make-safe type'); return; }
+    var jobTypeDetail = '';
+    if (jobType === 'Other') {
+      jobTypeDetail = ((document.getElementById('msrJobTypeOther') || {}).value || '').trim();
+      if (!jobTypeDetail) { toast('Please write what type of MakeSafe it is'); return; }
+    }
+    var displayJobType = jobType === 'Other' ? ('Other: ' + jobTypeDetail) : jobType;
     var damageDesc = document.getElementById('msrDamageDesc');
     if (!damageDesc || !damageDesc.value.trim()) { toast('Please describe the damage'); return; }
     var damageCause = ((document.getElementById('msrDamageCause') || {}).value || '').trim();
@@ -7645,7 +7696,10 @@
     var payload = {
       job_id: _currentJobId,
       arrival_time: arrivalDate + ' ' + arrivalTime,
-      damage_description: 'Make-safe type: ' + jobType + '\nDamage: ' + damageDesc.value.trim(),
+      damage_description: 'Make-safe type: ' + displayJobType + '\nDamage: ' + damageDesc.value.trim(),
+      job_type: jobType,
+      job_type_detail: jobTypeDetail,
+      makesafe_type_detail: jobTypeDetail,
       damage_cause: damageCause,
       work_done: workDone.value.trim(),
       materials_used: materials,
@@ -15458,7 +15512,10 @@
     _lightboxIndex = 0;
     if (gallerySelector) {
       var imgs = document.querySelectorAll(gallerySelector + ' img');
-      imgs.forEach(function(img) { if (img.src) _lightboxPhotos.push(img.src); });
+      imgs.forEach(function(img) {
+        var full = img.getAttribute('data-full-url') || img.src;
+        if (full) _lightboxPhotos.push(full);
+      });
       _lightboxIndex = _lightboxPhotos.indexOf(url);
       if (_lightboxIndex === -1) _lightboxIndex = 0;
     }
