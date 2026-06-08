@@ -1221,8 +1221,60 @@
     .weather-detail-card .wd-rain { color: #5DADE2; font-weight: 600; }
     .weather-detail-card .wd-heat { color: #E74C3C; font-weight: 600; }
 
-    /* Today's job card accent */
+    /* Today's job card accent + manual run-list state */
     .job-card.today-card { border-left: 3px solid var(--sw-orange); }
+    .job-card.today-card.run-list-complete {
+      border-left-color: var(--sw-green);
+      background: linear-gradient(90deg, rgba(39, 174, 96, 0.12), #fff 34%);
+    }
+    .job-card.today-card.run-list-complete .job-card-client { color: #0F7A3A; }
+    .run-list-note {
+      font-size: 12px;
+      color: var(--sw-text-sec);
+      margin: -8px 0 10px;
+      line-height: 1.35;
+    }
+    .run-list-order-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      background: var(--sw-dark);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 800;
+      margin-right: 8px;
+      flex: 0 0 auto;
+    }
+    .run-list-controls {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .run-list-btn {
+      min-height: 36px;
+      padding: 0 10px;
+      border: 1px solid var(--sw-border);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--sw-dark);
+      font-size: 12px;
+      font-weight: 700;
+      font-family: var(--sw-font);
+      cursor: pointer;
+    }
+    .run-list-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .run-list-complete-pill {
+      background: rgba(39, 174, 96, 0.16);
+      color: #0F7A3A;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
 
     /* Broken image fallback */
     .photo-grid img {
@@ -3664,6 +3716,123 @@
   // ── Job Search & Filter State ──
   var _jobFilter = 'all';
   var _lastJobData = null;
+  var TODAY_RUN_LIST_STORAGE_PREFIX = 'sw_today_run_list_v1';
+
+  function getTodayRunListId(a) {
+    var job = (a && a.jobs) || {};
+    return String(job.id || (a && a.id) || '').trim();
+  }
+
+  function uniqueSorted(values) {
+    var seen = {};
+    var out = [];
+    values.forEach(function(v) {
+      v = String(v || '').trim();
+      if (!v || seen[v]) return;
+      seen[v] = true;
+      out.push(v);
+    });
+    return out.sort();
+  }
+
+  function getTodayRunListStorageKey(assignments) {
+    assignments = assignments || [];
+    var userKey = (_user && (_user.id || _user.email || _user.name)) || 'anonymous-trade';
+    var crewKey = uniqueSorted(assignments.map(function(a) {
+      return a.crew_id || a.crew_name || (a.user && (a.user.crew_id || a.user.name)) || '';
+    })).join('+') || 'crew-unset';
+    return TODAY_RUN_LIST_STORAGE_PREFIX + ':' + awstDateStr() + ':' + String(userKey) + ':' + crewKey;
+  }
+
+  function readTodayRunListOrder(assignments) {
+    var key = getTodayRunListStorageKey(assignments);
+    var ids = [];
+    try {
+      var parsed = JSON.parse(localStorage.getItem(key) || '[]');
+      if (Array.isArray(parsed)) ids = parsed.map(function(id) { return String(id); });
+    } catch(e) { ids = []; }
+    return { key: key, ids: ids };
+  }
+
+  function saveTodayRunListOrder(key, ids) {
+    try { localStorage.setItem(key, JSON.stringify(ids)); } catch(e) {}
+  }
+
+  function reconcileTodayRunListOrder(assignments) {
+    assignments = (assignments || []).filter(function(a) { return !!getTodayRunListId(a); });
+    var order = readTodayRunListOrder(assignments);
+    var present = {};
+    assignments.forEach(function(a) { present[getTodayRunListId(a)] = true; });
+
+    var reconciled = [];
+    var seen = {};
+    order.ids.forEach(function(id) {
+      if (present[id] && !seen[id]) {
+        seen[id] = true;
+        reconciled.push(id);
+      }
+    });
+    assignments.forEach(function(a) {
+      var id = getTodayRunListId(a);
+      if (!seen[id]) {
+        seen[id] = true;
+        reconciled.push(id);
+      }
+    });
+    saveTodayRunListOrder(order.key, reconciled);
+    return { key: order.key, ids: reconciled };
+  }
+
+  function getTodayRunListState(assignments) {
+    var order = reconcileTodayRunListOrder(assignments || []);
+    var rank = {};
+    order.ids.forEach(function(id, idx) { rank[id] = idx; });
+    var items = (assignments || []).slice().sort(function(a, b) {
+      var aid = getTodayRunListId(a), bid = getTodayRunListId(b);
+      var ar = rank.hasOwnProperty(aid) ? rank[aid] : 9999;
+      var br = rank.hasOwnProperty(bid) ? rank[bid] : 9999;
+      if (ar !== br) return ar - br;
+      return String(a.start_time || '').localeCompare(String(b.start_time || ''));
+    });
+    return { key: order.key, ids: order.ids, items: items };
+  }
+
+  function isReportSubmittedForTradeCard(job, assignment) {
+    job = job || {};
+    assignment = assignment || {};
+    var md = job.makesafe_details || job.metadata || {};
+    var sub = String(job.substatus || job.makesafe_substatus || md.substatus || '').toLowerCase();
+    var reportStatus = String(job.service_report_status || job.report_status || (job.service_report && job.service_report.status) || '').toLowerCase();
+    var assignmentStatus = String(assignment.status || '').toLowerCase();
+    var jobStatus = String(job.status || '').toLowerCase();
+    return ['submitted', 'approved', 'sent', 'report_ready'].indexOf(reportStatus) !== -1 ||
+      ['admin_to_send_report', 'ready_to_invoice', 'complete', 'completed', 'report_ready', 'to_invoice', 'invoiced'].indexOf(sub) !== -1 ||
+      ['complete', 'completed', 'submitted'].indexOf(assignmentStatus) !== -1 ||
+      ['complete', 'completed'].indexOf(jobStatus) !== -1;
+  }
+
+  window.moveTodayRunListJob = function(jobId, direction) {
+    if (!_lastJobData || !Array.isArray(_lastJobData.today)) return;
+    var state = getTodayRunListState(_lastJobData.today);
+    var ids = state.ids.slice();
+    var idx = ids.indexOf(String(jobId));
+    if (idx === -1) return;
+    var nextIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (nextIdx < 0 || nextIdx >= ids.length) return;
+    var tmp = ids[idx];
+    ids[idx] = ids[nextIdx];
+    ids[nextIdx] = tmp;
+    saveTodayRunListOrder(state.key, ids);
+    renderMyJobs(_lastJobData);
+  };
+
+  window.__SW_TRADE_TODAY_RUN_LIST_TESTS = {
+    getTodayRunListId: getTodayRunListId,
+    getTodayRunListStorageKey: getTodayRunListStorageKey,
+    reconcileTodayRunListOrder: reconcileTodayRunListOrder,
+    getTodayRunListState: getTodayRunListState,
+    isReportSubmittedForTradeCard: isReportSubmittedForTradeCard
+  };
 
   window.setJobFilter = function(f) {
     _jobFilter = f;
@@ -3820,14 +3989,17 @@
 
     var query = ((document.getElementById('jobSearchInput') || {}).value || '').toLowerCase().trim();
 
-    // Cache all assignments for Camera/Schedule views
+    var todayRunListState = getTodayRunListState(data.today || []);
+    var todayJobs = todayRunListState.items;
+
+    // Cache all assignments for Camera/Schedule views, preserving today's manual run-list order.
     _cachedMyJobs = [];
     ['today', 'thisWeek', 'upcoming', 'recent'].forEach(function(k) {
-      (data[k] || []).forEach(function(a) { _cachedMyJobs.push(a); });
+      var source = k === 'today' ? todayJobs : (data[k] || []);
+      source.forEach(function(a) { _cachedMyJobs.push(a); });
     });
 
     // ── Today's Summary Card (hide when searching/filtering) ──
-    var todayJobs = data.today || [];
     if (todayJobs.length > 0 && !query && _jobFilter === 'all') {
       var days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
       var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -3905,7 +4077,7 @@
 
     var hasAny = false;
     sections.forEach(function(sec) {
-      var items = data[sec.key] || [];
+      var items = sec.key === 'today' ? todayJobs : (data[sec.key] || []);
       if (items.length === 0) return;
       // Apply filter: if filter is 'today' only show today section, 'thisWeek' only today+thisWeek
       if (_jobFilter === 'today' && sec.key !== 'today') return;
@@ -3934,20 +4106,26 @@
         filtered = Object.keys(byJob).map(function(k) { return byJob[k]; });
       }
       hasAny = true;
-      var sectionLabel = sec.label + ' (' + filtered.length + ')';
+      var sectionLabel = (sec.key === 'today' ? 'Today Run List' : sec.label) + ' (' + filtered.length + ')';
       html += '<div class="section-label">' + sectionLabel + '</div>';
       if (sec.key === 'makesafePool') {
         html += '<div style="font-size:12px;color:var(--sw-text-sec);margin:-8px 0 10px">Available to all logged-in trade users for this MakeSafe report run. Tap to open the report.</div>';
       }
-      filtered.forEach(function(a) {
+      if (sec.key === 'today') {
+        html += '<div class="run-list-note">Execution order is saved on this device for you/crew/today. Use Move up/down as the day changes; Call, Text, Navigate, and Open report stay on each card.</div>';
+      }
+      filtered.forEach(function(a, idx) {
         var job = a.jobs || {};
         var statusClass = 'status-' + (a.status || 'scheduled');
-        var todayClass = sec.key === 'today' ? ' today-card' : '';
+        var todayComplete = sec.key === 'today' && isReportSubmittedForTradeCard(job, a);
+        var todayClass = sec.key === 'today' ? ' today-card' + (todayComplete ? ' run-list-complete' : '') : '';
+        var runListId = getTodayRunListId(a);
 
         // Internal / job-less entry
         if (!job.id) {
           html += '<div class="job-card' + todayClass + '" data-type="internal" style="border-left-color:#6B7280">';
           html += '  <div class="job-card-top">';
+          if (sec.key === 'today') html += '    <span class="run-list-order-badge">' + (idx + 1) + '</span>';
           html += '    <div>';
           html += '      <div class="job-card-client">' + esc(a.label || 'Internal Event') + '</div>';
           html += '      <div class="job-card-address" style="color:#6B7280;font-style:italic">Internal · No job</div>';
@@ -3959,6 +4137,12 @@
           if (a.start_time) html += '<span style="font-weight:600">' + a.start_time.slice(0, 5) + '</span>';
           html += '    <span class="status-pill ' + statusClass + '">' + (a.status || 'scheduled').replace(/_/g, ' ') + '</span>';
           html += '  </div>';
+          if (sec.key === 'today' && runListId) {
+            html += '  <div class="run-list-controls">';
+            html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'up\')"' + (idx === 0 ? ' disabled' : '') + '>↑ Move up</button>';
+            html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'down\')"' + (idx === filtered.length - 1 ? ' disabled' : '') + '>↓ Move down</button>';
+          html += '  </div>';
+          }
           html += '</div>';
           return;
         }
@@ -3969,6 +4153,7 @@
         var assignmentArg = a._makesafePool ? '' : (a.id || '');
         html += '<div class="job-card' + todayClass + '" data-type="' + type + '" onclick="' + openAction + '(\'' + job.id + '\', \'' + assignmentArg + '\')">';
         html += '  <div class="job-card-top">';
+        if (sec.key === 'today') html += '    <span class="run-list-order-badge">' + (idx + 1) + '</span>';
         html += '    <div>';
         html += '      <div class="job-card-client">' + esc(getTradeCardTitle(job, type)) + '</div>';
         html += '      <div class="job-card-address">' + esc(getTradeCardLine(job, type));
@@ -4022,6 +4207,7 @@
             html += '<span style="color:var(--sw-yellow)">No crew</span>';
           }
           html += '    <span class="status-pill ' + statusClass + '">' + (a.status || 'scheduled').replace(/_/g, ' ') + '</span>';
+          if (todayComplete) html += '    <span class="run-list-complete-pill">Report submitted</span>';
           html += '  </div>';
         }
         // Financial display (Tier 3 only)
@@ -4053,6 +4239,8 @@
           }
         }
         if (type === 'makesafe') {
+          html += '    <button onclick="event.stopPropagation();openJobReport(\'' + esc(job.id) + '\', \'' + esc(assignmentArg) + '\')" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-orange);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">';
+          html += '      Open report</button>';
           html += '    <button onclick="event.stopPropagation();submitTradeAdminNote(\'' + esc(job.id) + '\')" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:#7C3AED;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">';
           html += '      &#128221; Note for admin</button>';
         }
@@ -4063,6 +4251,13 @@
           html += '      Navigate</a>';
         }
         html += '  </div>';
+        if (sec.key === 'today' && runListId) {
+          html += '  <div class="run-list-controls">';
+          html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'up\')"' + (idx === 0 ? ' disabled' : '') + '>↑ Move up</button>';
+          html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'down\')"' + (idx === filtered.length - 1 ? ' disabled' : '') + '>↓ Move down</button>';
+          if (todayComplete) html += '    <span class="run-list-complete-pill">Done for today</span>';
+          html += '  </div>';
+        }
         html += '</div>';
       });
     });

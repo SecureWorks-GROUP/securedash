@@ -1,0 +1,62 @@
+#!/usr/bin/env node
+const fs = require('fs')
+const vm = require('vm')
+const assert = require('assert')
+
+const html = fs.readFileSync('trade.html', 'utf8')
+const start = html.indexOf("var TODAY_RUN_LIST_STORAGE_PREFIX = 'sw_today_run_list_v1'")
+const end = html.indexOf('\n\n  window.setJobFilter', start)
+assert(start !== -1 && end !== -1, 'Today Run List helper block is present and extractable')
+const helperBlock = html.slice(start, end)
+
+function makeStorage() {
+  const store = Object.create(null)
+  return {
+    getItem: (k) => Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null,
+    setItem: (k, v) => { store[k] = String(v) },
+    removeItem: (k) => { delete store[k] },
+    dump: () => ({ ...store })
+  }
+}
+
+const localStorage = makeStorage()
+const context = {
+  window: {},
+  localStorage,
+  _user: { id: 'trade-user-1', name: 'Isaac' },
+  _lastJobData: null,
+  awstDateStr: () => '2026-06-08',
+  renderMyJobs: () => {}
+}
+vm.runInNewContext(helperBlock, context)
+const helpers = context.window.__SW_TRADE_TODAY_RUN_LIST_TESTS
+assert(helpers, 'helpers are exposed for regression testing')
+
+const jobs = [
+  { id: 'asg-a', crew_name: 'Crew A', start_time: '09:00', status: 'scheduled', jobs: { id: 'job-a', client_name: 'A' } },
+  { id: 'asg-b', crew_name: 'Crew A', start_time: '10:00', status: 'scheduled', jobs: { id: 'job-b', client_name: 'B' } },
+  { id: 'asg-c', crew_name: 'Crew A', start_time: '11:00', status: 'scheduled', jobs: { id: 'job-c', client_name: 'C' } }
+]
+
+let state = helpers.getTodayRunListState(jobs)
+assert.deepStrictEqual(Array.from(state.ids), ['job-a', 'job-b', 'job-c'], 'initial natural Today order is persisted')
+assert(state.key.includes('sw_today_run_list_v1:2026-06-08:trade-user-1:Crew A'), 'key is per date/user/crew')
+
+localStorage.setItem(state.key, JSON.stringify(['job-c', 'job-a', 'stale-job']))
+state = helpers.getTodayRunListState(jobs)
+assert.deepStrictEqual(Array.from(state.ids), ['job-c', 'job-a', 'job-b'], 'stored order removes stale ids and appends new today jobs')
+assert.deepStrictEqual(Array.from(state.items.map((a) => a.jobs.id)), ['job-c', 'job-a', 'job-b'], 'stored order controls rendered order')
+
+const otherCrewKey = helpers.getTodayRunListStorageKey([{ id: 'asg-x', crew_name: 'Crew B', jobs: { id: 'job-x' } }])
+assert.notStrictEqual(otherCrewKey, state.key, 'different crew gets a separate persisted order')
+
+assert.strictEqual(helpers.isReportSubmittedForTradeCard({ service_report_status: 'submitted' }, {}), true, 'submitted service report marks card complete')
+assert.strictEqual(helpers.isReportSubmittedForTradeCard({ makesafe_details: { substatus: 'admin_to_send_report' } }, {}), true, 'MakeSafe post-submit substatus marks card complete')
+assert.strictEqual(helpers.isReportSubmittedForTradeCard({ status: 'scheduled' }, { status: 'scheduled' }), false, 'scheduled job is not complete-looking')
+
+assert(html.includes('Today Run List'), 'Today section is labelled as a run list')
+assert(html.includes('run-list-controls'), 'move controls render on Today cards')
+assert(html.includes('Open report'), 'Open report action remains visible on MakeSafe cards')
+assert(!/maps\.googleapis\.com|google\.maps\.DirectionsService|DirectionsRenderer/.test(html), 'MVP avoids Google Maps route optimization APIs')
+
+console.log('PASS trade Today Run List regression checks')
