@@ -9030,6 +9030,31 @@ function makesafePlannerSlug(value) {
 function makesafePlannerNameKey(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
+function makesafePlannerUniqueIds(ids) {
+  var seen = {};
+  return (ids || []).map(String).filter(function(id) {
+    if (!id || seen[id]) return false;
+    seen[id] = true;
+    return true;
+  });
+}
+function makesafePlannerMemberSetKey(ids) {
+  return makesafePlannerUniqueIds(ids).sort().join('|');
+}
+function makesafePlannerActionLabel(action) {
+  var mode = action && action.mode;
+  if (mode === 'hold') return 'Hold';
+  if (mode === 'ring') return 'Ring the Bell' + (action.audienceLabel ? ': ' + action.audienceLabel : '');
+  if (mode === 'direct_allocate') return 'Direct Allocate';
+  return '';
+}
+function makesafePlannerActionColor(action) {
+  var mode = action && action.mode;
+  if (mode === 'hold') return '#7C3AED';
+  if (mode === 'ring') return '#0EA5E9';
+  if (mode === 'direct_allocate') return '#D97706';
+  return '#8FA4B2';
+}
 function makesafePlannerWeekStart(dateStr) {
   var d = new Date((dateStr || localDateStr(new Date())) + 'T00:00:00');
   if (isNaN(d.getTime())) d = new Date(localDateStr(new Date()) + 'T00:00:00');
@@ -9072,6 +9097,7 @@ function makesafePlannerReadState() {
   if (!state.capableIds || typeof state.capableIds !== 'object') state.capableIds = {};
   if (!Array.isArray(state.crews)) state.crews = [];
   if (!state.plans || typeof state.plans !== 'object') state.plans = {};
+  if (!state.jobActions || typeof state.jobActions !== 'object') state.jobActions = {};
   return state;
 }
 function makesafePlannerWriteState(state) {
@@ -9092,11 +9118,16 @@ function makesafePlannerEnsureState() {
     state.capableIds[hugo.id] = true;
     state.capableIds[alyx.id] = true;
   }
+  var crewSetSeen = {};
   state.crews = state.crews.filter(function(c) { return c && Array.isArray(c.memberIds) && c.memberIds.length > 1; }).map(function(c, idx) {
-    var seen = {};
-    var memberIds = c.memberIds.filter(function(id) { if (!id || seen[id]) return false; seen[id] = true; return true; });
+    var memberIds = makesafePlannerUniqueIds(c.memberIds);
     var names = memberIds.map(function(id) { var u = (_crewList || []).find(function(x) { return x.id === id; }); return makesafePlannerDisplayName(u); }).filter(Boolean);
     return { id: c.id || ('crew_' + idx + '_' + makesafePlannerSlug(names.join('_'))), name: c.name || names.join(' + ') || ('Crew ' + (idx + 1)), memberIds: memberIds };
+  }).filter(function(c) {
+    var key = makesafePlannerMemberSetKey(c.memberIds);
+    if (!key || crewSetSeen[key]) return false;
+    crewSetSeen[key] = true;
+    return true;
   });
   makesafePlannerWriteState(state);
   return state;
@@ -9161,13 +9192,42 @@ function makesafePlannerPlanJob(jobId, crewId, dateStr) {
   if (!row) { showToast('Choose a MakeSafe-capable crew row first', 'warning'); return; }
   if (!dateStr) { showToast('Choose a day first', 'warning'); return; }
   state.plans[jobId] = { jobId: jobId, crewId: row.id, crewName: row.name, memberIds: row.memberIds, date: dateStr, savedAt: new Date().toISOString() };
+  state.jobActions[jobId] = { mode: 'direct_allocate', crewId: row.id, crewName: row.name, memberIds: row.memberIds, date: dateStr, savedAt: new Date().toISOString() };
   makesafePlannerWriteState(state);
-  showToast('Saved local plan: ' + row.name + ' on ' + fmtDate(dateStr), 'success');
+  showToast('Direct Allocate staged locally: ' + row.name + ' on ' + fmtDate(dateStr), 'success');
+  renderMakesafeCrewWeekFromCache();
+}
+function makesafePlannerHoldJob(jobId) {
+  var state = makesafePlannerEnsureState();
+  delete state.plans[jobId];
+  state.jobActions[jobId] = { mode: 'hold', savedAt: new Date().toISOString() };
+  makesafePlannerWriteState(state);
+  showToast('Held locally for ops review. No crew alert sent.', 'success');
+  renderMakesafeCrewWeekFromCache();
+}
+function makesafePlannerRingBell(jobId) {
+  var sid = makesafePlannerSlug(jobId);
+  var select = document.getElementById('msRingAudience_' + sid);
+  var audience = select ? select.value : 'makesafe_capable';
+  var label = select ? select.options[select.selectedIndex].text : 'MakeSafe-capable trades';
+  var state = makesafePlannerEnsureState();
+  delete state.plans[jobId];
+  state.jobActions[jobId] = { mode: 'ring', audience: audience, audienceLabel: label, savedAt: new Date().toISOString() };
+  makesafePlannerWriteState(state);
+  showToast('Ring the Bell staged locally for ' + label + '. No SMS/email sent.', 'success');
+  renderMakesafeCrewWeekFromCache();
+}
+function makesafePlannerClearAction(jobId) {
+  var state = makesafePlannerEnsureState();
+  delete state.jobActions[jobId];
+  makesafePlannerWriteState(state);
+  showToast('Cleared local allocation action', 'success');
   renderMakesafeCrewWeekFromCache();
 }
 function makesafePlannerClearJob(jobId) {
   var state = makesafePlannerEnsureState();
   delete state.plans[jobId];
+  delete state.jobActions[jobId];
   makesafePlannerWriteState(state);
   showToast('Removed from local MakeSafe plan', 'success');
   renderMakesafeCrewWeekFromCache();
@@ -9198,8 +9258,18 @@ function makesafePlannerCreateCrewFromSelection() {
   var ids = checks.map(function(cb) { return cb.value; }).filter(Boolean);
   if (ids.length < 2) { showToast('Select at least two trades to make a crew', 'warning'); return; }
   var state = makesafePlannerEnsureState();
+  ids = makesafePlannerUniqueIds(ids);
   ids.forEach(function(id) { state.capableIds[id] = true; });
   var names = ids.map(function(id) { var u = (_crewList || []).find(function(x) { return x.id === id; }); return makesafePlannerDisplayName(u); }).filter(Boolean);
+  var memberKey = makesafePlannerMemberSetKey(ids);
+  var duplicate = state.crews.find(function(c) { return makesafePlannerMemberSetKey(c.memberIds) === memberKey; });
+  if (duplicate) {
+    duplicate.name = duplicate.name || names.join(' + ');
+    makesafePlannerWriteState(state);
+    showToast('Crew row already exists: ' + duplicate.name, 'info');
+    renderMakesafeCrewWeekFromCache();
+    return;
+  }
   var id = 'crew_' + Date.now() + '_' + makesafePlannerSlug(names.join('_'));
   state.crews.push({ id: id, name: names.join(' + '), memberIds: ids });
   makesafePlannerWriteState(state);
@@ -9279,6 +9349,11 @@ function renderMakesafeCrewJobPill(j, source, opts) {
     + '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:2px;">' + escapeHtml([j.external_ref, j.job_number].filter(Boolean).join(' · ')) + '</div>'
     + (source ? '<div style="font-size:10px;color:var(--sw-text-sec);margin-top:4px;">' + escapeHtml(source) + '</div>' : '')
     + '</div>';
+  var action = (makesafePlannerReadState().jobActions || {})[j.id];
+  if (action) {
+    html += '<div style="margin-top:6px;display:flex;gap:5px;align-items:center;flex-wrap:wrap;"><span style="background:' + makesafePlannerActionColor(action) + ';color:#fff;border-radius:999px;padding:3px 7px;font-size:10px;font-weight:850;">' + escapeHtml(makesafePlannerActionLabel(action)) + '</span>'
+      + '<button onclick="event.stopPropagation();makesafePlannerClearAction(\'' + makesafePlannerAttr(j.id) + '\')" style="border:none;background:#EEF2F7;color:#293C46;border-radius:5px;padding:3px 7px;font-size:10px;font-weight:850;cursor:pointer;">Clear action</button></div>';
+  }
   if (opts.clearPlan) html += '<button onclick="event.stopPropagation();makesafePlannerClearJob(\'' + makesafePlannerAttr(j.id) + '\')" style="margin-top:6px;border:none;background:#FEE2E2;color:#991B1B;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:850;cursor:pointer;">Remove local plan</button>';
   return html + '</div>';
 }
@@ -9295,7 +9370,11 @@ function renderMakesafePlannerBacklog(backlog, rows, days) {
     html += '<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:5px;margin-top:-3px;margin-bottom:8px;">'
       + '<select id="msPlanCrew_' + sid + '" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px;">' + optionsCrew + '</select>'
       + '<select id="msPlanDay_' + sid + '" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px;">' + optionsDay + '</select>'
-      + '<button onclick="makesafePlannerSaveFromBacklog(\'' + makesafePlannerAttr(j.id) + '\')" style="font-size:11px;background:#D97706;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Plan</button>'
+      + '<button onclick="makesafePlannerSaveFromBacklog(\'' + makesafePlannerAttr(j.id) + '\')" style="font-size:11px;background:#D97706;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Direct Allocate</button>'
+      + '</div><div style="display:grid;grid-template-columns:auto 1fr auto;gap:5px;align-items:center;margin-top:-3px;margin-bottom:8px;">'
+      + '<button onclick="makesafePlannerHoldJob(\'' + makesafePlannerAttr(j.id) + '\')" style="font-size:11px;background:#F3E8FF;color:#6D28D9;border:1px solid #DDD6FE;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Hold</button>'
+      + '<select id="msRingAudience_' + sid + '" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px;"><option value="makesafe_capable">MakeSafe-capable trades</option><option value="same_suburb">Same suburb / nearby crew</option><option value="unallocated_pool">Unallocated crew pool</option></select>'
+      + '<button onclick="makesafePlannerRingBell(\'' + makesafePlannerAttr(j.id) + '\')" style="font-size:11px;background:#0EA5E9;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Ring the Bell</button>'
       + '</div></div>';
   });
   html += '</div>';
@@ -9355,12 +9434,18 @@ function renderMakesafeCrewWeek(cache) {
 
   var plannedCount = Object.keys(state.plans || {}).filter(function(jobId) { return plannedJobIds[jobId]; }).length;
   var liveCount = Object.keys(eventJobIds).length;
+  var actionCounts = { hold: 0, direct_allocate: 0, ring: 0 };
+  Object.keys(state.jobActions || {}).forEach(function(jobId) {
+    var action = state.jobActions[jobId];
+    if (action && actionCounts[action.mode] != null) actionCounts[action.mode] += 1;
+  });
   var html = renderMakesafePlannerSetup(state, rows);
   html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:12px;">'
     + '<div style="background:#fff;border-left:4px solid #293C46;border-radius:8px;padding:10px;"><div style="font-size:22px;font-weight:850;">' + activeJobs.length + '</div><div style="font-size:12px;color:var(--sw-text-sec);">active MakeSafes</div></div>'
     + '<div style="background:#fff;border-left:4px solid #E67E22;border-radius:8px;padding:10px;"><div style="font-size:22px;font-weight:850;">' + liveCount + '</div><div style="font-size:12px;color:var(--sw-text-sec);">live calendar jobs this week</div></div>'
     + '<div style="background:#fff;border-left:4px solid #D97706;border-radius:8px;padding:10px;"><div style="font-size:22px;font-weight:850;">' + plannedCount + '</div><div style="font-size:12px;color:var(--sw-text-sec);">local planned jobs</div></div>'
     + '<div style="background:#fff;border-left:4px solid #E74C3C;border-radius:8px;padding:10px;"><div style="font-size:22px;font-weight:850;color:#E74C3C;">' + backlog.length + '</div><div style="font-size:12px;color:var(--sw-text-sec);">unassigned backlog</div></div>'
+    + '<div style="background:#fff;border-left:4px solid #0EA5E9;border-radius:8px;padding:10px;"><div style="font-size:12px;font-weight:850;color:var(--sw-dark);">Hold ' + actionCounts.hold + ' · Direct ' + actionCounts.direct_allocate + ' · Bell ' + actionCounts.ring + '</div><div style="font-size:12px;color:var(--sw-text-sec);">local allocation affordances staged</div></div>'
     + '</div>';
   html += '<div style="display:flex;gap:12px;align-items:flex-start;min-height:460px;">';
   html += renderMakesafePlannerBacklog(backlog, rows, days);
