@@ -2563,9 +2563,9 @@
   <!-- Header -->
   <div class="header">
     <div class="header-left">
-      <div class="header-brand" onclick="showView(\'today\')" style="cursor:pointer;">SecureWorks <span>Ops</span></div>
+      <div class="header-brand" onclick="showView('today')" style="cursor:pointer;">SecureWorks <span>Ops</span></div>
       <div class="header-nav">
-        <button class="active" onclick="showView(\'today\')" data-view="today">Today</button>
+        <button class="active" onclick="showView('today')" data-view="today">Today</button>
         <button onclick="showView('calendar')" data-view="calendar">Calendar</button>
         <button onclick="showView('jobs')" data-view="jobs">Jobs</button>
         <button onclick="showView('financials')" data-view="financials">Financials</button>
@@ -2817,7 +2817,7 @@
       <div id="subInvoices" class="sub-view active">
         <div class="stat-grid" id="invoiceStats" style="grid-template-columns: repeat(3, 1fr);"></div>
         <div class="filter-bar">
-          <button class="filter-chip active" onclick="filterInvoiceStatus(\'all\')" data-inv-status="all">All</button>
+          <button class="filter-chip active" onclick="filterInvoiceStatus('all')" data-inv-status="all">All</button>
           <button class="filter-chip" onclick="filterInvoiceStatus('DRAFT')" data-inv-status="DRAFT">Draft</button>
           <button class="filter-chip" onclick="filterInvoiceStatus('AUTHORISED')" data-inv-status="AUTHORISED">Sent</button>
           <button class="filter-chip" onclick="filterInvoiceStatus('PAID')" data-inv-status="PAID">Paid</button>
@@ -2851,7 +2851,7 @@
       <!-- Quotes -->
       <div id="subQuotes" class="sub-view">
         <div class="filter-bar">
-          <button class="filter-chip active" onclick="filterQuoteStatus(\'all\')" data-quote-status="all">All</button>
+          <button class="filter-chip active" onclick="filterQuoteStatus('all')" data-quote-status="all">All</button>
           <button class="filter-chip" onclick="filterQuoteStatus('draft')" data-quote-status="draft">Draft</button>
           <button class="filter-chip" onclick="filterQuoteStatus('sent')" data-quote-status="sent">Sent</button>
           <button class="filter-chip" onclick="filterQuoteStatus('accepted')" data-quote-status="accepted">Accepted</button>
@@ -2878,7 +2878,7 @@
       <!-- Purchase Orders -->
       <div id="subPos" class="sub-view">
         <div class="filter-bar">
-          <button class="filter-chip active" onclick="filterPOStatus(\'all\')" data-po-status="all">All</button>
+          <button class="filter-chip active" onclick="filterPOStatus('all')" data-po-status="all">All</button>
           <button class="filter-chip" onclick="filterPOStatus('draft')" data-po-status="draft">Draft</button>
           <button class="filter-chip" onclick="filterPOStatus('submitted')" data-po-status="submitted">Sent</button>
           <button class="filter-chip" onclick="filterPOStatus('authorised')" data-po-status="authorised">Confirmed</button>
@@ -2967,7 +2967,7 @@
 
       <!-- Basic type filters -->
       <div class="filter-bar">
-        <button class="filter-chip active" onclick="filterMaterials(\'all\')" data-mat-filter="all">All</button>
+        <button class="filter-chip active" onclick="filterMaterials('all')" data-mat-filter="all">All</button>
         <button class="filter-chip" onclick="filterMaterials('fencing')" data-mat-filter="fencing">Fencing</button>
         <button class="filter-chip" onclick="filterMaterials('patio')" data-mat-filter="patio">Patios</button>
         <input type="text" class="filter-search" placeholder="Search POs..." oninput="searchMaterials(this.value)">
@@ -3011,7 +3011,7 @@
       <div style="margin-bottom:16px;">
         <h3 style="font-size:16px;font-weight:700;color:var(--sw-dark);margin:0 0 12px 0;">AI Annotations</h3>
         <div class="inbox-filters">
-          <button class="inbox-chip active" onclick="filterInbox(\'all\')">All</button>
+          <button class="inbox-chip active" onclick="filterInbox('all')">All</button>
           <button class="inbox-chip" onclick="filterInbox('financial')">Financial</button>
           <button class="inbox-chip" onclick="filterInbox('operational')">Operational</button>
           <button class="inbox-chip" onclick="filterInbox('learning')">Learning</button>
@@ -3040,7 +3040,7 @@
 
   <!-- Mobile Nav -->
   <div class="mobile-nav">
-    <button class="active" onclick="showView(\'today\')" data-view="today"><span class="nav-icon">&#9776;</span>Today</button>
+    <button class="active" onclick="showView('today')" data-view="today"><span class="nav-icon">&#9776;</span>Today</button>
     <button onclick="showView('calendar')" data-view="calendar"><span class="nav-icon">&#128197;</span>Calendar</button>
     <button onclick="showView('jobs')" data-view="jobs"><span class="nav-icon">&#128188;</span>Jobs</button>
     <button onclick="showView('financials')" data-view="financials"><span class="nav-icon">&#128176;</span>Money</button>
@@ -4392,7 +4392,7 @@ function renderWeatherBanner() {
   banner.style.display = 'block';
 
   // Also re-render calendar if it's visible, to add weather badges
-  if (document.getElementById('viewCalendar') && document.getElementById('viewCalendar').classList.contains(\'active\')) {
+  if (document.getElementById('viewCalendar') && document.getElementById('viewCalendar').classList.contains('active')) {
     renderCalendar();
   }
 }
@@ -4747,8 +4747,8 @@ async function loadInbox() {
 
 function filterInbox(category) {
   _inboxFilter = category;
-  document.querySelectorAll('.inbox-chip').forEach(function(c) { c.classList.remove(\'active\'); });
-  event.target.classList.add(\'active\');
+  document.querySelectorAll('.inbox-chip').forEach(function(c) { c.classList.remove('active'); });
+  event.target.classList.add('active');
   var cached = _annotationCache['global'];
   if (cached) renderInboxList(cached.data);
 }
@@ -4897,21 +4897,21 @@ function getCrewSelectId(selectId) {
 
 function showView(view) {
   // Close full-page job detail if open
-  if (document.getElementById('jobDetailView').classList.contains(\'active\')) {
+  if (document.getElementById('jobDetailView').classList.contains('active')) {
     closeJobDetail(true);
   }
-  document.querySelectorAll('.view').forEach(function(el) { el.classList.remove(\'active\'); });
-  document.querySelectorAll('.header-nav button').forEach(function(el) { el.classList.remove(\'active\'); });
-  document.querySelectorAll('.mobile-nav button').forEach(function(el) { el.classList.remove(\'active\'); });
+  document.querySelectorAll('.view').forEach(function(el) { el.classList.remove('active'); });
+  document.querySelectorAll('.header-nav button').forEach(function(el) { el.classList.remove('active'); });
+  document.querySelectorAll('.mobile-nav button').forEach(function(el) { el.classList.remove('active'); });
 
   var viewEl = document.getElementById('view' + view.charAt(0).toUpperCase() + view.slice(1));
-  if (viewEl) viewEl.classList.add(\'active\');
+  if (viewEl) viewEl.classList.add('active');
 
   // Prevent page scroll on calendar view
   document.body.style.overflow = (view === 'calendar') ? 'hidden' : '';
 
   document.querySelectorAll('[data-view="' + view + '"]').forEach(function(btn) {
-    btn.classList.add(\'active\');
+    btn.classList.add('active');
   });
 
   if (history.replaceState) history.replaceState(null, '', '#' + view);
@@ -4942,7 +4942,7 @@ function restoreTab() {
   if (hash && validTabs.indexOf(hash) >= 0) { showView(hash); return; }
   var saved = localStorage.getItem('sw_ops_tab');
   if (saved && validTabs.indexOf(saved) >= 0) { showView(saved); return; }
-  showView(\'today\');
+  showView('today');
 }
 
 // ════════════════════════════════════════════════════════════
@@ -5444,7 +5444,7 @@ async function dismissActionConfirmed(actionId) {
 }
 
 function openAddActionModal(preJobNumber) {
-  document.getElementById('addActionModal').classList.add(\'active\');
+  document.getElementById('addActionModal').classList.add('active');
   document.getElementById('addActionTitle').value = '';
   document.getElementById('addActionJob').value = preJobNumber || '';
   document.getElementById('addActionDue').value = '';
@@ -5739,7 +5739,7 @@ var _calDivFilters = (function() {
   try { var v = JSON.parse(localStorage.getItem('sw_cal_divs')); if (Array.isArray(v)) return v; } catch(e) {}
   return ['all'];
 })(); // array of active divisions: ['all'] or subset of ['patio','fencing','makesafe']
-var _calDivFilter = _calDivFilters.indexOf(\'all\') !== -1 ? 'all' : _calDivFilters; // compat shim
+var _calDivFilter = _calDivFilters.indexOf('all') !== -1 ? 'all' : _calDivFilters; // compat shim
 var _calUnschedOpen = false;
 var _calAvailability = {}; // { 'CrewName_date': { status, note } }
 var _calReadiness = {};   // { jobId: { score, status, blockers, warnings, completeness } }
@@ -5801,7 +5801,7 @@ function _closeCalCreateOnOutside(e) {
 function closeCalCreateMenu() { document.getElementById('calCreateMenu').classList.remove('open'); }
 
 function openAddEventModal() {
-  document.getElementById('addEventModal').classList.add(\'active\');
+  document.getElementById('addEventModal').classList.add('active');
   document.getElementById('eventTitle').value = '';
   document.getElementById('eventType').value = 'meeting';
   document.getElementById('eventDate').value = localDateStr(new Date());
@@ -6048,14 +6048,14 @@ function toggleCalDivision(div, checked) {
     // If none selected, default to 'all'
     if (_calDivFilters.length === 0) _calDivFilters = ['all'];
   }
-  _calDivFilter = _calDivFilters.indexOf(\'all\') !== -1 ? 'all' : _calDivFilters;
+  _calDivFilter = _calDivFilters.indexOf('all') !== -1 ? 'all' : _calDivFilters;
   localStorage.setItem('sw_cal_divs', JSON.stringify(_calDivFilters));
   syncCalDivCheckboxes();
   if (_calEvents) renderCalendar();
 }
 
 function syncCalDivCheckboxes() {
-  var isAll = _calDivFilters.indexOf(\'all\') !== -1;
+  var isAll = _calDivFilters.indexOf('all') !== -1;
   document.querySelectorAll('[data-caldiv]').forEach(function(cb) {
     var val = cb.dataset.caldiv;
     if (val === 'all') {
@@ -8590,7 +8590,7 @@ async function openQuickAllocateModal(jobId, clientName) {
   document.getElementById('quickAllocateTime').value = '07:00';
   document.getElementById('quickAllocateNotes').value = '';
   document.getElementById('quickAllocateSubmitBtn').disabled = false;
-  document.getElementById('quickAllocateModal').classList.add(\'active\');
+  document.getElementById('quickAllocateModal').classList.add('active');
   await loadCrewList();
   document.getElementById('quickAllocateCrewContainer').innerHTML = renderCrewDropdown('quickAllocateCrew', '');
 }
@@ -8878,7 +8878,7 @@ function makesafeMapJobLine(j, opts) {
   var title = j.site_suburb || j.suburb || j.job_number || j.client_name || 'MakeSafe job';
   var meta = [getMakesafeTypeLabel(j), getMakesafeBuilder(j), v.crew !== 'Unallocated' ? v.crew : 'No crew'].filter(Boolean).join(' · ');
   var html = '<div style="font-size:12px;margin-bottom:6px;line-height:1.28;">'
-    + '<a onclick="openJobDetail(\'' + j.id + '\');toggleMakesafeMap();" style="cursor:pointer;color:' + (opts.linkColor || 'var(--sw-dark)') + ';font-weight:850;">' + escapeHtml(title) + '</a>'
+    + '<a onclick="openJobDetail('' + j.id + '');toggleMakesafeMap();" style="cursor:pointer;color:' + (opts.linkColor || 'var(--sw-dark)') + ';font-weight:850;">' + escapeHtml(title) + '</a>'
     + '<div style="display:flex;gap:5px;flex-wrap:wrap;margin:2px 0;">'
     + makesafeMapBadge(v.allocationLabel, v.color, '#FFF7ED')
     + (v.urgent ? makesafeMapBadge('Late/risky', '#B91C1C', '#FEE2E2') : '')
@@ -8918,11 +8918,11 @@ function toggleMakesafeMap() {
   mapDiv.innerHTML = makesafeCommandHeader('MakeSafe allocation map', 'Ops visibility first: status/stage, crew or trade allocation, on-road work, reports and invoices. Missing geocodes stay in the side panel as exceptions.', 'toggleMakesafeMap()')
     + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--sw-border);background:var(--sw-light);">'
     + '<span style="font-size:11px;font-weight:850;color:var(--sw-text-sec);text-transform:uppercase;margin-right:2px;">Ops view</span>'
-    + '<button onclick="loadMakesafeMapData(\'active\');makesafeMapSetStatusFilter(\'all\')" class="btn btn-sm" style="font-size:11px;">Active board</button>'
-    + '<button onclick="loadMakesafeMapData(\'today\');makesafeMapSetStatusFilter(\'all\')" class="btn btn-sm" style="font-size:11px;">Today</button>'
-    + '<button onclick="loadMakesafeMapData(\'unassigned\');makesafeMapSetStatusFilter(\'unassigned\')" class="btn btn-sm" style="font-size:11px;background:#E74C3C;color:#fff;">Needs allocation</button>'
-    + '<button onclick="loadMakesafeMapData(\'waiting_report\');makesafeMapSetStatusFilter(\'allocated\')" class="btn btn-sm" style="font-size:11px;background:#9B59B6;color:#fff;">Reports</button>'
-    + '<button onclick="loadMakesafeMapData(\'to_invoice\');makesafeMapSetStatusFilter(\'to_invoice\')" class="btn btn-sm" style="font-size:11px;background:#27AE60;color:#fff;">Invoices</button>'
+    + '<button onclick="loadMakesafeMapData('active');makesafeMapSetStatusFilter('all')" class="btn btn-sm" style="font-size:11px;">Active board</button>'
+    + '<button onclick="loadMakesafeMapData('today');makesafeMapSetStatusFilter('all')" class="btn btn-sm" style="font-size:11px;">Today</button>'
+    + '<button onclick="loadMakesafeMapData('unassigned');makesafeMapSetStatusFilter('unassigned')" class="btn btn-sm" style="font-size:11px;background:#E74C3C;color:#fff;">Needs allocation</button>'
+    + '<button onclick="loadMakesafeMapData('waiting_report');makesafeMapSetStatusFilter('allocated')" class="btn btn-sm" style="font-size:11px;background:#9B59B6;color:#fff;">Reports</button>'
+    + '<button onclick="loadMakesafeMapData('to_invoice');makesafeMapSetStatusFilter('to_invoice')" class="btn btn-sm" style="font-size:11px;background:#27AE60;color:#fff;">Invoices</button>'
     + '<select id="makesafeMapStatusFilter" onchange="makesafeMapSetStatusFilter(this.value)" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px 6px;background:#fff;"><option value="all">All stages/actions</option><option value="unassigned">Needs allocation</option><option value="allocated">Waiting report</option><option value="report_ready">Report ready</option><option value="to_invoice">To invoice</option><option value="on_road">On road</option><option value="late">Late/risky</option></select>'
     + '<select id="makesafeMapCrewFilter" onchange="makesafeMapSetCrewFilter(this.value)" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px 6px;background:#fff;"><option value="all">All crews</option></select>'
     + '<span style="flex:1;"></span><span style="font-size:11px;color:var(--sw-text-sec);font-weight:700;">Geocode only appears for missing map pins.</span>'
@@ -9481,7 +9481,7 @@ function renderMakesafeCrewJobPill(j, source, opts) {
   var action = (makesafePlannerReadState().jobActions || {})[j.id];
   if (action) {
     html += '<div style="margin-top:6px;display:flex;gap:5px;align-items:center;flex-wrap:wrap;"><span style="background:' + makesafePlannerActionColor(action) + ';color:#fff;border-radius:999px;padding:3px 7px;font-size:10px;font-weight:850;">' + escapeHtml(makesafePlannerActionLabel(action)) + '</span>'
-      + '<button onclick="event.stopPropagation();makesafePlannerClearAction(\'' + makesafePlannerAttr(j.id) + '\')" style="border:none;background:#EEF2F7;color:#293C46;border-radius:5px;padding:3px 7px;font-size:10px;font-weight:850;cursor:pointer;">Clear action</button></div>';
+      + '<button onclick="event.stopPropagation();makesafePlannerClearAction('' + makesafePlannerAttr(j.id) + '')" style="border:none;background:#EEF2F7;color:#293C46;border-radius:5px;padding:3px 7px;font-size:10px;font-weight:850;cursor:pointer;">Clear action</button></div>';
   }
   if (opts.clearPlan) html += '<button onclick="event.stopPropagation();makesafePlannerClearJob(\'' + makesafePlannerAttr(j.id) + '\')" style="margin-top:6px;border:none;background:#FEE2E2;color:#991B1B;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:850;cursor:pointer;">Remove local plan</button>';
   return html + '</div>';
@@ -9499,11 +9499,11 @@ function renderMakesafePlannerBacklog(backlog, rows, days) {
     html += '<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:5px;margin-top:-3px;margin-bottom:8px;">'
       + '<select id="msPlanCrew_' + sid + '" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px;">' + optionsCrew + '</select>'
       + '<select id="msPlanDay_' + sid + '" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px;">' + optionsDay + '</select>'
-      + '<button onclick="makesafePlannerSaveFromBacklog(\'' + makesafePlannerAttr(j.id) + '\')" style="font-size:11px;background:#D97706;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Direct Allocate</button>'
+      + '<button onclick="makesafePlannerSaveFromBacklog('' + makesafePlannerAttr(j.id) + '')" style="font-size:11px;background:#D97706;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Direct Allocate</button>'
       + '</div><div style="display:grid;grid-template-columns:auto 1fr auto;gap:5px;align-items:center;margin-top:-3px;margin-bottom:8px;">'
-      + '<button onclick="makesafePlannerHoldJob(\'' + makesafePlannerAttr(j.id) + '\')" style="font-size:11px;background:#F3E8FF;color:#6D28D9;border:1px solid #DDD6FE;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Hold</button>'
+      + '<button onclick="makesafePlannerHoldJob('' + makesafePlannerAttr(j.id) + '')" style="font-size:11px;background:#F3E8FF;color:#6D28D9;border:1px solid #DDD6FE;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Hold</button>'
       + '<select id="msRingAudience_' + sid + '" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px;"><option value="makesafe_capable">MakeSafe-capable trades</option><option value="same_suburb">Same suburb / nearby crew</option><option value="unallocated_pool">Unallocated crew pool</option></select>'
-      + '<button onclick="makesafePlannerRingBell(\'' + makesafePlannerAttr(j.id) + '\')" style="font-size:11px;background:#0EA5E9;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Ring the Bell</button>'
+      + '<button onclick="makesafePlannerRingBell('' + makesafePlannerAttr(j.id) + '')" style="font-size:11px;background:#0EA5E9;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Ring the Bell</button>'
       + '</div></div>';
   });
   html += '</div>';
@@ -9629,7 +9629,7 @@ async function geocodeMissingMakesafes() {
   try {
     var result = await opsPost('geocode_missing_makesafes', {});
     showToast('Geocoded ' + (result.geocoded || 0) + ' of ' + (result.total || 0) + ' jobs', 'success');
-    loadMakesafeMapData(\'active\');
+    loadMakesafeMapData('active');
   } catch (e) {
     showToast('Geocode failed: ' + e.message, 'warning');
   }
@@ -9925,12 +9925,12 @@ function renderJobList(container, columns) {
 // ════════════════════════════════════════════════════════════
 
 function showSubTab(tab) {
-  document.querySelectorAll('.sub-tab').forEach(function(el) { el.classList.remove(\'active\'); });
-  document.querySelectorAll('.sub-view').forEach(function(el) { el.classList.remove(\'active\'); });
+  document.querySelectorAll('.sub-tab').forEach(function(el) { el.classList.remove('active'); });
+  document.querySelectorAll('.sub-view').forEach(function(el) { el.classList.remove('active'); });
   var btn = document.querySelector('[data-sub="' + tab + '"]');
-  if (btn) btn.classList.add(\'active\');
+  if (btn) btn.classList.add('active');
   var view = document.getElementById('sub' + tab.charAt(0).toUpperCase() + tab.slice(1));
-  if (view) view.classList.add(\'active\');
+  if (view) view.classList.add('active');
 
   if (tab === 'invoices') loadInvoices();
   if (tab === 'pos') loadPOs();
@@ -10364,7 +10364,7 @@ function showGlobalInvoicePreview(inv) {
     jobBtn.onclick = function() { closeModal('invoicePreviewModal'); openJobPeek(inv.job_id); };
   } else { jobBtn.style.display = 'none'; }
 
-  document.getElementById('invoicePreviewModal').classList.add(\'active\');
+  document.getElementById('invoicePreviewModal').classList.add('active');
 }
 
 // Legacy drillInvoice
@@ -10394,7 +10394,7 @@ function _openInvAction(title, bodyHtml, btnClass, btnLabel, onConfirm) {
     closeModal('invActionModal');
     try { await onConfirm(); } catch(e) { alert('Failed: ' + e.message); }
   };
-  document.getElementById('invActionModal').classList.add(\'active\');
+  document.getElementById('invActionModal').classList.add('active');
 }
 
 async function deleteInvoice(xeroId, invNumber, total) {
@@ -10692,7 +10692,7 @@ function openRateModal(userId, name, currentRate) {
   document.getElementById('rateModalTitle').textContent = 'Set Rate — ' + name;
   document.getElementById('rateModalCurrent').textContent = '$' + Number(currentRate).toFixed(2) + '/hr';
   document.getElementById('rateModalInput').value = currentRate;
-  document.getElementById('rateModal').classList.add(\'active\');
+  document.getElementById('rateModal').classList.add('active');
   document.getElementById('rateModalInput').focus();
 }
 
@@ -11648,7 +11648,7 @@ async function openJobDetail(jobId) {
   if (jobsBody) sessionStorage.setItem('sw_kanban_scroll', jobsBody.scrollTop || window.scrollY);
 
   // Show the view
-  document.getElementById('jobDetailView').classList.add(\'active\');
+  document.getElementById('jobDetailView').classList.add('active');
   document.querySelector('.header').style.display = 'none';
   document.querySelector('.mobile-nav').style.display = 'none';
   document.querySelector('.container').style.display = 'none';
@@ -11718,7 +11718,7 @@ async function openJobDetailByRef(ref) {
 
 function closeJobDetail(skipHistory) {
   if (_jobDetailAbort) { _jobDetailAbort.abort(); _jobDetailAbort = null; }
-  document.getElementById('jobDetailView').classList.remove(\'active\');
+  document.getElementById('jobDetailView').classList.remove('active');
   document.querySelector('.header').style.display = '';
   document.querySelector('.mobile-nav').style.display = '';
   document.querySelector('.container').style.display = '';
@@ -11763,11 +11763,11 @@ function showJobSubView(tab) {
     var el = document.getElementById(ids[i]);
     var btn = document.querySelector('[data-jd-tab="' + t + '"]');
     if (t === tab) {
-      if (el) el.classList.add(\'active\');
-      if (btn) btn.classList.add(\'active\');
+      if (el) el.classList.add('active');
+      if (btn) btn.classList.add('active');
     } else {
-      if (el) el.classList.remove(\'active\');
-      if (btn) btn.classList.remove(\'active\');
+      if (el) el.classList.remove('active');
+      if (btn) btn.classList.remove('active');
     }
   });
   localStorage.setItem('sw_jd_tab', tab);
@@ -12603,7 +12603,7 @@ function renderMakesafeOpsDetail(data) {
     var reportPhotoPreview = frontPhotos.concat(beforePhotos).concat(afterPhotos).slice(0, 6);
     if (reportPhotoPreview.length) {
       html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:6px;">';
-      reportPhotoPreview.forEach(function(m) { html += '<img src="' + escapeHtml(m.thumbnail_url || m.storage_url || '') + '" data-full-url="' + escapeHtml(m.storage_url || m.thumbnail_url || '') + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:5px;cursor:pointer;" onclick="openOpsLightbox(this.getAttribute(\'data-full-url\') || this.src)">'; });
+      reportPhotoPreview.forEach(function(m) { html += '<img src="' + escapeHtml(m.thumbnail_url || m.storage_url || '') + '" data-full-url="' + escapeHtml(m.storage_url || m.thumbnail_url || '') + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:5px;cursor:pointer;" onclick="openOpsLightbox(this.getAttribute('data-full-url') || this.src)">'; });
       html += '</div>';
     }
     reportDocs.slice(0, 3).forEach(function(doc) { html += renderMakesafeDocPreview(doc); });
@@ -13664,7 +13664,7 @@ function viewWOModal(wo) {
   }
 
   document.getElementById('woViewModalBody').innerHTML = html;
-  document.getElementById('woViewModal').classList.add(\'active\');
+  document.getElementById('woViewModal').classList.add('active');
 }
 
 function printWOModal() {
@@ -15548,7 +15548,7 @@ async function changeJobStatus(jobId, status) {
   try {
     await opsPost('update_job_status', { jobId: jobId, status: status });
     // Refresh whichever view is open
-    if (document.getElementById('jobDetailView').classList.contains(\'active\')) {
+    if (document.getElementById('jobDetailView').classList.contains('active')) {
       refreshJobDetail();
     } else {
       openJobPeek(jobId);
@@ -15597,12 +15597,12 @@ function refreshActiveView() {
 // ════════════════════════════════════════════════════════════
 
 function closeModal(id) {
-  document.getElementById(id).classList.remove(\'active\');
+  document.getElementById(id).classList.remove('active');
 }
 
 async function openAssignmentModal(preSelectJobId, preDate, preCrew) {
   _editAssignmentId = null; // Reset — this is a new assignment
-  document.getElementById('assignmentModal').classList.add(\'active\');
+  document.getElementById('assignmentModal').classList.add('active');
   document.getElementById('assignModalTitle').textContent = 'Schedule Assignment';
   document.getElementById('assignDate').value = preDate || new Date().toISOString().slice(0, 10);
   document.getElementById('assignDuration').value = '2'; // Default 2 days
@@ -15642,7 +15642,7 @@ async function openEditAssignmentModal(assignmentId) {
   _editAssignmentId = assignmentId;
   document.getElementById('assignModalTitle').textContent = 'Edit Assignment — ' + (ev.client_name || '');
 
-  document.getElementById('assignmentModal').classList.add(\'active\');
+  document.getElementById('assignmentModal').classList.add('active');
   document.getElementById('assignDate').value = ev.scheduled_date || '';
   // Calculate duration from dates and set dropdown
   var editDur = 1;
@@ -15686,7 +15686,7 @@ var _poJobList = [];
 
 async function openPOModal(preSelectJobId) {
   resetPOModal();
-  document.getElementById('poModal').classList.add(\'active\');
+  document.getElementById('poModal').classList.add('active');
   await loadPOJobList();
   await loadSupplierList();
   if (preSelectJobId) {
@@ -15867,7 +15867,7 @@ function onPOFulfilmentChange(type) {
 var _woScopeItems = [];
 
 async function openWOModal() {
-  document.getElementById('woModal').classList.add(\'active\');
+  document.getElementById('woModal').classList.add('active');
   document.getElementById('woJobSearch').value = '';
   document.getElementById('woJobSelect').value = '';
   document.getElementById('woScopeItems').innerHTML = 'No job selected';
@@ -16205,7 +16205,7 @@ function confirmPOSend() {
     closeModal('sendConfirmModal');
     submitPO('send');
   };
-  document.getElementById('sendConfirmModal').classList.add(\'active\');
+  document.getElementById('sendConfirmModal').classList.add('active');
 }
 
 var _editingPOId = null; // Set when editing an existing PO
@@ -16347,7 +16347,7 @@ async function openPOEdit(poId) {
     titleEl.innerHTML = 'Edit PO — ' + escapeHtml(po.po_number || '') + jobCtx;
 
     await loadSupplierList();
-    document.getElementById('poModal').classList.add(\'active\');
+    document.getElementById('poModal').classList.add('active');
 
     // Auto-switch to Communications tab if PO has emails
     if (emailCount > 0) {
@@ -16511,7 +16511,7 @@ var _uniInvSelectedQuoteDocs = [];
 
 async function openUnifiedInvoiceModal(preSelectJobId) {
   resetUnifiedInvoiceModal();
-  document.getElementById('unifiedInvoiceModal').classList.add(\'active\');
+  document.getElementById('unifiedInvoiceModal').classList.add('active');
 
   // Set default due date to 14 days from now
   var due = new Date();
@@ -16696,7 +16696,7 @@ function confirmUnifiedInvoiceSend() {
     closeModal('sendConfirmModal');
     submitUnifiedInvoice('send');
   };
-  document.getElementById('sendConfirmModal').classList.add(\'active\');
+  document.getElementById('sendConfirmModal').classList.add('active');
 }
 
 // Backward compat
@@ -16786,7 +16786,7 @@ async function sendWO(woId) {
 async function openAcceptModal(jobId) {
   document.getElementById('acceptJobId').value = jobId;
   // Show modal and load job data
-  document.getElementById('acceptModal').classList.add(\'active\');
+  document.getElementById('acceptModal').classList.add('active');
   try {
     var data = await opsFetch('job_detail', { jobId: jobId });
     var j = data.job || data;
@@ -17262,7 +17262,7 @@ async function openCascadeModal(jobId) {
   infoEl.textContent = 'Loading job data...';
   itemsEl.innerHTML = '';
 
-  document.getElementById('cascadeModal').classList.add(\'active\');
+  document.getElementById('cascadeModal').classList.add('active');
 
   try {
     var data = await opsFetch('job_detail', { jobId: jobId });
@@ -17362,7 +17362,7 @@ async function markAssignmentComplete(assignmentId, jobId) {
     var result = await opsPost('update_assignment', { assignmentId: assignmentId, status: 'complete' });
 
     // Refresh whichever detail view is open
-    if (document.getElementById('jobDetailView').classList.contains(\'active\')) {
+    if (document.getElementById('jobDetailView').classList.contains('active')) {
       refreshJobDetail();
     } else {
       openJobPeek(jobId);
@@ -17660,7 +17660,7 @@ async function openXeroInvoiceModal(jobId) {
     return '<option value="' + a.code + '">' + a.code + ' — ' + escapeHtml(a.name) + '</option>';
   }).join('');
 
-  document.getElementById('invoiceModal').classList.add(\'active\');
+  document.getElementById('invoiceModal').classList.add('active');
 }
 
 async function submitGeneralInvoice() {
@@ -18326,13 +18326,13 @@ function setCommsChannel(channel) {
   if (channel === 'suppliers') {
     clientView.style.display = 'none';
     supplierView.style.display = 'block';
-    clientTab.classList.remove(\'active\');
-    supplierTab.classList.add(\'active\');
+    clientTab.classList.remove('active');
+    supplierTab.classList.add('active');
   } else {
     clientView.style.display = 'block';
     supplierView.style.display = 'none';
-    clientTab.classList.add(\'active\');
-    supplierTab.classList.remove(\'active\');
+    clientTab.classList.add('active');
+    supplierTab.classList.remove('active');
   }
 }
 
@@ -18763,7 +18763,7 @@ function openCallBridgeModal(j) {
   } else {
     modal.querySelector('.modal').innerHTML = html;
   }
-  modal.classList.add(\'active\');
+  modal.classList.add('active');
 }
 
 async function startBridgeCall() {
@@ -18848,7 +18848,7 @@ function openPOEmailLog(poId, supplier, jobId) {
   document.getElementById('poEmailSupplier').value = supplier || '';
   document.getElementById('poEmailSummary').value = '';
   document.querySelector('input[name="poEmailDir"][value="sent"]').checked = true;
-  document.getElementById('poEmailLogModal').classList.add(\'active\');
+  document.getElementById('poEmailLogModal').classList.add('active');
 }
 
 async function submitPOEmailLog() {
@@ -18930,7 +18930,7 @@ function openPOEmailCompose(poId) {
   document.getElementById('poComposeFileList').textContent = '';
 
   applyPOEmailTemplate('new_order');
-  document.getElementById('poEmailComposeModal').classList.add(\'active\');
+  document.getElementById('poEmailComposeModal').classList.add('active');
 }
 
 function applyPOEmailTemplate(templateKey) {
@@ -19189,7 +19189,7 @@ function initApp() {
     if (hash.startsWith('job/')) {
       var jobRef = hash.slice(4);
       openJobDetailByRef(jobRef);
-    } else if (document.getElementById('jobDetailView').classList.contains(\'active\')) {
+    } else if (document.getElementById('jobDetailView').classList.contains('active')) {
       closeJobDetail(true);
     }
   });
