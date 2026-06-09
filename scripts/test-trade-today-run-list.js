@@ -56,8 +56,9 @@ assert.strictEqual(helpers.isReportSubmittedForTradeCard({ status: 'scheduled' }
 
 assert(html.includes("var _jobFilter = 'today'"), 'Jobs view defaults to Today filter')
 assert(html.includes('data-filter="today"') && html.includes('filter-chip active'), 'Today filter chip is active by default')
-assert(html.includes('renderTradeCardFacts'), 'job cards render MakeSafe fact rows for field crews')
-assert(html.includes('Builder #') && html.includes('External #') && html.includes('Weather'), 'card facts include builder/external refs and weather')
+assert(html.includes('renderMakesafeTradeCardFacts') && html.includes('renderStandardTradeCardFacts'), 'job cards use type-aware fact rows for field crews')
+assert(html.includes('Builder ref') && html.includes('External ref') && html.includes('Weather'), 'MakeSafe card facts include optional real refs and weather')
+assert(!html.includes('Builder #') && !html.includes('External #'), 'standard cards do not expose empty builder/external database labels')
 assert(html.includes('run-list-controls'), 'route order controls render on Today cards')
 assert(html.includes("_jobFilter === 'today' && sec.key === 'today' && runListId"), 'route order controls are gated to the Today tab only')
 assert(!html.includes('Open report</button>'), 'visible Open report button is removed from job cards')

@@ -4498,33 +4498,70 @@
     return '';
   }
 
-  function renderTradeCardFact(label, value, rawHtml) {
+  function renderTradeCardFact(label, value, rawHtml, opts) {
+    opts = opts || {};
     var missing = !rawHtml && !String(value || '').trim();
+    if (missing && opts.hideEmpty) return '';
     var display = rawHtml ? String(value || '') : esc(value || 'TBC');
-    return '<span style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:82px;max-width:150px;background:var(--sw-light);border-radius:8px;padding:5px 7px"><span style="font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:var(--sw-text-sec);font-weight:800">' + esc(label) + '</span><span style="font-size:12px;color:' + (missing ? 'var(--sw-yellow)' : 'var(--sw-dark)') + ';font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:136px">' + display + '</span></span>';
+    return '<span style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:0;max-width:170px;background:var(--sw-light);border-radius:9px;padding:4px 7px"><span style="font-size:8.5px;text-transform:uppercase;letter-spacing:.055em;color:var(--sw-text-sec);font-weight:800;line-height:1">' + esc(label) + '</span><span style="font-size:12px;color:' + (missing ? 'var(--sw-yellow)' : 'var(--sw-dark)') + ';font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:156px;line-height:1.15">' + display + '</span></span>';
   }
 
-  function renderTradeCardFacts(job, assignment, type) {
+  function renderTradeFactRow() {
+    return '<div class="job-card-meta" style="gap:5px;align-items:stretch;flex-wrap:wrap;margin-top:8px">';
+  }
+
+  function getTradeAssignmentCrewLabel(assignment) {
+    assignment = assignment || {};
+    if (assignment._makesafePool) return 'All MakeSafe trades';
+    return firstTradeCardValue([assignment.crew_name, assignment.assigned_to, assignment.user && assignment.user.name, assignment.trade_name, assignment.label]);
+  }
+
+  function getTradeFactWeatherHtml(assignment) {
+    return assignment && assignment.scheduled_date ? '<span data-weather-date="' + esc(assignment.scheduled_date) + '">Weather checking</span>' : '';
+  }
+
+  function renderMakesafeTradeCardFacts(job, assignment) {
     job = job || {};
     assignment = assignment || {};
     var ms = job.makesafe_details || {};
     var md = job.metadata || {};
-    var crew = assignment._makesafePool ? 'All MakeSafe trades' : firstTradeCardValue([assignment.crew_name, assignment.assigned_to, assignment.user && assignment.user.name, assignment.trade_name, assignment.label]);
+    var crew = getTradeAssignmentCrewLabel(assignment);
     var builderRef = firstTradeCardValue([job.builder_job_number, job.builder_ref, job.builder_reference, job.work_order_number, job.wo_number, ms.builder_job_number, ms.builder_ref, ms.work_order_number, ms.wo_number, md.builder_job_number, md.builder_ref, md.work_order_number, md.wo_number]);
     var externalRef = firstTradeCardValue([ms.external_ref, ms.external_reference, ms.claim_number, job.external_ref, job.external_reference, job.ref, job.claim_number, md.external_ref, md.external_reference, md.claim_number]);
-    var weatherHtml = assignment.scheduled_date ? '<span data-weather-date="' + esc(assignment.scheduled_date) + '">Weather checking</span>' : 'TBC';
-    var h = '<div class="job-card-meta" style="gap:6px;align-items:stretch;flex-wrap:wrap">';
-    h += renderTradeCardFact('Suburb', job.site_suburb || job.suburb || '');
-    h += renderTradeCardFact('MakeSafe type', type === 'makesafe' ? getTradeMakesafeTypeLabel(job) : (job.scope_summary || type));
-    h += renderTradeCardFact('Client', job.client_name || '');
-    h += renderTradeCardFact('SW #', job.job_number || job.internal_job_number || '');
-    h += renderTradeCardFact('Builder #', builderRef);
-    h += renderTradeCardFact('External #', externalRef);
-    h += renderTradeCardFact('Crew', crew);
-    h += renderTradeCardFact('Time', (assignment.scheduled_date ? formatDate(assignment.scheduled_date) : 'No date') + ' · ' + (assignment.start_time ? assignment.start_time.slice(0, 5) : 'No time set'));
-    h += renderTradeCardFact('Weather', weatherHtml, true);
+    var weatherHtml = getTradeFactWeatherHtml(assignment);
+    var h = renderTradeFactRow();
+    h += renderTradeCardFact('Suburb', job.site_suburb || job.suburb || '', false, { hideEmpty: true });
+    h += renderTradeCardFact('MakeSafe type', getTradeMakesafeTypeLabel(job), false, { hideEmpty: true });
+    h += renderTradeCardFact('Client', job.client_name || '', false, { hideEmpty: true });
+    h += renderTradeCardFact('SW #', job.job_number || job.internal_job_number || '', false, { hideEmpty: true });
+    h += renderTradeCardFact('Crew', crew, false, { hideEmpty: true });
+    h += renderTradeCardFact('Builder ref', builderRef, false, { hideEmpty: true });
+    h += renderTradeCardFact('External ref', externalRef, false, { hideEmpty: true });
+    h += renderTradeCardFact('Weather', weatherHtml, true, { hideEmpty: true });
     h += '</div>';
     return h;
+  }
+
+  function renderStandardTradeCardFacts(job, assignment, type) {
+    job = job || {};
+    assignment = assignment || {};
+    var crew = getTradeAssignmentCrewLabel(assignment);
+    var jobType = job.scope_summary || buildScopeSummary(job.scope_json, type) || (type ? String(type).replace(/_/g, ' ') : 'Job');
+    var weatherHtml = getTradeFactWeatherHtml(assignment);
+    var h = renderTradeFactRow();
+    h += renderTradeCardFact('Suburb', job.site_suburb || job.suburb || '', false, { hideEmpty: true });
+    h += renderTradeCardFact('Job type', jobType, false, { hideEmpty: true });
+    h += renderTradeCardFact('Client', job.client_name || '', false, { hideEmpty: true });
+    h += renderTradeCardFact('SW #', job.job_number || job.internal_job_number || '', false, { hideEmpty: true });
+    h += renderTradeCardFact('Crew', crew, false, { hideEmpty: true });
+    h += renderTradeCardFact('Weather', weatherHtml, true, { hideEmpty: true });
+    h += '</div>';
+    return h;
+  }
+
+  function renderTradeCardFacts(job, assignment, type) {
+    if (type === 'makesafe') return renderMakesafeTradeCardFacts(job, assignment);
+    return renderStandardTradeCardFacts(job, assignment, type);
   }
 
   // Open a job and auto-switch to a specific tab (e.g. 'comms') after it loads
