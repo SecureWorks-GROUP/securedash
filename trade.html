@@ -5503,10 +5503,7 @@
 
   window.handleOnsitePhoto = function(input) {
     if (!input.files || !input.files.length) return;
-    // Set phase to in_progress for on-site photos
-    var phaseSelect = document.getElementById('photoPhase');
-    if (phaseSelect) phaseSelect.value = 'in_progress';
-    handlePhotoUpload(input);
+    handlePhotoUpload(input, 'in_progress');
   };
 
   function renderAcknowledgeBanner(data, phase) {
@@ -6111,14 +6108,6 @@
       if (completionPhotos.length > 6) h += '<div class="photo-grid-more" onclick="togglePhotoGrid(\'completionGrid\', this)">Show all ' + completionPhotos.length + ' photos</div>';
     }
     h += '  <div style="margin-top:10px">';
-    h += '    <div style="margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap">';
-    h += '      <select id="photoPhase" style="height:38px;border-radius:8px;border:1px solid var(--sw-mid);padding:0 10px;font-size:14px;background:#fff">';
-    h += '        <option value="completion">After (Completion)</option>';
-    h += '        <option value="scope">Before (Site)</option>';
-    h += '        <option value="in_progress">During (Progress)</option>';
-    h += '        <option value="issue">Issue</option>';
-    h += '      </select>';
-    h += '    </div>';
     h += '    <div class="upload-area" id="uploadArea" onclick="document.getElementById(\'photoInput\').click()">';
     h += '      <svg viewBox="0 0 24 24"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg>';
     h += '      <p>Tap to add photos</p>';
@@ -7285,14 +7274,6 @@
 
     // Upload area (for adding more photos in-context)
     h += '<div class="detail-section">';
-    h += '  <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">';
-    h += '    <select id="tabPhotoPhase" style="height:38px;border-radius:8px;border:1px solid var(--sw-mid);padding:0 10px;font-size:14px;background:#fff">';
-    h += '      <option value="completion">After (Completion)</option>';
-    h += '      <option value="scope">Before (Site)</option>';
-    h += '      <option value="in_progress">During (Progress)</option>';
-    h += '      <option value="issue">Issue</option>';
-    h += '    </select>';
-    h += '  </div>';
     h += '  <div class="upload-area" onclick="document.getElementById(\'tabPhotoInput\').click()">';
     h += '    <svg viewBox="0 0 24 24"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg>';
     h += '    <p>Tap to add photos</p>';
@@ -7312,8 +7293,7 @@
     var files = Array.from(input.files || []);
     if (files.length === 0 || _uploading) return;
     _uploading = true;
-    var phaseSelect = document.getElementById('tabPhotoPhase');
-    var selectedPhase = phaseSelect ? phaseSelect.value : 'completion';
+    var selectedPhase = 'completion';
     var progress = document.getElementById('tabUploadProgress');
     var progressText = document.getElementById('tabUploadProgressText');
     var progressFill = document.getElementById('tabUploadProgressFill');
@@ -7850,12 +7830,8 @@
     h += '<div><strong>Before (' + beforePhotos.length + ')</strong>' + renderPhotoThumbs(beforePhotos, 'msrBeforeGrid') + '</div>';
     h += '<div><strong>After (' + afterPhotos.length + ')</strong>' + renderPhotoThumbs(afterPhotos, 'msrAfterGrid') + '</div>';
     h += '</div>';
-    h += '<label style="font-size:12px;font-weight:700;display:block;margin-bottom:5px;">Photo category</label>';
-    h += '<select id="msrPhotoPhase" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;background:#fff;box-sizing:border-box;margin-bottom:8px;">';
-    h += '<option value="front_elevation">Front elevation</option><option value="scope">Before / damage</option><option value="completion">After / completed</option>';
-    h += '</select>';
     h += '<div class="upload-area" onclick="document.getElementById(\'msrPhotoInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;"><svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg><p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Select one or more photos</p></div>';
-    h += '<input type="file" id="msrPhotoInput" accept="image/*" multiple style="display:none" onchange="handleMsrPhotoUpload(this, (document.getElementById(\'msrPhotoPhase\')||{}).value || \'scope\')">';
+    h += '<input type="file" id="msrPhotoInput" accept="image/*" multiple style="display:none" onchange="handleMsrPhotoUpload(this, \'completion\')">';
     h += '<div class="upload-progress" id="msrUnifiedProgress" style="display:none"><span id="msrUnifiedProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrUnifiedProgressFill"></div></div></div>';
     h += '</div>';
 
@@ -8224,7 +8200,7 @@
   };
 
   // ── Photo Upload — signed URL flow ──
-  window.handlePhotoUpload = function(input) {
+  window.handlePhotoUpload = function(input, overridePhase) {
     var files = Array.from(input.files || []);
     if (files.length === 0 || _uploading) return;
     _uploading = true;
@@ -8239,7 +8215,7 @@
     var uploadArea = document.getElementById('uploadArea');
     if (uploadArea) uploadArea.style.pointerEvents = 'none';
 
-    var phase = (document.getElementById('photoPhase') || {}).value || 'completion';
+    var phase = overridePhase || 'completion';
     uploadPhotosSequential(files, _currentJobId, phase, function(current, total) {
       if (progressText) progressText.textContent = 'Uploading ' + current + ' of ' + total + '...';
       if (progressFill) progressFill.style.width = Math.round(current / total * 100) + '%';
