@@ -4062,7 +4062,6 @@
           html += '  </div>';
           var scopeSummary = job.scope_summary || buildScopeSummary(job.scope_json, type);
           html += '  <div style="font-size:12px;color:var(--sw-mid);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(scopeSummary) + '</div>';
-          html += renderTradeCardFacts(job, a, type);
           html += '  <div class="job-card-meta">';
           html += '    <span>' + formatDate(a.scheduled_date) + '</span>';
           html += '    <span class="status-pill ' + statusClass + '">' + (a.status || 'scheduled').replace(/_/g, ' ') + '</span>';
@@ -4165,12 +4164,14 @@
         html += '    </div>';
         html += '    <span class="job-card-badge badge-' + type + '">' + type + '</span>';
         html += '  </div>';
-        // Admin view: show crew names (deduped — may have multiple)
+        // Admin view: show crew names once, cleanly, when multiple people are on the job.
+        var adminCrewShown = false;
         if (data._adminView) {
           var crewList = a._allCrew || [{ name: (a.user && a.user.name) || a.crew_name || '', status: a.status }];
           var crewDisplay = crewList.filter(function(c) { return c.name; }).map(function(c) { return esc(c.name); });
           if (crewDisplay.length > 0) {
-            html += '  <div style="font-size:11px;color:var(--sw-orange);font-weight:600;margin-top:2px">&#128100; ' + crewDisplay.join(' + ') + '</div>';
+            adminCrewShown = true;
+            html += '  <div style="font-size:12px;color:var(--sw-orange);font-weight:700;margin-top:6px;display:flex;align-items:center;gap:4px">&#128100; ' + crewDisplay.join(' + ') + '</div>';
           }
         }
         // Pickup vs Delivery badge + Materials status
@@ -4187,32 +4188,7 @@
             html += ' <span class="badge-materials pending">&#9888; Materials not confirmed</span>';
           }
         }
-        // Scope summary line (always show — fallback to type name)
-        var scopeSummary = type === 'makesafe' ? getTradeMakesafeTypeLabel(job) : (job.scope_summary || buildScopeSummary(job.scope_json, type));
-        html += '  <div style="font-size:12px;color:var(--sw-mid);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(scopeSummary) + '</div>';
-        html += renderTradeCardFacts(job, a, type);
-        if (a._makesafePool) {
-          html += '  <div class="job-card-meta" style="gap:8px;align-items:center;flex-wrap:wrap">';
-          html += '    <span style="background:#F3F4F6;color:var(--sw-text-sec);font-weight:700;padding:3px 8px;border-radius:999px">All MakeSafe trades</span>';
-          html += '  </div>';
-        } else {
-          html += '  <div class="job-card-meta">';
-          html += '    <span>' + formatDate(a.scheduled_date) + '</span>';
-          html += '    <span data-weather-date="' + (a.scheduled_date || '') + '"></span>';
-          if (a.start_time) {
-            html += '<span style="font-weight:600">' + a.start_time.slice(0, 5) + '</span>';
-          } else {
-            html += '<span style="color:var(--sw-yellow);font-weight:600">No time set</span>';
-          }
-          if (a.crew_name) {
-            html += '<span>&#128100; ' + esc(a.crew_name) + '</span>';
-          } else {
-            html += '<span style="color:var(--sw-yellow)">No crew</span>';
-          }
-          html += '    <span class="status-pill ' + statusClass + '">' + (a.status || 'scheduled').replace(/_/g, ' ') + '</span>';
-          if (todayComplete) html += '    <span class="run-list-complete-pill">Report submitted</span>';
-          html += '  </div>';
-        }
+        html += renderTradeCardCompactSummary(job, a, type, statusClass, todayComplete, adminCrewShown);
         // Financial display (Tier 3 only)
         if (canSeeFullPricing() && (job.quoted_amount || job.invoiced_amount)) {
           html += '  <div class="job-card-financial">';
@@ -4466,14 +4442,24 @@
     return 'Make Safe';
   }
 
+  function getTradeStandardTypeLabel(job, type) {
+    job = job || {};
+    var raw = job.scope_summary || buildScopeSummary(job.scope_json, type) || type || 'Job';
+    raw = String(raw || '').replace(/[_-]+/g, ' ').replace(/\s+job$/i, '').trim();
+    if (!raw) raw = 'Job';
+    return raw.replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+  }
+
   function getTradeCardTitle(job, type) {
     if (type === 'makesafe') return getTradeMakesafeTypeLabel(job) + ' · ' + (job.site_suburb || job.site_address || 'Site TBC');
-    return job.client_name || 'Unknown';
+    var place = job.site_suburb || job.site_address || '';
+    var label = getTradeStandardTypeLabel(job, type);
+    return place ? (label + ' · ' + place) : (job.client_name || label || 'Job');
   }
 
   function getTradeCardLine(job, type) {
     if (type === 'makesafe') return job.client_name || 'MakeSafe';
-    return job.site_suburb || job.site_address || '';
+    return job.client_name || job.site_suburb || job.site_address || '';
   }
 
   function getTradeCardPhone(job) {
@@ -4498,70 +4484,35 @@
     return '';
   }
 
-  function renderTradeCardFact(label, value, rawHtml, opts) {
-    opts = opts || {};
-    var missing = !rawHtml && !String(value || '').trim();
-    if (missing && opts.hideEmpty) return '';
-    var display = rawHtml ? String(value || '') : esc(value || 'TBC');
-    return '<span style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:0;max-width:170px;background:var(--sw-light);border-radius:9px;padding:4px 7px"><span style="font-size:8.5px;text-transform:uppercase;letter-spacing:.055em;color:var(--sw-text-sec);font-weight:800;line-height:1">' + esc(label) + '</span><span style="font-size:12px;color:' + (missing ? 'var(--sw-yellow)' : 'var(--sw-dark)') + ';font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:156px;line-height:1.15">' + display + '</span></span>';
-  }
-
-  function renderTradeFactRow() {
-    return '<div class="job-card-meta" style="gap:5px;align-items:stretch;flex-wrap:wrap;margin-top:8px">';
-  }
-
   function getTradeAssignmentCrewLabel(assignment) {
     assignment = assignment || {};
     if (assignment._makesafePool) return 'All MakeSafe trades';
+    if (assignment._allCrew && assignment._allCrew.length) {
+      return assignment._allCrew.filter(function(c) { return c && c.name; }).map(function(c) { return c.name; }).join(' + ');
+    }
     return firstTradeCardValue([assignment.crew_name, assignment.assigned_to, assignment.user && assignment.user.name, assignment.trade_name, assignment.label]);
   }
 
-  function getTradeFactWeatherHtml(assignment) {
-    return assignment && assignment.scheduled_date ? '<span data-weather-date="' + esc(assignment.scheduled_date) + '">Weather checking</span>' : '';
-  }
-
-  function renderMakesafeTradeCardFacts(job, assignment) {
-    job = job || {};
+  function renderTradeCardCompactSummary(job, assignment, type, statusClass, todayComplete, adminCrewShown) {
     assignment = assignment || {};
-    var ms = job.makesafe_details || {};
-    var md = job.metadata || {};
-    var crew = getTradeAssignmentCrewLabel(assignment);
-    var builderRef = firstTradeCardValue([job.builder_job_number, job.builder_ref, job.builder_reference, job.work_order_number, job.wo_number, ms.builder_job_number, ms.builder_ref, ms.work_order_number, ms.wo_number, md.builder_job_number, md.builder_ref, md.work_order_number, md.wo_number]);
-    var externalRef = firstTradeCardValue([ms.external_ref, ms.external_reference, ms.claim_number, job.external_ref, job.external_reference, job.ref, job.claim_number, md.external_ref, md.external_reference, md.claim_number]);
-    var weatherHtml = getTradeFactWeatherHtml(assignment);
-    var h = renderTradeFactRow();
-    h += renderTradeCardFact('Suburb', job.site_suburb || job.suburb || '', false, { hideEmpty: true });
-    h += renderTradeCardFact('MakeSafe type', getTradeMakesafeTypeLabel(job), false, { hideEmpty: true });
-    h += renderTradeCardFact('Client', job.client_name || '', false, { hideEmpty: true });
-    h += renderTradeCardFact('SW #', job.job_number || job.internal_job_number || '', false, { hideEmpty: true });
-    h += renderTradeCardFact('Crew', crew, false, { hideEmpty: true });
-    h += renderTradeCardFact('Builder ref', builderRef, false, { hideEmpty: true });
-    h += renderTradeCardFact('External ref', externalRef, false, { hideEmpty: true });
-    h += renderTradeCardFact('Weather', weatherHtml, true, { hideEmpty: true });
+    var h = '<div class="job-card-meta" style="gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;font-size:13px">';
+    if (assignment._makesafePool) {
+      h += '<span style="background:#F3F4F6;color:var(--sw-text-sec);font-weight:800;padding:4px 9px;border-radius:999px">Open to all MakeSafe trades</span>';
+    } else {
+      h += '<span>' + formatDate(assignment.scheduled_date) + '</span>';
+      h += '<span data-weather-date="' + (assignment.scheduled_date || '') + '"></span>';
+      if (assignment.start_time) {
+        h += '<span style="font-weight:750;color:var(--sw-dark)">' + assignment.start_time.slice(0, 5) + '</span>';
+      } else {
+        h += '<span style="color:var(--sw-yellow);font-weight:750">No time set</span>';
+      }
+      var crew = getTradeAssignmentCrewLabel(assignment);
+      if (!adminCrewShown && crew) h += '<span style="color:var(--sw-mid);font-weight:700">&#128100; ' + esc(crew) + '</span>';
+    }
+    h += '<span class="status-pill ' + statusClass + '">' + (assignment.status || 'scheduled').replace(/_/g, ' ') + '</span>';
+    if (todayComplete) h += '<span class="run-list-complete-pill">Report submitted</span>';
     h += '</div>';
     return h;
-  }
-
-  function renderStandardTradeCardFacts(job, assignment, type) {
-    job = job || {};
-    assignment = assignment || {};
-    var crew = getTradeAssignmentCrewLabel(assignment);
-    var jobType = job.scope_summary || buildScopeSummary(job.scope_json, type) || (type ? String(type).replace(/_/g, ' ') : 'Job');
-    var weatherHtml = getTradeFactWeatherHtml(assignment);
-    var h = renderTradeFactRow();
-    h += renderTradeCardFact('Suburb', job.site_suburb || job.suburb || '', false, { hideEmpty: true });
-    h += renderTradeCardFact('Job type', jobType, false, { hideEmpty: true });
-    h += renderTradeCardFact('Client', job.client_name || '', false, { hideEmpty: true });
-    h += renderTradeCardFact('SW #', job.job_number || job.internal_job_number || '', false, { hideEmpty: true });
-    h += renderTradeCardFact('Crew', crew, false, { hideEmpty: true });
-    h += renderTradeCardFact('Weather', weatherHtml, true, { hideEmpty: true });
-    h += '</div>';
-    return h;
-  }
-
-  function renderTradeCardFacts(job, assignment, type) {
-    if (type === 'makesafe') return renderMakesafeTradeCardFacts(job, assignment);
-    return renderStandardTradeCardFacts(job, assignment, type);
   }
 
   // Open a job and auto-switch to a specific tab (e.g. 'comms') after it loads
