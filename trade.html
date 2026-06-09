@@ -1275,6 +1275,49 @@
       border-radius: 999px;
       white-space: nowrap;
     }
+    /* Manual run-list ordering: type the position you want */
+    .run-list-order-entry { display: flex; align-items: center; gap: 6px; margin-left: 4px; font-size: 12px; color: var(--sw-text-sec); font-weight: 700; }
+    .run-list-order-input { width: 46px; height: 36px; border: 1px solid var(--sw-border); border-radius: 8px; text-align: center; font-size: 14px; font-weight: 800; color: var(--sw-dark); font-family: var(--sw-font); background: #fbfcfd; -moz-appearance: textfield; }
+    .run-list-order-input::-webkit-outer-spin-button, .run-list-order-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+    /* ══════════════════════════════════════════════════
+       MAKESAFE ROUTE CARD — makesafe-only; standard cards untouched
+       ══════════════════════════════════════════════════ */
+    .job-card[data-type="makesafe"] { border-left-color: var(--sw-red); }
+    .badge-makesafe { background: #fdecea; color: #c0392b; }
+    .ms-card { overflow: hidden; }
+    .ms-banner { display: flex; align-items: center; gap: 9px; margin: -14px -16px 11px; padding: 8px 16px; background: #f6ddd8; border-bottom: 1px solid #eec6bf; flex-wrap: nowrap; }
+    .ms-banner .ms-co { font-size: 12.5px; font-weight: 900; color: #b23a2c; letter-spacing: .03em; white-space: nowrap; }
+    .ms-banner .ms-vr { width: 1px; height: 13px; background: #e3b9b1; flex: 0 0 auto; }
+    .ms-banner .ms-suburb { font-size: 13px; font-weight: 800; color: var(--sw-dark); letter-spacing: .05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ms-state { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .3px; padding: 3px 9px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+    .ms-state .ms-dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+    .ms-banner .ms-state { margin-left: auto; flex: 0 0 auto; }
+    .ms-state.st-call { background: #fef3cd; color: #92400e; }
+    .ms-state.st-contacted { background: #ebf4ff; color: #2563eb; }
+    .ms-state.st-waiting { background: #fff; color: #c0392b; border: 1px solid #f0c8c1; }
+    .ms-state.st-admin { background: #ebf4ff; color: #2563eb; }
+    .ms-state.st-invoice { background: #e7f3fb; color: #1f6f9e; }
+    .ms-state.st-done { background: #eafaf1; color: #15803d; }
+    .ms-headrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .ms-head-l { display: flex; align-items: center; min-width: 0; }
+    .ms-type { font-size: 16px; font-weight: 800; color: var(--sw-dark); text-transform: uppercase; letter-spacing: .04em; line-height: 1.15; }
+    .ms-crew { font-size: 12px; color: var(--sw-orange); font-weight: 700; margin-top: 8px; display: flex; align-items: center; gap: 5px; }
+    .ms-divider { height: 1px; background: var(--sw-border); margin: 10px 0; }
+    .ms-home { font-size: 14px; font-weight: 750; color: var(--sw-dark); }
+    .ms-refs { margin-top: 6px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+    .ms-chip { font-size: 11.5px; font-weight: 800; padding: 3px 9px; border-radius: 6px; letter-spacing: .01em; }
+    .ms-chip-theirs { background: var(--sw-dark); color: #fff; }
+    .ms-chip-ours { background: #fff; color: var(--sw-mid); border: 1px solid #d7dde3; font-weight: 700; }
+    .ms-addr { font-size: 12.5px; color: var(--sw-text-sec); margin-top: 6px; display: flex; align-items: flex-start; gap: 5px; }
+    .ms-addr svg { width: 13px; height: 13px; fill: var(--sw-mid); flex: 0 0 auto; margin-top: 1px; }
+    .ms-wonote { display: flex; margin-top: 9px; padding: 8px 10px; background: #f1f4f6; border-radius: 8px; }
+    .ms-wo-body { font-size: 12px; color: var(--sw-text); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .ms-ai { display: inline-block; font-size: 8.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #7C3AED; background: #efe9fc; padding: 1px 5px; border-radius: 4px; margin-right: 5px; }
+    .ms-meta { display: flex; align-items: center; gap: 12px; margin-top: 11px; padding-top: 9px; border-top: 1px dashed #eceef1; font-size: 13px; }
+    .ms-when { color: var(--sw-dark); font-weight: 750; }
+    .ms-when .ms-day { color: var(--sw-text-sec); font-weight: 600; }
+    .ms-wx { margin-left: auto; color: var(--sw-orange); font-weight: 800; }
 
     /* Broken image fallback */
     .photo-grid img {
@@ -3826,12 +3869,41 @@
     renderMyJobs(_lastJobData);
   };
 
+  // Manual run-list ordering: set a job's exact position (1-based) by typing it.
+  window.setTodayRunListPosition = function(jobId, pos) {
+    if (!_lastJobData || !Array.isArray(_lastJobData.today)) return;
+    var state = getTodayRunListState(_lastJobData.today);
+    var ids = state.ids.slice();
+    var idx = ids.indexOf(String(jobId));
+    if (idx === -1) return;
+    var target = parseInt(pos, 10);
+    if (isNaN(target)) { renderMyJobs(_lastJobData); return; }
+    target = Math.max(1, Math.min(ids.length, target)) - 1; // clamp + 0-based
+    if (target === idx) { renderMyJobs(_lastJobData); return; }
+    ids.splice(idx, 1);
+    ids.splice(target, 0, String(jobId));
+    saveTodayRunListOrder(state.key, ids);
+    renderMyJobs(_lastJobData);
+  };
+
+  // Shared run-list controls: up/down arrows + manual "type the order" box.
+  function renderRunListControls(runListId, idx, total, todayComplete) {
+    var h = '<div class="run-list-controls">';
+    h += '<button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'up\')"' + (idx === 0 ? ' disabled' : '') + '>↑</button>';
+    h += '<button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'down\')"' + (idx === total - 1 ? ' disabled' : '') + '>↓</button>';
+    h += '<span class="run-list-order-entry">Order <input type="number" min="1" class="run-list-order-input" value="' + (idx + 1) + '" onclick="event.stopPropagation()" onchange="setTodayRunListPosition(\'' + esc(runListId) + '\', this.value)" onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}"></span>';
+    if (todayComplete) h += '<span class="run-list-complete-pill">Done for today</span>';
+    h += '</div>';
+    return h;
+  }
+
   window.__SW_TRADE_TODAY_RUN_LIST_TESTS = {
     getTodayRunListId: getTodayRunListId,
     getTodayRunListStorageKey: getTodayRunListStorageKey,
     reconcileTodayRunListOrder: reconcileTodayRunListOrder,
     getTodayRunListState: getTodayRunListState,
-    isReportSubmittedForTradeCard: isReportSubmittedForTradeCard
+    isReportSubmittedForTradeCard: isReportSubmittedForTradeCard,
+    setTodayRunListPosition: window.setTodayRunListPosition
   };
 
   window.setJobFilter = function(f) {
@@ -4140,10 +4212,7 @@
           html += '    <span class="status-pill ' + statusClass + '">' + (a.status || 'scheduled').replace(/_/g, ' ') + '</span>';
           html += '  </div>';
           if (_jobFilter === 'today' && sec.key === 'today' && runListId) {
-            html += '  <div class="run-list-controls">';
-            html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'up\')"' + (idx === 0 ? ' disabled' : '') + '>↑</button>';
-            html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'down\')"' + (idx === filtered.length - 1 ? ' disabled' : '') + '>↓</button>';
-          html += '  </div>';
+            html += renderRunListControls(runListId, idx, filtered.length, false);
           }
           html += '</div>';
           return;
@@ -4153,6 +4222,12 @@
         var type = getTradeJobType(job, a);
         var openAction = type === 'makesafe' ? 'openJobReport' : 'openJob';
         var assignmentArg = a._makesafePool ? '' : (a.id || '');
+        // MakeSafe jobs get their own dispatch-style card. Standard jobs
+        // (patio/fencing/decking/reno) fall through to the unchanged path below.
+        if (type === 'makesafe') {
+          html += renderMakesafeRunCard(job, a, idx, filtered, sec, todayComplete, runListId);
+          return;
+        }
         html += '<div class="job-card' + todayClass + '" data-type="' + type + '" onclick="' + openAction + '(\'' + job.id + '\', \'' + assignmentArg + '\')">';
         html += '  <div class="job-card-top">';
         if (sec.key === 'today') html += '    <span class="run-list-order-badge">' + (idx + 1) + '</span>';
@@ -4229,11 +4304,7 @@
         }
         html += '  </div>';
         if (_jobFilter === 'today' && sec.key === 'today' && runListId) {
-          html += '  <div class="run-list-controls">';
-          html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'up\')"' + (idx === 0 ? ' disabled' : '') + '>↑</button>';
-          html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'down\')"' + (idx === filtered.length - 1 ? ' disabled' : '') + '>↓</button>';
-          if (todayComplete) html += '    <span class="run-list-complete-pill">Done for today</span>';
-          html += '  </div>';
+          html += renderRunListControls(runListId, idx, filtered.length, todayComplete);
         }
         html += '</div>';
       });
@@ -4511,6 +4582,102 @@
     }
     h += '<span class="status-pill ' + statusClass + '">' + (assignment.status || 'scheduled').replace(/_/g, ' ') + '</span>';
     if (todayComplete) h += '<span class="run-list-complete-pill">Report submitted</span>';
+    h += '</div>';
+    return h;
+  }
+
+  // ── MakeSafe route card helpers ──
+  // Short builder code for the banner (AJS, KBA, MLB...). Prefers a real short
+  // company name, falls back to initials, then the slug.
+  function getMakesafeBuilderCode(md) {
+    md = md || {};
+    var company = md.makesafe_companies || {};
+    var name = String(md.requesting_company_name || company.name || '').trim();
+    var slug = String(md.requesting_company_slug || company.slug || '').trim();
+    if (name) {
+      var toks = name.split(/\s+/).filter(Boolean);
+      if (toks[0] && toks[0].length <= 4) return toks[0].toUpperCase();
+      return toks.map(function(w) { return w[0]; }).join('').slice(0, 4).toUpperCase();
+    }
+    return slug ? slug.toUpperCase() : '';
+  }
+
+  // Real make-safe lifecycle (matches the makesafe_job_details.substatus enum).
+  function getMakesafeSubstatusPill(job) {
+    var md = job.makesafe_details || job.metadata || {};
+    var sub = String(md.substatus || job.substatus || job.makesafe_substatus || '').toLowerCase();
+    var map = {
+      company_contact_required: { label: 'Call Client', cls: 'st-call' },
+      company_contact_done: { label: 'Contacted', cls: 'st-contacted' },
+      waiting_on_trade_report: { label: 'Waiting Report', cls: 'st-waiting' },
+      admin_to_send_report: { label: 'Admin Sending', cls: 'st-admin' },
+      ready_to_invoice: { label: 'Ready to Invoice', cls: 'st-invoice' },
+      complete: { label: 'Complete', cls: 'st-done' }
+    };
+    return map[sub] || null;
+  }
+
+  // Full make-safe route card: red banner (builder + suburb + state), job type
+  // headline, then homeowner / refs / address / AI work-order summary / meta.
+  function renderMakesafeRunCard(job, a, idx, filtered, sec, todayComplete, runListId) {
+    var md = job.makesafe_details || job.metadata || {};
+    var todayClass = sec.key === 'today' ? ' today-card' + (todayComplete ? ' run-list-complete' : '') : '';
+    var assignmentArg = a._makesafePool ? '' : (a.id || '');
+    var builder = getMakesafeBuilderCode(md);
+    var suburb = String(job.site_suburb || '').toUpperCase();
+    var sub = getMakesafeSubstatusPill(job);
+    var typeLabel = getTradeMakesafeTypeLabel(job);
+    var homeowner = job.client_name || '';
+    var theirRef = firstTradeCardValue([md.external_ref, job.external_ref, job.claim_number]);
+    var ourNo = job.job_number || '';
+    var address = job.site_address || '';
+    var summary = firstTradeCardValue([md.wo_summary, job.wo_summary, md.work_order_summary]);
+    var crew = getTradeAssignmentCrewLabel(a);
+    var cardPhone = getTradeCardPhone(job);
+
+    var h = '<div class="job-card ms-card' + todayClass + '" data-type="makesafe" onclick="openJobReport(\'' + job.id + '\', \'' + assignmentArg + '\')">';
+    // Banner: builder + SUBURB + lifecycle state
+    h += '<div class="ms-banner">';
+    if (builder) h += '<span class="ms-co">' + esc(builder) + '</span><span class="ms-vr"></span>';
+    h += '<span class="ms-suburb">' + esc(suburb || 'SITE TBC') + '</span>';
+    if (sub) h += '<span class="ms-state ' + sub.cls + '"><span class="ms-dot"></span>' + esc(sub.label) + '</span>';
+    h += '</div>';
+    // Headline: job type + Make Safe badge
+    h += '<div class="ms-headrow"><div class="ms-head-l">';
+    if (sec.key === 'today') h += '<span class="run-list-order-badge">' + (idx + 1) + '</span>';
+    h += '<span class="ms-type">' + esc(typeLabel) + '</span></div>';
+    h += '<span class="job-card-badge badge-makesafe">Make Safe</span></div>';
+    if (crew) h += '<div class="ms-crew">&#128119; ' + esc(crew) + '</div>';
+    h += '<div class="ms-divider"></div>';
+    if (homeowner) h += '<div class="ms-home">' + esc(homeowner) + '</div>';
+    if (theirRef || ourNo) {
+      h += '<div class="ms-refs">';
+      if (theirRef) h += '<span class="ms-chip ms-chip-theirs">' + esc(theirRef) + '</span>';
+      if (ourNo) h += '<span class="ms-chip ms-chip-ours">' + esc(ourNo) + '</span>';
+      h += '</div>';
+    }
+    if (address) h += '<div class="ms-addr"><svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>' + esc(address) + '</div>';
+    if (summary) h += '<div class="ms-wonote"><span class="ms-wo-body"><span class="ms-ai">AI</span>' + esc(summary) + '</span></div>';
+    // Meta: scheduled time + day, weather (async)
+    var timeLabel = a.start_time ? a.start_time.slice(0, 5) : 'No time set';
+    h += '<div class="ms-meta"><span class="ms-when">' + esc(timeLabel) + ' <span class="ms-day">&middot; ' + esc(formatDate(a.scheduled_date)) + '</span></span>';
+    h += '<span class="ms-wx" data-weather-date="' + (a.scheduled_date || '') + '"></span></div>';
+    // Actions
+    h += '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">';
+    if (cardPhone) {
+      h += '<a href="tel:' + esc(cardPhone) + '" onclick="event.stopPropagation()" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-green);color:#fff;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700">';
+      h += '<svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>Call</a>';
+      h += '<a href="sms:' + esc(cardPhone) + '" onclick="event.stopPropagation()" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-blue);color:#fff;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700">';
+      h += '<svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>Text</a>';
+    }
+    h += '<button onclick="event.stopPropagation();submitTradeAdminNote(\'' + esc(job.id) + '\')" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:#7C3AED;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">&#128221; Note for admin</button>';
+    if (job.site_address || job.site_suburb) {
+      var navUrl = getMapsUrl(job.site_address, job.site_suburb);
+      h += '<a href="' + navUrl + '" target="_blank" onclick="event.stopPropagation()" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-mid);color:#fff;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700">';
+      h += '<svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M21.71 11.29l-9-9a.996.996 0 0 0-1.41 0l-9 9a.996.996 0 0 0 0 1.41l9 9c.39.39 1.02.39 1.41 0l9-9a.996.996 0 0 0 0-1.41zM14 14.5V12h-4v3H8v-4c0-.55.45-1 1-1h5V7.5l3.5 3.5-3.5 3.5z"/></svg>Navigate</a>';
+    }
+    h += '</div>';
+    if (_jobFilter === 'today' && sec.key === 'today' && runListId) h += renderRunListControls(runListId, idx, filtered.length, todayComplete);
     h += '</div>';
     return h;
   }
