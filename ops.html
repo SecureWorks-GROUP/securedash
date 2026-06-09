@@ -8740,6 +8740,96 @@ async function doCreateMakesafe(payload) {
   }
 }
 
+// ── Make-Safe Intake Review Gate ──
+var _makesafeIntakeDraftCache = {};
+var MAKESAFE_INTAKE_REQUIRED_FIELDS = ['requesting_company', 'external_ref', 'client_name', 'site_address', 'work_order_pdf'];
+
+function safeParseJson(value, fallback) {
+  if (value == null || value === '') return fallback;
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch (e) { return fallback; }
+}
+
+function asArray(value) {
+  var parsed = safeParseJson(value, value || []);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function asObject(value) {
+  var parsed = safeParseJson(value, value || {});
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+}
+
+function escapeAttr(str) {
+  return escapeHtml(String(str == null ? '' : str)).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function intakeExtraction(d) { return asObject(d && d.extraction_json); }
+function intakeAttachments(d) { return asArray(d && d.attachments_json); }
+
+function intakeFieldValue(d, field) {
+  var ex = intakeExtraction(d);
+  var aliases = {
+    makesafe_type: ['makesafe_type', 'job_type_detail', 'makesafe_type_detail'],
+    description: ['description', 'wo_summary'],
+  };
+  var keys = aliases[field] || [field];
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    if (d && d[k] != null && String(d[k]).trim()) return String(d[k]);
+    if (ex && ex[k] != null && String(ex[k]).trim()) return String(ex[k]);
+  }
+  return '';
+}
+
+function intakeFirstPdfUrl(d) {
+  var atts = intakeAttachments(d);
+  for (var i = 0; i < atts.length; i++) {
+    var url = atts[i].pdf_url || atts[i].public_url || atts[i].url || '';
+    if (url) return url;
+  }
+  return '';
+}
+
+function intakeMissingFields(d, reviewedFields) {
+  reviewedFields = reviewedFields || {};
+  function val(field) {
+    if (reviewedFields[field] != null && String(reviewedFields[field]).trim()) return String(reviewedFields[field]).trim();
+    return intakeFieldValue(d, field).trim();
+  }
+  var missing = [];
+  if (!val('requesting_company_slug') && !val('requesting_company_name')) missing.push('requesting_company');
+  if (!val('external_ref')) missing.push('external_ref');
+  if (!val('client_name')) missing.push('client_name');
+  if (!val('site_address')) missing.push('site_address');
+  if (intakeAttachments(d).length === 0) missing.push('work_order_pdf');
+  return missing;
+}
+
+function intakeConfidenceColor(confidence) {
+  return confidence === 'high' ? '#27AE60' : confidence === 'medium' ? '#F39C12' : '#E74C3C';
+}
+
+function renderIntakeMiniField(label, value) {
+  if (!value) return '';
+  return '<div style="font-size:12px;margin-top:2px;"><strong>' + escapeHtml(label) + ':</strong> ' + escapeHtml(String(value)) + '</div>';
+}
+
+function renderIntakeReviewInput(field, label, value, required, multiline, helper) {
+  var id = 'msi_' + field;
+  var req = required ? ' <span style="color:#E74C3C;">*</span>' : '';
+  var html = '<label style="display:block;margin-bottom:10px;">'
+    + '<div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6B7280;margin-bottom:4px;">' + escapeHtml(label) + req + '</div>';
+  if (multiline) {
+    html += '<textarea id="' + id + '" data-intake-field="' + escapeAttr(field) + '" oninput="updateMakesafeIntakeReviewStatus()" style="width:100%;min-height:70px;border:1px solid #D5E1E8;border-radius:8px;padding:8px;font-size:13px;box-sizing:border-box;">' + escapeHtml(value || '') + '</textarea>';
+  } else {
+    html += '<input id="' + id + '" data-intake-field="' + escapeAttr(field) + '" value="' + escapeAttr(value || '') + '" oninput="updateMakesafeIntakeReviewStatus()" style="width:100%;border:1px solid #D5E1E8;border-radius:8px;padding:8px;font-size:13px;box-sizing:border-box;" />';
+  }
+  if (helper) html += '<div style="font-size:11px;color:#8AA1AD;margin-top:3px;">' + escapeHtml(helper) + '</div>';
+  html += '</label>';
+  return html;
+}
+
 // ── Make-Safe Intake Panel ──
 async function loadMakesafeIntake() {
   var container = document.getElementById('jobsBody');
@@ -8748,53 +8838,149 @@ async function loadMakesafeIntake() {
   try {
     var data = await opsFetch('list_intake_drafts', { status: 'draft,needs_review' });
     var drafts = data.drafts || [];
+    _makesafeIntakeDraftCache = {};
+    drafts.forEach(function(d) { _makesafeIntakeDraftCache[d.id] = d; });
     if (drafts.length === 0) {
       container.innerHTML = '<div style="padding:40px;text-align:center;">'
         + '<div style="font-size:48px;margin-bottom:12px;">&#9993;</div>'
         + '<div style="font-size:16px;font-weight:600;color:var(--sw-dark);">No pending intake drafts</div>'
-        + '<div style="font-size:13px;color:var(--sw-text-sec);margin-top:8px;">Run "make safes from email" in your terminal to scan the SES inbox</div>'
+        + '<div style="font-size:13px;color:var(--sw-text-sec);margin-top:8px;">Run the MakeSafe intake skill to scan SES/work-order emails into the review queue.</div>'
         + '<button onclick="scanSesInbox()" style="margin-top:16px;background:#D97706;color:#fff;border:none;padding:8px 20px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Scan Now</button>'
         + '</div>';
       return;
     }
 
     var html = '<div style="padding:12px;">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">';
-    html += '<h3 style="margin:0;color:var(--sw-dark);">Email Intake Drafts (' + drafts.length + ')</h3>';
+    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px;">';
+    html += '<div><h3 style="margin:0;color:var(--sw-dark);">MakeSafe Intake Review (' + drafts.length + ')</h3>';
+    html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:4px;">Tick only after the work order/PDF matches the extracted job fields. Cross or hold anything uncertain.</div></div>';
     html += '<div style="display:flex;gap:8px;">';
     html += '<button onclick="scanSesInbox()" style="background:#D97706;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Re-Scan Inbox</button>';
     html += '<button onclick="loadJobs()" style="background:var(--sw-mid);color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Back to Kanban</button>';
     html += '</div></div>';
 
     drafts.forEach(function(d) {
-      var confColor = d.confidence === 'high' ? '#27AE60' : d.confidence === 'medium' ? '#F39C12' : '#E74C3C';
-      html += '<div style="background:#fff;border:1px solid var(--sw-border);border-radius:8px;padding:14px;margin-bottom:10px;border-left:4px solid ' + confColor + ';">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;">';
-      html += '<div style="flex:1;">';
-      html += '<div style="font-weight:600;font-size:14px;color:var(--sw-dark);">' + escapeHtml(d.subject || '(no subject)') + '</div>';
+      var confColor = intakeConfidenceColor(d.confidence);
+      var requiredMissing = intakeMissingFields(d);
+      var ready = requiredMissing.length === 0;
+      var attachments = intakeAttachments(d);
+      html += '<div style="background:#fff;border:1px solid var(--sw-border);border-radius:10px;padding:14px;margin-bottom:10px;border-left:5px solid ' + (ready ? '#27AE60' : '#E74C3C') + ';box-shadow:0 2px 8px rgba(0,0,0,.04);">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">';
+      html += '<div style="flex:1;min-width:0;">';
+      html += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">';
+      html += '<span style="font-size:12px;font-weight:800;color:' + (ready ? '#27AE60' : '#E74C3C') + ';">' + (ready ? '&#10003; core info present' : '&#10007; needs review') + '</span>';
+      html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:' + confColor + ';color:#fff;font-weight:700;">' + escapeHtml(d.confidence || 'low') + '</span>';
+      html += '<span style="font-size:11px;color:#8AA1AD;">' + attachments.length + ' work order file(s)</span>';
+      html += '</div>';
+      html += '<div style="font-weight:700;font-size:15px;color:var(--sw-dark);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(d.subject || '(no subject)') + '</div>';
       html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:3px;">From: ' + escapeHtml(d.from_name || d.from_email || '') + '</div>';
-      if (d.external_ref) html += '<div style="font-size:12px;margin-top:3px;"><strong>Ref:</strong> ' + escapeHtml(d.external_ref) + '</div>';
-      if (d.client_name) html += '<div style="font-size:12px;margin-top:2px;"><strong>Client:</strong> ' + escapeHtml(d.client_name) + '</div>';
-      if (d.site_address) html += '<div style="font-size:12px;margin-top:2px;"><strong>Address:</strong> ' + escapeHtml(d.site_address) + '</div>';
-      if (d.requesting_company_name) html += '<div style="font-size:12px;color:#D97706;margin-top:2px;">' + escapeHtml(d.requesting_company_name) + '</div>';
-      if (d.description) html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:4px;white-space:pre-wrap;">' + escapeHtml(d.description.substring(0, 200)) + '</div>';
-      if (d.missing_fields && d.missing_fields.length > 0) {
-        html += '<div style="font-size:11px;color:#E74C3C;margin-top:4px;">Missing: ' + escapeHtml(d.missing_fields.join(', ')) + '</div>';
-      }
-      if (d.attachments_json && d.attachments_json.length > 0) {
-        html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:4px;">&#128206; ' + d.attachments_json.length + ' PDF(s) attached</div>';
-      }
+      html += renderIntakeMiniField('Builder', intakeFieldValue(d, 'requesting_company_name'));
+      html += renderIntakeMiniField('Ref', intakeFieldValue(d, 'external_ref'));
+      html += renderIntakeMiniField('Client', intakeFieldValue(d, 'client_name'));
+      html += renderIntakeMiniField('Address', intakeFieldValue(d, 'site_address'));
+      html += renderIntakeMiniField('Type', intakeFieldValue(d, 'makesafe_type'));
+      if (requiredMissing.length > 0) html += '<div style="font-size:11px;color:#E74C3C;margin-top:5px;">Missing: ' + escapeHtml(requiredMissing.join(', ')) + '</div>';
       html += '</div>';
       html += '<div style="display:flex;flex-direction:column;gap:6px;margin-left:12px;">';
-      html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:' + confColor + ';color:#fff;font-weight:600;text-align:center;">' + (d.confidence || 'low') + '</span>';
-      html += '<button onclick="approveIntakeDraft(\'' + d.id + '\')" style="background:#27AE60;color:#fff;border:none;padding:6px 12px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;">Approve</button>';
-      html += '<button onclick="rejectIntakeDraft(\'' + d.id + '\')" style="background:#E74C3C;color:#fff;border:none;padding:6px 12px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;">Reject</button>';
+      html += '<button onclick="renderMakesafeIntakeReview(\'' + d.id + '\')" style="background:#1F3A44;color:#fff;border:none;padding:8px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">Review PDF vs Fields</button>';
+      html += '<button onclick="rejectIntakeDraft(\'' + d.id + '\')" style="background:#FEE2E2;color:#B91C1C;border:1px solid #FECACA;padding:6px 12px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">Cross / reject</button>';
       html += '</div></div></div>';
     });
     html += '</div>';
     container.innerHTML = html;
   } catch (e) {
-    container.innerHTML = '<div style="padding:20px;text-align:center;color:#E74C3C;">Failed to load intake drafts: ' + (e.message || e) + '</div>';
+    container.innerHTML = '<div style="padding:20px;text-align:center;color:#E74C3C;">Failed to load intake drafts: ' + escapeHtml(e.message || e) + '</div>';
+  }
+}
+
+function renderMakesafeIntakeReview(draftId) {
+  var d = _makesafeIntakeDraftCache[draftId];
+  var container = document.getElementById('jobsBody');
+  if (!d) {
+    container.innerHTML = '<div style="padding:20px;color:#E74C3C;">Draft not loaded. <button onclick="loadMakesafeIntake()">Back</button></div>';
+    return;
+  }
+  var attachments = intakeAttachments(d);
+  var pdfUrl = intakeFirstPdfUrl(d);
+  var html = '<div style="padding:12px;background:#F7FAFC;min-height:100%;">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;">';
+  html += '<div><h3 style="margin:0;color:#1F3A44;">Review MakeSafe Intake</h3><div style="font-size:12px;color:#6B7280;">Compare the source work order against SecureSuite fields, then tick or cross.</div></div>';
+  html += '<button onclick="loadMakesafeIntake()" style="background:#E5EEF3;color:#1F3A44;border:none;padding:8px 14px;border-radius:8px;font-weight:700;cursor:pointer;">Back to intake</button>';
+  html += '</div>';
+  html += '<div id="msiReviewStatus" style="margin-bottom:12px;"></div>';
+  html += '<div style="display:grid;grid-template-columns:minmax(360px,1fr) minmax(360px,1fr);gap:14px;align-items:start;">';
+
+  html += '<section style="background:#fff;border:1px solid #DCE7EE;border-radius:12px;padding:14px;box-shadow:0 2px 10px rgba(0,0,0,.04);">';
+  html += '<div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#48697A;margin-bottom:10px;">Source evidence</div>';
+  html += '<div style="font-size:13px;color:#1F2937;margin-bottom:8px;"><strong>Email:</strong> ' + escapeHtml(d.subject || '(no subject)') + '</div>';
+  html += '<div style="font-size:12px;color:#6B7280;margin-bottom:10px;">From: ' + escapeHtml(d.from_name || d.from_email || '') + '</div>';
+  if (pdfUrl) {
+    html += '<div style="height:520px;border:1px solid #D5E1E8;border-radius:10px;overflow:hidden;background:#F3F6F8;margin-bottom:8px;">';
+    html += '<iframe title="Work order PDF" src="' + escapeAttr(pdfUrl) + '" style="width:100%;height:100%;border:0;"></iframe>';
+    html += '</div>';
+    html += '<a href="' + escapeAttr(pdfUrl) + '" target="_blank" rel="noopener" style="display:inline-block;background:#4C6A7C;color:#fff;text-decoration:none;padding:8px 12px;border-radius:8px;font-weight:700;font-size:12px;">Open PDF full-screen</a>';
+  } else {
+    html += '<div style="padding:24px;border:1px dashed #D5E1E8;border-radius:10px;color:#E74C3C;background:#FFF7ED;margin-bottom:10px;">No PDF preview URL found. Cross/hold unless a work order is attached elsewhere.</div>';
+  }
+  html += '<div style="margin-top:10px;font-size:12px;color:#6B7280;">Attachments: ' + attachments.length + '</div>';
+  attachments.forEach(function(att) {
+    var link = att.pdf_url || att.public_url || att.url || '';
+    var name = att.file_name || att.name || 'work-order.pdf';
+    html += '<div style="font-size:12px;margin-top:4px;">&#128206; ' + (link ? '<a href="' + escapeAttr(link) + '" target="_blank" rel="noopener">' + escapeHtml(name) + '</a>' : escapeHtml(name)) + '</div>';
+  });
+  if (d.body_preview) html += '<details style="margin-top:12px;"><summary style="cursor:pointer;font-weight:700;color:#48697A;">Email/body preview</summary><div style="white-space:pre-wrap;font-size:12px;color:#4B5563;margin-top:8px;">' + escapeHtml(d.body_preview) + '</div></details>';
+  html += '</section>';
+
+  html += '<section style="background:#fff;border:1px solid #DCE7EE;border-radius:12px;padding:14px;box-shadow:0 2px 10px rgba(0,0,0,.04);">';
+  html += '<div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#48697A;margin-bottom:10px;">SecureSuite fields to approve</div>';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
+  html += renderIntakeReviewInput('requesting_company_name', 'Builder / requesting company', intakeFieldValue(d, 'requesting_company_name'), true, false);
+  html += renderIntakeReviewInput('external_ref', 'Builder ref / PO', intakeFieldValue(d, 'external_ref'), true, false);
+  html += renderIntakeReviewInput('client_name', 'Client / homeowner', intakeFieldValue(d, 'client_name'), true, false);
+  html += renderIntakeReviewInput('client_phone', 'Client phone', intakeFieldValue(d, 'client_phone'), false, false);
+  html += renderIntakeReviewInput('client_email', 'Client email', intakeFieldValue(d, 'client_email'), false, false);
+  html += renderIntakeReviewInput('site_suburb', 'Suburb', intakeFieldValue(d, 'site_suburb'), false, false);
+  html += '</div>';
+  html += renderIntakeReviewInput('site_address', 'Site address', intakeFieldValue(d, 'site_address'), true, false);
+  html += renderIntakeReviewInput('makesafe_type', 'MakeSafe type', intakeFieldValue(d, 'makesafe_type'), false, false, 'Example: temp fence, roof make safe, ceiling collapse, structural make safe.');
+  html += renderIntakeReviewInput('description', 'Scope / work-order summary', intakeFieldValue(d, 'description'), false, true);
+  html += renderIntakeReviewInput('safety_requirements', 'Safety / access notes', intakeFieldValue(d, 'safety_requirements'), false, true);
+  html += renderIntakeReviewInput('special_instructions', 'Special instructions', intakeFieldValue(d, 'special_instructions'), false, true);
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;border-top:1px solid #EEF2F5;padding-top:12px;">';
+  html += '<button id="msiApproveBtn" onclick="approveIntakeDraft(\'' + d.id + '\', true)" style="background:#27AE60;color:#fff;border:none;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;">&#10003; Tick + create MakeSafe</button>';
+  html += '<button onclick="rejectIntakeDraft(\'' + d.id + '\')" style="background:#E74C3C;color:#fff;border:none;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;">&#10007; Cross / reject</button>';
+  html += '<button onclick="loadMakesafeIntake()" style="background:#E5EEF3;color:#1F3A44;border:none;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">Hold for later</button>';
+  html += '</div>';
+  html += '</section></div></div>';
+  container.style.overflow = 'auto';
+  container.innerHTML = html;
+  updateMakesafeIntakeReviewStatus();
+}
+
+function getMakesafeIntakeReviewedFields() {
+  var fields = {};
+  var nodes = document.querySelectorAll('[data-intake-field]');
+  nodes.forEach(function(node) { fields[node.getAttribute('data-intake-field')] = node.value || ''; });
+  return fields;
+}
+
+function updateMakesafeIntakeReviewStatus() {
+  var status = document.getElementById('msiReviewStatus');
+  var approveBtn = document.getElementById('msiApproveBtn');
+  if (!status) return;
+  var draftIdMatch = approveBtn && approveBtn.getAttribute('onclick') ? approveBtn.getAttribute('onclick').match(/approveIntakeDraft\('([^']+)'/) : null;
+  var draft = draftIdMatch ? _makesafeIntakeDraftCache[draftIdMatch[1]] : null;
+  var reviewed = getMakesafeIntakeReviewedFields();
+  var missing = intakeMissingFields(draft || {}, reviewed);
+  var ok = missing.length === 0;
+  status.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:12px;border:1px solid ' + (ok ? '#BBF7D0' : '#FECACA') + ';background:' + (ok ? '#F0FDF4' : '#FEF2F2') + ';">'
+    + '<div style="font-weight:800;color:' + (ok ? '#15803D' : '#B91C1C') + ';">' + (ok ? '&#10003; Core information looks ready to tick' : '&#10007; Missing before tick: ' + escapeHtml(missing.join(', '))) + '</div>'
+    + '<div style="font-size:12px;color:#6B7280;">PDF vs fields review gate</div>'
+    + '</div>';
+  if (approveBtn) {
+    approveBtn.disabled = !ok;
+    approveBtn.style.opacity = ok ? '1' : '.45';
+    approveBtn.style.cursor = ok ? 'pointer' : 'not-allowed';
   }
 }
 
@@ -8809,10 +8995,22 @@ async function scanSesInbox() {
   }
 }
 
-async function approveIntakeDraft(draftId) {
-  if (!confirm('Create a make-safe job from this draft?')) return;
+async function approveIntakeDraft(draftId, fromReview) {
+  var draft = _makesafeIntakeDraftCache[draftId] || {};
+  var reviewedFields = fromReview ? getMakesafeIntakeReviewedFields() : {};
+  var missing = intakeMissingFields(draft, reviewedFields);
+  if (missing.length > 0) {
+    showToast('Cannot approve; missing: ' + missing.join(', '), 'error');
+    return;
+  }
+  if (!confirm('Tick this intake as correct and create a New make-safe job?')) return;
   try {
-    var result = await opsPost('approve_intake_draft', { draft_id: draftId, approved_by: 'ops_dashboard' });
+    var result = await opsPost('approve_intake_draft', {
+      draft_id: draftId,
+      approved_by: 'ops_dashboard',
+      reviewed_fields: reviewedFields,
+      review_notes: 'Approved after comparing source work order/PDF to SecureSuite fields.'
+    });
     showToast('Job created: ' + (result.job && result.job.job_number || ''), 'success');
     loadMakesafeIntake();
   } catch (e) {
@@ -8821,7 +9019,8 @@ async function approveIntakeDraft(draftId) {
 }
 
 async function rejectIntakeDraft(draftId) {
-  var notes = prompt('Rejection reason (optional):');
+  var notes = prompt('Cross / reject reason (what is wrong or missing?):');
+  if (notes === null) return;
   try {
     await opsPost('reject_intake_draft', { draft_id: draftId, rejected_by: 'ops_dashboard', review_notes: notes || null });
     showToast('Draft rejected', 'success');
