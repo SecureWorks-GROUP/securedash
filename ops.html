@@ -8878,7 +8878,7 @@ function makesafeMapJobLine(j, opts) {
   var title = j.site_suburb || j.suburb || j.job_number || j.client_name || 'MakeSafe job';
   var meta = [getMakesafeTypeLabel(j), getMakesafeBuilder(j), v.crew !== 'Unallocated' ? v.crew : 'No crew'].filter(Boolean).join(' · ');
   var html = '<div style="font-size:12px;margin-bottom:6px;line-height:1.28;">'
-    + '<a onclick="openJobDetail('' + j.id + '');toggleMakesafeMap();" style="cursor:pointer;color:' + (opts.linkColor || 'var(--sw-dark)') + ';font-weight:850;">' + escapeHtml(title) + '</a>'
+    + '<a onclick="openJobDetail(\'' + j.id + '\');toggleMakesafeMap();" style="cursor:pointer;color:' + (opts.linkColor || 'var(--sw-dark)') + ';font-weight:850;">' + escapeHtml(title) + '</a>'
     + '<div style="display:flex;gap:5px;flex-wrap:wrap;margin:2px 0;">'
     + makesafeMapBadge(v.allocationLabel, v.color, '#FFF7ED')
     + (v.urgent ? makesafeMapBadge('Late/risky', '#B91C1C', '#FEE2E2') : '')
@@ -8918,11 +8918,11 @@ function toggleMakesafeMap() {
   mapDiv.innerHTML = makesafeCommandHeader('MakeSafe allocation map', 'Ops visibility first: status/stage, crew or trade allocation, on-road work, reports and invoices. Missing geocodes stay in the side panel as exceptions.', 'toggleMakesafeMap()')
     + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--sw-border);background:var(--sw-light);">'
     + '<span style="font-size:11px;font-weight:850;color:var(--sw-text-sec);text-transform:uppercase;margin-right:2px;">Ops view</span>'
-    + '<button onclick="loadMakesafeMapData('active');makesafeMapSetStatusFilter('all')" class="btn btn-sm" style="font-size:11px;">Active board</button>'
-    + '<button onclick="loadMakesafeMapData('today');makesafeMapSetStatusFilter('all')" class="btn btn-sm" style="font-size:11px;">Today</button>'
-    + '<button onclick="loadMakesafeMapData('unassigned');makesafeMapSetStatusFilter('unassigned')" class="btn btn-sm" style="font-size:11px;background:#E74C3C;color:#fff;">Needs allocation</button>'
-    + '<button onclick="loadMakesafeMapData('waiting_report');makesafeMapSetStatusFilter('allocated')" class="btn btn-sm" style="font-size:11px;background:#9B59B6;color:#fff;">Reports</button>'
-    + '<button onclick="loadMakesafeMapData('to_invoice');makesafeMapSetStatusFilter('to_invoice')" class="btn btn-sm" style="font-size:11px;background:#27AE60;color:#fff;">Invoices</button>'
+    + '<button onclick="loadMakesafeMapData(\'active\');makesafeMapSetStatusFilter(\'all\')" class="btn btn-sm" style="font-size:11px;">Active board</button>'
+    + '<button onclick="loadMakesafeMapData(\'today\');makesafeMapSetStatusFilter(\'all\')" class="btn btn-sm" style="font-size:11px;">Today</button>'
+    + '<button onclick="loadMakesafeMapData(\'unassigned\');makesafeMapSetStatusFilter(\'unassigned\')" class="btn btn-sm" style="font-size:11px;background:#E74C3C;color:#fff;">Needs allocation</button>'
+    + '<button onclick="loadMakesafeMapData(\'waiting_report\');makesafeMapSetStatusFilter(\'allocated\')" class="btn btn-sm" style="font-size:11px;background:#9B59B6;color:#fff;">Reports</button>'
+    + '<button onclick="loadMakesafeMapData(\'to_invoice\');makesafeMapSetStatusFilter(\'to_invoice\')" class="btn btn-sm" style="font-size:11px;background:#27AE60;color:#fff;">Invoices</button>'
     + '<select id="makesafeMapStatusFilter" onchange="makesafeMapSetStatusFilter(this.value)" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px 6px;background:#fff;"><option value="all">All stages/actions</option><option value="unassigned">Needs allocation</option><option value="allocated">Waiting report</option><option value="report_ready">Report ready</option><option value="to_invoice">To invoice</option><option value="on_road">On road</option><option value="late">Late/risky</option></select>'
     + '<select id="makesafeMapCrewFilter" onchange="makesafeMapSetCrewFilter(this.value)" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px 6px;background:#fff;"><option value="all">All crews</option></select>'
     + '<span style="flex:1;"></span><span style="font-size:11px;color:var(--sw-text-sec);font-weight:700;">Geocode only appears for missing map pins.</span>'
@@ -9481,7 +9481,7 @@ function renderMakesafeCrewJobPill(j, source, opts) {
   var action = (makesafePlannerReadState().jobActions || {})[j.id];
   if (action) {
     html += '<div style="margin-top:6px;display:flex;gap:5px;align-items:center;flex-wrap:wrap;"><span style="background:' + makesafePlannerActionColor(action) + ';color:#fff;border-radius:999px;padding:3px 7px;font-size:10px;font-weight:850;">' + escapeHtml(makesafePlannerActionLabel(action)) + '</span>'
-      + '<button onclick="event.stopPropagation();makesafePlannerClearAction('' + makesafePlannerAttr(j.id) + '')" style="border:none;background:#EEF2F7;color:#293C46;border-radius:5px;padding:3px 7px;font-size:10px;font-weight:850;cursor:pointer;">Clear action</button></div>';
+      + '<button onclick="event.stopPropagation();makesafePlannerClearAction(\'' + makesafePlannerAttr(j.id) + '\')" style="border:none;background:#EEF2F7;color:#293C46;border-radius:5px;padding:3px 7px;font-size:10px;font-weight:850;cursor:pointer;">Clear action</button></div>';
   }
   if (opts.clearPlan) html += '<button onclick="event.stopPropagation();makesafePlannerClearJob(\'' + makesafePlannerAttr(j.id) + '\')" style="margin-top:6px;border:none;background:#FEE2E2;color:#991B1B;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:850;cursor:pointer;">Remove local plan</button>';
   return html + '</div>';
@@ -9499,11 +9499,11 @@ function renderMakesafePlannerBacklog(backlog, rows, days) {
     html += '<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:5px;margin-top:-3px;margin-bottom:8px;">'
       + '<select id="msPlanCrew_' + sid + '" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px;">' + optionsCrew + '</select>'
       + '<select id="msPlanDay_' + sid + '" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px;">' + optionsDay + '</select>'
-      + '<button onclick="makesafePlannerSaveFromBacklog('' + makesafePlannerAttr(j.id) + '')" style="font-size:11px;background:#D97706;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Direct Allocate</button>'
+      + '<button onclick="makesafePlannerSaveFromBacklog(\'' + makesafePlannerAttr(j.id) + '\')" style="font-size:11px;background:#D97706;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Direct Allocate</button>'
       + '</div><div style="display:grid;grid-template-columns:auto 1fr auto;gap:5px;align-items:center;margin-top:-3px;margin-bottom:8px;">'
-      + '<button onclick="makesafePlannerHoldJob('' + makesafePlannerAttr(j.id) + '')" style="font-size:11px;background:#F3E8FF;color:#6D28D9;border:1px solid #DDD6FE;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Hold</button>'
+      + '<button onclick="makesafePlannerHoldJob(\'' + makesafePlannerAttr(j.id) + '\')" style="font-size:11px;background:#F3E8FF;color:#6D28D9;border:1px solid #DDD6FE;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Hold</button>'
       + '<select id="msRingAudience_' + sid + '" style="font-size:11px;border:1px solid var(--sw-border);border-radius:5px;padding:4px;"><option value="makesafe_capable">MakeSafe-capable trades</option><option value="same_suburb">Same suburb / nearby crew</option><option value="unallocated_pool">Unallocated crew pool</option></select>'
-      + '<button onclick="makesafePlannerRingBell('' + makesafePlannerAttr(j.id) + '')" style="font-size:11px;background:#0EA5E9;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Ring the Bell</button>'
+      + '<button onclick="makesafePlannerRingBell(\'' + makesafePlannerAttr(j.id) + '\')" style="font-size:11px;background:#0EA5E9;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-weight:850;cursor:pointer;">Ring the Bell</button>'
       + '</div></div>';
   });
   html += '</div>';
@@ -12603,7 +12603,7 @@ function renderMakesafeOpsDetail(data) {
     var reportPhotoPreview = frontPhotos.concat(beforePhotos).concat(afterPhotos).slice(0, 6);
     if (reportPhotoPreview.length) {
       html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:6px;">';
-      reportPhotoPreview.forEach(function(m) { html += '<img src="' + escapeHtml(m.thumbnail_url || m.storage_url || '') + '" data-full-url="' + escapeHtml(m.storage_url || m.thumbnail_url || '') + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:5px;cursor:pointer;" onclick="openOpsLightbox(this.getAttribute('data-full-url') || this.src)">'; });
+      reportPhotoPreview.forEach(function(m) { html += '<img src="' + escapeHtml(m.thumbnail_url || m.storage_url || '') + '" data-full-url="' + escapeHtml(m.storage_url || m.thumbnail_url || '') + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:5px;cursor:pointer;" onclick="openOpsLightbox(this.getAttribute(\'data-full-url\') || this.src)">'; });
       html += '</div>';
     }
     reportDocs.slice(0, 3).forEach(function(doc) { html += renderMakesafeDocPreview(doc); });
