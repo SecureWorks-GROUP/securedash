@@ -2416,14 +2416,14 @@
       <!-- Admin toggle: All Jobs / My Jobs -->
       <div id="adminJobToggle" style="display:none;margin-bottom:10px">
         <div style="display:flex;background:var(--sw-light);border-radius:8px;padding:2px;gap:2px">
-          <button id="adminToggleAll" onclick="setAdminView(true)" style="flex:1;padding:7px 12px;border:none;border-radius:6px;font-family:var(--sw-font);font-size:13px;font-weight:600;cursor:pointer;background:var(--sw-dark);color:#fff;transition:all 0.2s">All Jobs</button>
-          <button id="adminToggleMine" onclick="setAdminView(false)" style="flex:1;padding:7px 12px;border:none;border-radius:6px;font-family:var(--sw-font);font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--sw-mid);transition:all 0.2s">My Assignments</button>
+          <button id="adminToggleAll" onclick="setAdminView(true)" style="flex:1;padding:7px 12px;border:none;border-radius:6px;font-family:var(--sw-font);font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--sw-mid);transition:all 0.2s">All Jobs</button>
+          <button id="adminToggleMine" onclick="setAdminView(false)" style="flex:1;padding:7px 12px;border:none;border-radius:6px;font-family:var(--sw-font);font-size:13px;font-weight:600;cursor:pointer;background:var(--sw-dark);color:#fff;transition:all 0.2s">My Assignments</button>
         </div>
       </div>
       <input type="text" id="jobSearchInput" placeholder="Search jobs — name, suburb, job number..." oninput="filterMyJobs()">
       <div class="job-filter-chips">
-        <button class="filter-chip active" data-filter="all" onclick="setJobFilter('all')">All</button>
-        <button class="filter-chip" data-filter="today" onclick="setJobFilter('today')">Today</button>
+        <button class="filter-chip active" data-filter="today" onclick="setJobFilter('today')">Today</button>
+        <button class="filter-chip" data-filter="all" onclick="setJobFilter('all')">All</button>
         <button class="filter-chip" data-filter="thisWeek" onclick="setJobFilter('thisWeek')">This Week</button>
         <button class="filter-chip" data-filter="active" onclick="setJobFilter('active')">Active</button>
         <button class="filter-chip" data-filter="history" onclick="setJobFilter('history')">History</button>
@@ -2704,7 +2704,7 @@
   var _opsApiBase = '';
   var _cachedMyJobs = [];    // flat array of all assignments for Camera/Schedule views
   var _isAdmin = false;       // set true when user role === 'admin'
-  var _adminViewAll = true;   // admin toggle: true = all jobs, false = my assignments only
+  var _adminViewAll = false;  // admin toggle: true = all jobs, false = my assignments only
 
   // ── Availability state ──
   var _weeklyPattern = [1, 1, 1, 1, 1, 0, 0]; // Mon=0..Sun=6, 1=available
@@ -3418,7 +3418,7 @@
     _opsApiBase = window.SUPABASE_URL + '/functions/v1/ops-api';
     _userTier = _user.trade_tier || determineTier(_user.email);
     _isAdmin = (_user.role === 'admin');
-    _adminViewAll = _isAdmin; // default to all-jobs view for admins
+    _adminViewAll = false; // default Jobs to Today/My Assignments; admins can opt into All Jobs
     document.getElementById('headerUser').textContent = _user.name || _user.email;
     document.getElementById('bottomNav').style.display = 'flex';
     document.getElementById('viewLogin').classList.remove('active');
@@ -3714,7 +3714,7 @@
   };
 
   // ── Job Search & Filter State ──
-  var _jobFilter = 'all';
+  var _jobFilter = 'today';
   var _lastJobData = null;
   var TODAY_RUN_LIST_STORAGE_PREFIX = 'sw_today_run_list_v1';
 
@@ -4000,7 +4000,7 @@
     });
 
     // ── Today's Summary Card (hide when searching/filtering) ──
-    if (todayJobs.length > 0 && !query && _jobFilter === 'all') {
+    if (todayJobs.length > 0 && !query && _jobFilter === 'today') {
       var days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
       var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
       var now = new Date();
@@ -4026,8 +4026,8 @@
     }
 
     var sections = [
-      { key: 'makesafePool', label: 'Open MakeSafe Jobs' },
       { key: 'today', label: 'Today' },
+      { key: 'makesafePool', label: 'Open MakeSafe Jobs' },
       { key: 'thisWeek', label: 'This Week' },
       { key: 'upcoming', label: 'Upcoming' },
     ];
@@ -4062,6 +4062,7 @@
           html += '  </div>';
           var scopeSummary = job.scope_summary || buildScopeSummary(job.scope_json, type);
           html += '  <div style="font-size:12px;color:var(--sw-mid);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(scopeSummary) + '</div>';
+          html += renderTradeCardFacts(job, a, type);
           html += '  <div class="job-card-meta">';
           html += '    <span>' + formatDate(a.scheduled_date) + '</span>';
           html += '    <span class="status-pill ' + statusClass + '">' + (a.status || 'scheduled').replace(/_/g, ' ') + '</span>';
@@ -4106,13 +4107,15 @@
         filtered = Object.keys(byJob).map(function(k) { return byJob[k]; });
       }
       hasAny = true;
-      var sectionLabel = (sec.key === 'today' ? 'Today Run List' : sec.label) + ' (' + filtered.length + ')';
+      var sectionLabel = (_jobFilter === 'today' && sec.key === 'today' ? 'Today Route' : sec.label) + ' (' + filtered.length + ')';
       html += '<div class="section-label">' + sectionLabel + '</div>';
       if (sec.key === 'makesafePool') {
-        html += '<div style="font-size:12px;color:var(--sw-text-sec);margin:-8px 0 10px">Available to all logged-in trade users for this MakeSafe report run. Tap to open the report.</div>';
+        html += '<div style="font-size:12px;color:var(--sw-text-sec);margin:-8px 0 10px">Open MakeSafe pool. Tap a card to open the report when ops has released/left it open.</div>';
       }
-      if (sec.key === 'today') {
-        html += '<div class="run-list-note">Execution order is saved on this device for you/crew/today. Use Move up/down as the day changes; Call, Text, Navigate, and Open report stay on each card.</div>';
+      if (_jobFilter === 'today' && sec.key === 'today') {
+        html += '<div class="run-list-note">Execution order is saved on this device for you/crew/today. Use the compact ↑/↓ buttons to resequence the run; Call, Text, Note, Navigate and card tap stay on each job.</div>';
+      } else if (sec.key === 'today') {
+        html += '<div class="run-list-note">Today jobs shown here for database checking only. Route ordering controls live on the Today tab.</div>';
       }
       filtered.forEach(function(a, idx) {
         var job = a.jobs || {};
@@ -4137,10 +4140,10 @@
           if (a.start_time) html += '<span style="font-weight:600">' + a.start_time.slice(0, 5) + '</span>';
           html += '    <span class="status-pill ' + statusClass + '">' + (a.status || 'scheduled').replace(/_/g, ' ') + '</span>';
           html += '  </div>';
-          if (sec.key === 'today' && runListId) {
+          if (_jobFilter === 'today' && sec.key === 'today' && runListId) {
             html += '  <div class="run-list-controls">';
-            html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'up\')"' + (idx === 0 ? ' disabled' : '') + '>↑ Move up</button>';
-            html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'down\')"' + (idx === filtered.length - 1 ? ' disabled' : '') + '>↓ Move down</button>';
+            html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'up\')"' + (idx === 0 ? ' disabled' : '') + '>↑</button>';
+            html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'down\')"' + (idx === filtered.length - 1 ? ' disabled' : '') + '>↓</button>';
           html += '  </div>';
           }
           html += '</div>';
@@ -4187,9 +4190,9 @@
         // Scope summary line (always show — fallback to type name)
         var scopeSummary = type === 'makesafe' ? getTradeMakesafeTypeLabel(job) : (job.scope_summary || buildScopeSummary(job.scope_json, type));
         html += '  <div style="font-size:12px;color:var(--sw-mid);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(scopeSummary) + '</div>';
+        html += renderTradeCardFacts(job, a, type);
         if (a._makesafePool) {
           html += '  <div class="job-card-meta" style="gap:8px;align-items:center;flex-wrap:wrap">';
-          html += '    <span style="background:#E8F4FD;color:var(--sw-blue);font-weight:700;padding:3px 8px;border-radius:999px">Open report</span>';
           html += '    <span style="background:#F3F4F6;color:var(--sw-text-sec);font-weight:700;padding:3px 8px;border-radius:999px">All MakeSafe trades</span>';
           html += '  </div>';
         } else {
@@ -4239,8 +4242,6 @@
           }
         }
         if (type === 'makesafe') {
-          html += '    <button onclick="event.stopPropagation();openJobReport(\'' + esc(job.id) + '\', \'' + esc(assignmentArg) + '\')" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-orange);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">';
-          html += '      Open report</button>';
           html += '    <button onclick="event.stopPropagation();submitTradeAdminNote(\'' + esc(job.id) + '\')" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:#7C3AED;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">';
           html += '      &#128221; Note for admin</button>';
         }
@@ -4251,10 +4252,10 @@
           html += '      Navigate</a>';
         }
         html += '  </div>';
-        if (sec.key === 'today' && runListId) {
+        if (_jobFilter === 'today' && sec.key === 'today' && runListId) {
           html += '  <div class="run-list-controls">';
-          html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'up\')"' + (idx === 0 ? ' disabled' : '') + '>↑ Move up</button>';
-          html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'down\')"' + (idx === filtered.length - 1 ? ' disabled' : '') + '>↓ Move down</button>';
+          html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'up\')"' + (idx === 0 ? ' disabled' : '') + '>↑</button>';
+          html += '    <button class="run-list-btn" onclick="event.stopPropagation();moveTodayRunListJob(\'' + esc(runListId) + '\', \'down\')"' + (idx === filtered.length - 1 ? ' disabled' : '') + '>↓</button>';
           if (todayComplete) html += '    <span class="run-list-complete-pill">Done for today</span>';
           html += '  </div>';
         }
@@ -4486,6 +4487,46 @@
       md.client_phone || md.phone || md.contact_phone || md.mobile || md.clientPhone || md.contactPhone ||
       client.phone || client.mobile || client.client_phone || client.contact_phone || '';
   }
+  function firstTradeCardValue(values) {
+    for (var i = 0; i < values.length; i++) {
+      var v = values[i];
+      if (v === 0) return '0';
+      if (v && typeof v === 'object') continue;
+      v = String(v || '').trim();
+      if (v) return v;
+    }
+    return '';
+  }
+
+  function renderTradeCardFact(label, value, rawHtml) {
+    var missing = !rawHtml && !String(value || '').trim();
+    var display = rawHtml ? String(value || '') : esc(value || 'TBC');
+    return '<span style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:82px;max-width:150px;background:var(--sw-light);border-radius:8px;padding:5px 7px"><span style="font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:var(--sw-text-sec);font-weight:800">' + esc(label) + '</span><span style="font-size:12px;color:' + (missing ? 'var(--sw-yellow)' : 'var(--sw-dark)') + ';font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:136px">' + display + '</span></span>';
+  }
+
+  function renderTradeCardFacts(job, assignment, type) {
+    job = job || {};
+    assignment = assignment || {};
+    var ms = job.makesafe_details || {};
+    var md = job.metadata || {};
+    var crew = assignment._makesafePool ? 'All MakeSafe trades' : firstTradeCardValue([assignment.crew_name, assignment.assigned_to, assignment.user && assignment.user.name, assignment.trade_name, assignment.label]);
+    var builderRef = firstTradeCardValue([job.builder_job_number, job.builder_ref, job.builder_reference, job.work_order_number, job.wo_number, ms.builder_job_number, ms.builder_ref, ms.work_order_number, ms.wo_number, md.builder_job_number, md.builder_ref, md.work_order_number, md.wo_number]);
+    var externalRef = firstTradeCardValue([ms.external_ref, ms.external_reference, ms.claim_number, job.external_ref, job.external_reference, job.ref, job.claim_number, md.external_ref, md.external_reference, md.claim_number]);
+    var weatherHtml = assignment.scheduled_date ? '<span data-weather-date="' + esc(assignment.scheduled_date) + '">Weather checking</span>' : 'TBC';
+    var h = '<div class="job-card-meta" style="gap:6px;align-items:stretch;flex-wrap:wrap">';
+    h += renderTradeCardFact('Suburb', job.site_suburb || job.suburb || '');
+    h += renderTradeCardFact('MakeSafe type', type === 'makesafe' ? getTradeMakesafeTypeLabel(job) : (job.scope_summary || type));
+    h += renderTradeCardFact('Client', job.client_name || '');
+    h += renderTradeCardFact('SW #', job.job_number || job.internal_job_number || '');
+    h += renderTradeCardFact('Builder #', builderRef);
+    h += renderTradeCardFact('External #', externalRef);
+    h += renderTradeCardFact('Crew', crew);
+    h += renderTradeCardFact('Time', (assignment.scheduled_date ? formatDate(assignment.scheduled_date) : 'No date') + ' · ' + (assignment.start_time ? assignment.start_time.slice(0, 5) : 'No time set'));
+    h += renderTradeCardFact('Weather', weatherHtml, true);
+    h += '</div>';
+    return h;
+  }
+
   // Open a job and auto-switch to a specific tab (e.g. 'comms') after it loads
   window.openJobToTab = function(jobId, assignmentId, tabName) {
     _pendingJobTab = tabName || null;

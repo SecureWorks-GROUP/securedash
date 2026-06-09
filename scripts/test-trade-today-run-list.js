@@ -54,9 +54,14 @@ assert.strictEqual(helpers.isReportSubmittedForTradeCard({ service_report_status
 assert.strictEqual(helpers.isReportSubmittedForTradeCard({ makesafe_details: { substatus: 'admin_to_send_report' } }, {}), true, 'MakeSafe post-submit substatus marks card complete')
 assert.strictEqual(helpers.isReportSubmittedForTradeCard({ status: 'scheduled' }, { status: 'scheduled' }), false, 'scheduled job is not complete-looking')
 
-assert(html.includes('Today Run List'), 'Today section is labelled as a run list')
-assert(html.includes('run-list-controls'), 'move controls render on Today cards')
-assert(html.includes('Open report'), 'Open report action remains visible on MakeSafe cards')
+assert(html.includes("var _jobFilter = 'today'"), 'Jobs view defaults to Today filter')
+assert(html.includes('data-filter="today"') && html.includes('filter-chip active'), 'Today filter chip is active by default')
+assert(html.includes('renderTradeCardFacts'), 'job cards render MakeSafe fact rows for field crews')
+assert(html.includes('Builder #') && html.includes('External #') && html.includes('Weather'), 'card facts include builder/external refs and weather')
+assert(html.includes('run-list-controls'), 'route order controls render on Today cards')
+assert(html.includes("_jobFilter === 'today' && sec.key === 'today' && runListId"), 'route order controls are gated to the Today tab only')
+assert(!html.includes('Open report</button>'), 'visible Open report button is removed from job cards')
+assert(html.includes('openJobReport'), 'MakeSafe card tap still opens the report path')
 assert(!/maps\.googleapis\.com|google\.maps\.DirectionsService|DirectionsRenderer/.test(html), 'MVP avoids Google Maps route optimization APIs')
 
 console.log('PASS trade Today Run List regression checks')
