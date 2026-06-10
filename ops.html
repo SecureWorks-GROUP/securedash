@@ -4426,7 +4426,12 @@ function opsPost(action, body) {
   }).then(function(resp) {
     if (!resp.ok) {
       return resp.json().catch(function() { return {}; }).then(function(err) {
-        throw new Error(err.error || 'API error: ' + resp.status);
+        // err.error may be a string OR a structured { code, message } object
+        // (scope_freeze actions return e.g. { error: { code: 'job_not_found' } }
+        // with a 4xx/5xx status) — surface something readable either way.
+        var em = err.error;
+        if (em && typeof em === 'object') em = em.message || em.code;
+        throw new Error(em || 'API error: ' + resp.status);
       });
     }
     return resp.json();
@@ -4434,13 +4439,61 @@ function opsPost(action, body) {
 }
 
 // ════════════════════════════════════════════════════════════
-// FROZEN REVISIONS PICKER (Scope-Memory-Saving step 8 Option B)
+// FROZEN SCOPE REVISIONS PANEL
+// (Scope-Memory-Saving M1 — mission scope-freeze-live-2026-06-10,
+//  backend issue SecureWorks-GROUP/secureworks-backend#127)
 // ────────────────────────────────────────────────────────────
-// Lazy-fetches scope_revisions for a job and renders clickable links
-// that open the scoping tool with ?scope_revision_id=<uuid>. The tool
-// hydrates from get_scope_revision_for_viewer (frozen, hash-verified)
-// instead of jobs.scope_json (live, mutable).
+// Lazy-fetches the read-only ops-api action list_scope_revisions_for_job
+// (merged on backend main) and renders every scope_revisions row with its
+// scope_artifacts metadata: revision number, status badge, tool kind,
+// frozen_at in Perth time, truncated integrity hashes, and sealed files.
+//
+// The list endpoint intentionally EXCLUDES scope_canonical_text /
+// pricing_canonical_text (the multi-KB byte contracts) and signed artefact
+// URLs. Full frozen-content rendering and artefact downloads wait on the
+// future get_scope_revision_for_viewer action, so until that ships this
+// panel shows revision metadata plus the live jobs.scope_json summary
+// (the existing renderScopeSummary) as the content fallback.
+//
+// Each revision still links to the scoping tool with
+// ?scope_revision_id=<uuid> (step 8 Option B behaviour preserved).
 // ════════════════════════════════════════════════════════════
+
+var FROZEN_STATUS_STYLES = {
+  frozen:     { bg: 'var(--sw-green)',  col: '#fff', label: 'FROZEN' },
+  superseded: { bg: '#e0e0e0',          col: '#333', label: 'SUPERSEDED' },
+  draft:      { bg: 'var(--sw-orange)', col: '#fff', label: 'DRAFT' }
+};
+
+// All freeze timestamps display in Perth time (business home timezone),
+// regardless of the viewer's browser timezone.
+function fmtPerthDateTime(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('en-AU', {
+      timeZone: 'Australia/Perth',
+      day: 'numeric', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    }) + ' AWST';
+  } catch (e) {
+    return new Date(iso).toLocaleString('en-AU');
+  }
+}
+
+function shortHash(h) { return h ? String(h).slice(0, 8) : '—'; }
+
+function fmtArtifactSize(bytes) {
+  var n = parseFloat(bytes);
+  if (!n || n <= 0) return '';
+  return n > 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1024)) + 'KB';
+}
+
+function scopeToolUrlFor(jobType) {
+  return jobType === 'fencing'
+    ? 'https://marninms98-dotcom.github.io/fence-designer/'
+    : 'https://secureworks-group.github.io/patio/';
+}
+
 async function toggleFrozenRevisions(jobId, jobType, anchor) {
   var container = document.getElementById('frozenRevs_' + jobId);
   if (!container) return;
@@ -4456,33 +4509,123 @@ async function toggleFrozenRevisions(jobId, jobType, anchor) {
   try {
     var resp = await opsPost('list_scope_revisions_for_job', { job_id: jobId });
     if (!resp || !resp.ok) {
+      // opsPost only resolves on HTTP 2xx, but guard the shape anyway.
       var msg = (resp && resp.error && (resp.error.message || resp.error.code)) || 'Could not load frozen revisions';
-      container.innerHTML = '<span style="color:var(--sw-red);">' + escapeHtml(msg) + '</span>';
+      container.innerHTML = renderFrozenRevisionsError(jobId, jobType, msg);
       return;
     }
     if (!resp.revisions || resp.revisions.length === 0) {
-      container.innerHTML = '<span style="color:var(--sw-text-sec);font-style:italic;">No frozen revisions for this job yet. A revision is sealed each time the scope is signed off.</span>';
+      container.innerHTML = '<div style="padding:6px 8px;background:var(--sw-light);border-left:3px solid var(--sw-border);color:var(--sw-text-sec);font-style:italic;border-radius:0 4px 4px 0;">No frozen revisions yet. A revision freezes automatically when the scope is signed off.</div>';
       container.dataset.loaded = '1';
       return;
     }
-    var toolUrl = jobType === 'fencing'
-      ? 'https://marninms98-dotcom.github.io/fence-designer/'
-      : 'https://secureworks-group.github.io/patio/';
-    var html = '';
-    resp.revisions.forEach(function(r) {
-      var label = 'r' + r.revision_number + (r.status === 'superseded' ? ' (superseded)' : '');
-      var sealed = r.frozen_at ? new Date(r.frozen_at).toLocaleString('en-AU') : '—';
-      var url = toolUrl + '?jobId=' + encodeURIComponent(jobId) + '&scope_revision_id=' + encodeURIComponent(r.id);
-      html += '<a href="' + url + '" target="_blank" style="display:flex;justify-content:space-between;font-size:11px;color:var(--sw-orange);padding:3px 0;border-bottom:1px solid var(--sw-border);text-decoration:none;font-weight:600;">';
-      html += '<span>&#128274; ' + escapeHtml(label) + '</span>';
-      html += '<span style="color:var(--sw-text-sec);font-weight:400;">sealed ' + escapeHtml(sealed) + ' &#8599;</span>';
-      html += '</a>';
-    });
-    container.innerHTML = html;
+    container.innerHTML = renderFrozenRevisionsPanel(jobId, jobType, resp.revisions);
     container.dataset.loaded = '1';
   } catch (e) {
-    container.innerHTML = '<span style="color:var(--sw-red);">Error: ' + escapeHtml(e && e.message || String(e)) + '</span>';
+    // Endpoint missing (pre-deploy "Unknown action"), unreachable, or any
+    // other failure: degrade to a friendly note + retry, never a broken panel.
+    container.innerHTML = renderFrozenRevisionsError(jobId, jobType, e && e.message || String(e));
   }
+}
+
+function renderFrozenRevisionsError(jobId, jobType, rawMsg) {
+  var msg = String(rawMsg || '');
+  var friendly;
+  if (/job_not_found/i.test(msg)) {
+    friendly = 'This job was not found in the ops database, so frozen revisions can\'t be listed.';
+  } else if (/unknown action/i.test(msg) || /failed to fetch/i.test(msg) || /networkerror/i.test(msg) || /load failed/i.test(msg) || /API error/i.test(msg)) {
+    friendly = 'The frozen-scope service isn\'t available yet (backend deploy pending). The live scope summary still reflects the current scope.';
+  } else {
+    friendly = 'Could not load frozen revisions: ' + msg;
+  }
+  return '<div style="padding:6px 8px;background:var(--sw-light);border-left:3px solid var(--sw-yellow);color:var(--sw-text-sec);border-radius:0 4px 4px 0;">'
+    + escapeHtml(friendly)
+    + ' <a href="#" onclick="retryFrozenRevisions(\'' + jobId + '\',\'' + jobType + '\');return false;" style="color:var(--sw-mid);font-weight:600;text-decoration:none;">Retry</a></div>';
+}
+
+function retryFrozenRevisions(jobId, jobType) {
+  var container = document.getElementById('frozenRevs_' + jobId);
+  if (!container) return;
+  delete container.dataset.loaded;
+  container.style.display = 'none'; // toggle re-opens and refetches
+  toggleFrozenRevisions(jobId, jobType, null);
+}
+
+function renderFrozenRevisionsPanel(jobId, jobType, revisions) {
+  var toolUrl = scopeToolUrlFor(jobType);
+  var html = '';
+
+  // Revisions arrive revision_number DESC (newest first) from the endpoint.
+  revisions.forEach(function(r) {
+    var st = FROZEN_STATUS_STYLES[r.status] || { bg: '#e0e0e0', col: '#333', label: String(r.status || 'unknown').toUpperCase() };
+    var openUrl = toolUrl + '?jobId=' + encodeURIComponent(jobId) + '&scope_revision_id=' + encodeURIComponent(r.id);
+
+    html += '<div style="border:1px solid var(--sw-border);border-radius:6px;padding:8px;margin-bottom:6px;background:var(--sw-card);">';
+
+    // Header: revision number + status badge + tool kind + open-in-tool link
+    html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
+    html += '<span style="font-weight:700;color:var(--sw-dark);">&#128274; Revision ' + (r.revision_number != null ? escapeHtml(String(r.revision_number)) : '?') + '</span>';
+    html += '<span style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:600;background:' + st.bg + ';color:' + st.col + ';">' + escapeHtml(st.label) + '</span>';
+    if (r.tool_kind) html += '<span style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:600;background:var(--sw-light);color:var(--sw-dark);border:1px solid var(--sw-border);">' + escapeHtml(r.tool_kind) + '</span>';
+    html += '<a href="' + openUrl + '" target="_blank" style="margin-left:auto;color:var(--sw-orange);font-weight:600;text-decoration:none;">Open in tool &#8599;</a>';
+    html += '</div>';
+
+    // Meta: frozen_at in Perth time / created (drafts) / supersession / tool version
+    html += '<div style="color:var(--sw-text-sec);margin-top:4px;">';
+    if (r.frozen_at) {
+      html += 'Frozen ' + escapeHtml(fmtPerthDateTime(r.frozen_at));
+    } else {
+      html += 'Created ' + escapeHtml(fmtPerthDateTime(r.created_at)) + ' (not frozen yet)';
+    }
+    if (r.status === 'superseded' && r.superseded_at) html += ' &middot; superseded ' + escapeHtml(fmtPerthDateTime(r.superseded_at));
+    if (r.tool_version) html += ' &middot; tool v' + escapeHtml(String(r.tool_version));
+    html += '</div>';
+
+    // Integrity hashes — truncated, full value in the tooltip
+    html += '<div style="color:var(--sw-text-sec);margin-top:2px;font-family:monospace;font-size:10px;">';
+    html += '<span title="scope_hash: ' + escapeHtml(r.scope_hash || '') + '">scope ' + escapeHtml(shortHash(r.scope_hash)) + '&hellip;</span>';
+    html += ' &middot; <span title="pricing_hash: ' + escapeHtml(r.pricing_hash || '') + '">pricing ' + escapeHtml(shortHash(r.pricing_hash)) + '&hellip;</span>';
+    html += '</div>';
+
+    // Sealed artefacts: names/types/sizes only. NO signed-URL fetching here —
+    // downloads wait on the future get_scope_revision_for_viewer /
+    // get_scope_artifact actions (private bucket, signed URLs).
+    var arts = r.artifacts || [];
+    if (arts.length > 0) {
+      html += '<div style="margin-top:6px;border-top:1px solid var(--sw-border);padding-top:4px;">';
+      html += '<div style="font-weight:600;color:var(--sw-text-sec);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Sealed files (' + arts.length + ')</div>';
+      arts.forEach(function(a) {
+        var size = fmtArtifactSize(a.size_bytes);
+        html += '<div style="display:flex;gap:6px;padding:2px 0;color:var(--sw-text-sec);">';
+        html += '<span style="flex:1;">&#128196; ' + escapeHtml(a.label || a.artifact_type || 'file') + '</span>';
+        html += '<span>' + escapeHtml(a.artifact_type || '') + (size ? ' &middot; ' + size : '') + '</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    html += '</div>';
+  });
+
+  // Frozen content summary. The list endpoint deliberately excludes the
+  // canonical text bytes, so until get_scope_revision_for_viewer ships
+  // (hash-verified full-content read + signed artefact URLs) the panel
+  // shows the live jobs.scope_json summary via the existing
+  // renderScopeSummary as the content fallback.
+  var liveJob = (typeof _currentJobData !== 'undefined' && _currentJobData && _currentJobData.job && _currentJobData.job.id === jobId) ? _currentJobData.job : null;
+  if (liveJob && liveJob.scope_json) {
+    html += '<div style="border:1px dashed var(--sw-border);border-radius:6px;padding:8px;margin-bottom:6px;background:var(--sw-light);">';
+    html += '<div style="font-weight:600;color:var(--sw-text-sec);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Scope content (live summary)</div>';
+    html += '<div style="color:var(--sw-text-sec);font-style:italic;margin:2px 0 4px;">Frozen canonical content renders here once the scope viewer endpoint ships; this summary reflects the live scope.</div>';
+    html += renderScopeSummary(liveJob.scope_json, jobType, jobId);
+    html += '</div>';
+  }
+
+  // Job-level photos & documents live in the Files tab (renderFilesView) and
+  // the quote/document cards alongside this panel — integrate, don't duplicate.
+  html += '<div style="color:var(--sw-text-sec);font-size:10px;">Job photos &amp; documents: <a href="#" onclick="showJobSubView(\'files\');return false;" style="color:var(--sw-mid);font-weight:600;text-decoration:none;">Files tab</a></div>';
+
+  return html;
 }
 
 // ════════════════════════════════════════════════════════════
@@ -13496,11 +13639,13 @@ function renderMoneyView(data) {
     html += renderScopeSummary(j.scope_json, j.type, j.id);
     html += '</div>';
   }
-  // Frozen Revisions picker (Scope-Memory-Saving step 8 Option B).
+  // Frozen Scope Revisions panel (Scope-Memory-Saving M1, mission
+  // scope-freeze-live-2026-06-10 / secureworks-backend#127).
   // Lazy-fetches list_scope_revisions_for_job on toggle and renders each
-  // revision as a link to the scoping tool with ?scope_revision_id=<uuid>
-  // (which the tool now hydrates from get_scope_revision_for_viewer
-  // instead of jobs.scope_json).
+  // scope_revisions row (status, tool kind, Perth-time freeze stamp,
+  // truncated hashes) with its scope_artifacts metadata, plus a link to
+  // the scoping tool with ?scope_revision_id=<uuid>. Full frozen-content
+  // rendering waits on the future get_scope_revision_for_viewer action.
   if (j.type !== 'miscellaneous' && j.id) {
     html += '<div style="font-size:11px;padding:6px 0 2px;border-top:1px solid var(--sw-border);margin-top:6px;">';
     html += '<a href="#" onclick="toggleFrozenRevisions(\'' + j.id + '\',\'' + (j.type || 'patio') + '\',this);return false;" style="color:var(--sw-mid);font-weight:600;text-decoration:none;">View Frozen Revisions &#9662;</a>';
