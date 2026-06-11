@@ -11125,30 +11125,73 @@ function renderTradeBillTable(invoices) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--sw-text-sec)">No trade bills submitted yet</td></tr>';
     return;
   }
+  // Surface pending_ops_review first — these are the manual-hours invoices that
+  // need Shaun to verify against the schedule before the Xero push fires. [D3/F6]
+  var ordered = invoices.slice().sort(function(a, b) {
+    var ra = a.status === 'pending_ops_review' ? 0 : 1;
+    var rb = b.status === 'pending_ops_review' ? 0 : 1;
+    return ra - rb;
+  });
   var html = '';
-  invoices.forEach(function(inv) {
-    var tradeName = inv.users?.name || '—';
-    var we = inv.week_ending || '';
-    // Calculate hours from line_items total
-    var hours = 0;
-    if (inv.line_items && Array.isArray(inv.line_items)) {
-      inv.line_items.forEach(function(li) { hours += (li.hours || 0); });
-    }
-    var statusClass = (inv.status === 'pushed' || inv.status === 'pushed_to_xero' || inv.status === 'paid') ? 'color:var(--sw-green)' : inv.status === 'draft' ? 'color:var(--sw-mid)' : 'color:var(--sw-red)';
-    var billLink = inv.xero_bill_number || '—';
-    if (inv.xero_invoice_id) {
-      billLink = '<a href="https://go.xero.com/AccountsPayable/View.aspx?InvoiceID=' + inv.xero_invoice_id + '" target="_blank" style="color:var(--sw-blue);text-decoration:none">' + (inv.xero_bill_number || 'View') + ' &#8599;</a>';
-    }
-    html += '<tr>';
+  ordered.forEach(function(inv) {
+    var tradeName = (inv.users && inv.users.name) || '—';
+    // LIVE schema: week_start / total_inc / total_hours / relational lines. [D3]
+    var we = inv.week_start || inv.week_ending || '';
+    var hours = inv.total_hours != null ? Number(inv.total_hours)
+      : (Array.isArray(inv.lines) ? inv.lines.reduce(function(s, li) { return s + (Number(li.total_hours) || 0); }, 0) : 0);
+    var total = inv.total_inc != null ? Number(inv.total_inc) : Number(inv.total || 0);
+    var isReview = inv.status === 'pending_ops_review';
+    var isPaid = (inv.status === 'pushed_to_xero' || inv.status === 'paid' || inv.status === 'approved' || inv.status === 'pushed');
+    var statusClass = isPaid ? 'color:var(--sw-green)' : (inv.status === 'draft' ? 'color:var(--sw-mid)' : (isReview ? 'color:var(--sw-orange)' : 'color:var(--sw-red)'));
+    var statusLabel = (inv.status || '').replace(/_/g, ' ').replace(/-/g, ' ');
+    var badge = isReview ? '<span style="background:var(--sw-orange);color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:6px">NEEDS VERIFICATION</span>' : '';
+    var billLink = inv.xero_bill_id
+      ? '<a href="https://go.xero.com/AccountsPayable/View.aspx?InvoiceID=' + inv.xero_bill_id + '" target="_blank" style="color:var(--sw-blue);text-decoration:none">' + (inv.invoice_number || 'View') + ' &#8599;</a>'
+      : (inv.invoice_number || '—');
+    html += '<tr' + (isReview ? ' style="background:rgba(241,90,41,0.05)"' : '') + '>';
     html += '<td>' + tradeName + '</td>';
-    html += '<td>' + we + '</td>';
+    html += '<td>' + we + badge + '</td>';
     html += '<td>' + hours.toFixed(1) + '</td>';
-    html += '<td>$' + Number(inv.total).toFixed(2) + '</td>';
+    html += '<td>$' + total.toFixed(2) + '</td>';
     html += '<td>' + billLink + '</td>';
-    html += '<td style="' + statusClass + ';font-weight:600;text-transform:capitalize">' + (inv.status || '') + '</td>';
+    html += '<td style="' + statusClass + ';font-weight:600;text-transform:capitalize">' + statusLabel;
+    if (isReview) {
+      if (inv.query_note) html += '<div style="font-size:10px;color:var(--sw-text-sec);font-weight:400;text-transform:none;margin-top:2px">' + inv.query_note + '</div>';
+      html += '<div style="display:flex;gap:6px;margin-top:6px">';
+      html += '<button onclick="approveTradeInvoice(\'' + inv.id + '\')" style="padding:4px 10px;background:var(--sw-green);color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Approve &amp; push</button>';
+      html += '<button onclick="rejectTradeInvoice(\'' + inv.id + '\')" style="padding:4px 10px;background:var(--sw-red);color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Reject</button>';
+      html += '</div>';
+    }
+    html += '</td>';
     html += '</tr>';
   });
   tbody.innerHTML = html;
+}
+
+// Approve a pending_ops_review trade invoice, then fire the Xero push (the push
+// gate accepts status 'approved'). One tap for Shaun. [F6 Option A]
+function approveTradeInvoice(invoiceId) {
+  opsPost('approve_trade_invoice', { invoice_id: invoiceId }).then(function() {
+    return opsPost('push_trade_invoice_to_xero', { invoice_id: invoiceId });
+  }).then(function() {
+    showToast('Approved and pushed to Xero', 'success');
+    loadTradeBills();
+  }).catch(function(e) {
+    // Approve may have succeeded even if the push failed — reload to reflect state.
+    showToast('Error: ' + (e && e.message ? e.message : 'approve/push failed'), 'warning');
+    loadTradeBills();
+  });
+}
+
+function rejectTradeInvoice(invoiceId) {
+  var note = prompt('Reason for rejecting (the trade will re-submit corrected hours):', '');
+  if (note === null) return;
+  opsPost('reject_trade_invoice', { invoice_id: invoiceId, note: note }).then(function() {
+    showToast('Invoice rejected — assignments released for re-submit', 'success');
+    loadTradeBills();
+  }).catch(function(e) {
+    showToast('Error: ' + (e && e.message ? e.message : 'reject failed'), 'warning');
+  });
 }
 
 function renderTradeRatesPanel(rates) {
