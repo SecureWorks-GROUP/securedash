@@ -12897,6 +12897,142 @@ function isMakesafeInvoiceDoc(doc) {
   var name = String((doc && (doc.file_name || doc.name)) || '').toLowerCase();
   return ['invoice', 'tax_invoice'].indexOf(type) >= 0 || /invoice|tax invoice|xero/.test(name);
 }
+function isMakesafeWorkOrderDoc(doc) {
+  var type = String((doc && doc.type) || '').toLowerCase();
+  var name = String((doc && (doc.file_name || doc.name)) || '').toLowerCase();
+  return ['work_order', 'supplier_work_order'].indexOf(type) >= 0 || /works?[\s_-]*order/.test(name);
+}
+function isMakesafeSwmsDoc(doc) {
+  var type = String((doc && doc.type) || '').toLowerCase();
+  var name = String((doc && (doc.file_name || doc.name)) || '').toLowerCase();
+  return type === 'swms' || /\bswms\b|safe work method/.test(name);
+}
+// ── Make-safe job documents + send-log panel (Marnin's look-back view) ──
+// Picks the newest matching job_document for each expected make-safe doc type. Some
+// jobs re-upload a report/invoice (type 'general', distinguished only by file_name),
+// so we de-dupe by taking the most recently created match.
+function pickLatestMakesafeDoc(documents, matcher) {
+  var matches = (documents || []).filter(matcher);
+  if (!matches.length) return null;
+  matches.sort(function(a, b) {
+    return String((b && b.created_at) || '').localeCompare(String((a && a.created_at) || ''));
+  });
+  return matches[0];
+}
+// Format an ISO8601 timestamp as "11 Jun 2026" for the send log. fmtDate() drops the
+// year and expects a date-only string, so the send log uses its own formatter.
+function fmtMakesafeSendDate(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+// Parse MAKESAFE_PACK_SENT markers from the job's note events. Marker format:
+//   MAKESAFE_PACK_SENT | <main|photo> | <invoice_no or -> | to=<email> | <ISO8601> | msgid=<id>
+// Matching follows the send script: a note whose text starts with the prefix; the
+// pipe-delimited tail is informational. Returns { main, photo } with the latest of each.
+function parseMakesafeSendLog(events) {
+  var result = { main: null, photo: null };
+  (events || []).forEach(function(ev) {
+    if (!ev || ev.event_type !== 'note') return;
+    var dj = ev.detail_json;
+    if (typeof dj === 'string') {
+      try { dj = JSON.parse(dj); } catch (e) { dj = { text: dj }; }
+    }
+    var text = (dj && (dj.text || dj.note || dj.note_text)) || '';
+    text = String(text || '').trim();
+    if (text.indexOf('MAKESAFE_PACK_SENT') !== 0) return;
+    var parts = text.split('|').map(function(p) { return p.trim(); });
+    var kind = (parts[1] || '').toLowerCase();
+    if (kind !== 'main' && kind !== 'photo') return;
+    var invoiceNo = parts[2] && parts[2] !== '-' ? parts[2] : '';
+    var toField = (parts[3] || '');
+    var to = toField.indexOf('to=') === 0 ? toField.slice(3) : '';
+    if (to === '-') to = '';
+    var when = parts[4] || (ev.created_at || '');
+    var entry = { kind: kind, invoiceNo: invoiceNo, to: to, when: when };
+    // Keep the most recent marker of each kind (markers are appended over time).
+    if (!result[kind] || String(when).localeCompare(String(result[kind].when)) > 0) {
+      result[kind] = entry;
+    }
+  });
+  return result;
+}
+// Build the documents + send-log panel for a make-safe job's detail view.
+function renderMakesafeDocsSendLogPanel(data) {
+  var documents = data.documents || [];
+  var docRows = [
+    { label: 'Work Order', doc: pickLatestMakesafeDoc(documents, isMakesafeWorkOrderDoc) },
+    { label: 'Make Safe Report', doc: pickLatestMakesafeDoc(documents, isMakesafeReportDoc) },
+    { label: 'SWMS', doc: pickLatestMakesafeDoc(documents, isMakesafeSwmsDoc) },
+    { label: 'Invoice PDF', doc: pickLatestMakesafeDoc(documents, isMakesafeInvoiceDoc) }
+  ];
+
+  var html = '<div style="background:var(--sw-card);padding:14px;margin-bottom:12px;box-shadow:var(--sw-shadow);">';
+  html += '<div style="font-size:11px;font-weight:850;color:var(--sw-mid);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">Documents &amp; send log</div>';
+
+  // ── Documents ──
+  html += '<div style="font-size:11px;font-weight:800;color:var(--sw-text-sec);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px;">Documents</div>';
+  docRows.forEach(function(row) {
+    var url = getDocOpenUrl(row.doc);
+    var attached = !!(row.doc);
+    html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--sw-border);font-size:13px;">';
+    html += '<span style="font-size:16px;' + (attached ? '' : 'opacity:0.4;') + '">&#128196;</span>';
+    html += '<span style="font-weight:800;min-width:124px;color:' + (attached ? 'var(--sw-text)' : 'var(--sw-text-sec)') + ';">' + escapeHtml(row.label) + '</span>';
+    if (attached) {
+      var fileName = row.doc.file_name || row.doc.name || row.label;
+      html += '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sw-text-sec);font-size:12px;">' + escapeHtml(fileName) + '</span>';
+      if (url) {
+        html += '<a href="' + escapeHtml(url) + '" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 8px;text-decoration:none;">View</a>';
+      } else {
+        html += '<span style="font-size:11px;color:#F39C12;font-weight:800;">link missing</span>';
+      }
+    } else {
+      html += '<span style="flex:1;color:var(--sw-text-sec);font-size:12px;font-style:italic;opacity:0.7;">not attached</span>';
+    }
+    html += '</div>';
+  });
+
+  // ── Future placeholder: raw trade-app report ──
+  // TODO(makesafe): surface the original report the trades submitted from the app.
+  // Marnin wants to see the raw trade-app submission here later. Do NOT build the
+  // fetch/render logic yet — this disabled row is only the hook + label so the slot
+  // is visible. When implemented, resolve the raw report (likely data.service_reports
+  // or a dedicated job_document) and replace the disabled state with a View link.
+  html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--sw-border);font-size:13px;opacity:0.55;" title="Coming soon">';
+  html += '<span style="font-size:16px;opacity:0.4;">&#128196;</span>';
+  html += '<span style="font-weight:800;min-width:124px;color:var(--sw-text-sec);">Raw trade-app report</span>';
+  html += '<span style="flex:1;color:var(--sw-text-sec);font-size:12px;font-style:italic;">coming soon</span>';
+  html += '<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 8px;" disabled>View</button>';
+  html += '</div>';
+
+  // ── Send log ──
+  var sendLog = parseMakesafeSendLog(data.events);
+  html += '<div style="font-size:11px;font-weight:800;color:var(--sw-text-sec);text-transform:uppercase;letter-spacing:0.4px;margin:14px 0 6px;">Send log</div>';
+  if (!sendLog.main && !sendLog.photo) {
+    html += '<div style="font-size:13px;color:var(--sw-text-sec);">Not yet emailed to the builder.</div>';
+  } else {
+    if (sendLog.main) {
+      var mainTo = sendLog.main.to ? escapeHtml(sendLog.main.to) : 'the builder';
+      var mainWhen = fmtMakesafeSendDate(sendLog.main.when);
+      var mainLine = 'Report + invoice + SWMS emailed to ' + mainTo;
+      if (mainWhen) mainLine += ' on ' + escapeHtml(mainWhen);
+      html += '<div style="display:flex;align-items:flex-start;gap:8px;font-size:13px;color:var(--sw-text);padding:4px 0;">';
+      html += '<span style="color:var(--sw-green);font-weight:850;">&#10003;</span><span>' + mainLine + '</span></div>';
+    }
+    if (sendLog.photo) {
+      var photoTo = sendLog.photo.to ? escapeHtml(sendLog.photo.to) : 'the builder';
+      var photoWhen = fmtMakesafeSendDate(sendLog.photo.when);
+      var photoLine = 'Photos emailed to ' + photoTo;
+      if (photoWhen) photoLine += ' on ' + escapeHtml(photoWhen);
+      html += '<div style="display:flex;align-items:flex-start;gap:8px;font-size:13px;color:var(--sw-text);padding:4px 0;">';
+      html += '<span style="color:var(--sw-green);font-weight:850;">&#10003;</span><span>' + photoLine + '</span></div>';
+    }
+  }
+
+  html += '</div>';
+  return html;
+}
 
 function renderMakesafeOpsDetail(data) {
   var j = data.job || {};
@@ -13028,6 +13164,9 @@ function renderMakesafeOpsDetail(data) {
   }
   html += '</div>';
   html += '</div>';
+
+  // Documents + send-log look-back panel for this make-safe job.
+  html += renderMakesafeDocsSendLogPanel(data);
 
   var subActions = [];
   if (sub === 'pending_allocation' || sub === 'company_contact_required' || sub === 'company_contact_done') subActions.push({ to: 'waiting_on_trade_report', label: 'Allocated / waiting report', color: '#F39C12' });
