@@ -12897,6 +12897,29 @@ function isMakesafeInvoiceDoc(doc) {
   var name = String((doc && (doc.file_name || doc.name)) || '').toLowerCase();
   return ['invoice', 'tax_invoice'].indexOf(type) >= 0 || /invoice|tax invoice|xero/.test(name);
 }
+// Fallback: when no attached invoice document has a public URL, fetch the
+// invoice PDF from Xero via the ops-api get_invoice_pdf action and open the
+// base64 payload as a blob in a new tab.
+async function openInvoicePdfFromXero(xeroInvoiceId, triggerEl) {
+  if (!xeroInvoiceId) return;
+  var original = triggerEl ? triggerEl.textContent : '';
+  if (triggerEl) { triggerEl.textContent = 'Loading...'; triggerEl.style.pointerEvents = 'none'; }
+  try {
+    var res = await opsFetch('get_invoice_pdf', { xero_invoice_id: xeroInvoiceId });
+    if (!res || !res.success || !res.pdf_base64) throw new Error((res && res.error) || 'No PDF returned');
+    var binary = atob(res.pdf_base64);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    var blob = new Blob([bytes], { type: res.content_type || 'application/pdf' });
+    var objectUrl = URL.createObjectURL(blob);
+    window.open(objectUrl, '_blank');
+    setTimeout(function() { URL.revokeObjectURL(objectUrl); }, 60000);
+  } catch (e) {
+    showToast('Could not load invoice PDF: ' + (e.message || e), 'error');
+  } finally {
+    if (triggerEl) { triggerEl.textContent = original; triggerEl.style.pointerEvents = ''; }
+  }
+}
 function isMakesafeWorkOrderDoc(doc) {
   var type = String((doc && doc.type) || '').toLowerCase();
   var name = String((doc && (doc.file_name || doc.name)) || '').toLowerCase();
@@ -13155,6 +13178,18 @@ function renderMakesafeOpsDetail(data) {
     html += '<div style="font-size:14px;font-weight:850;color:var(--sw-green);margin-bottom:6px;">' + escapeHtml(inv.invoice_number || inv.status || 'Invoice created') + '</div>';
     html += '<div style="font-size:12px;color:var(--sw-text);">' + fmt$(inv.total || 0) + (inv.status ? ' · ' + escapeHtml(inv.status) : '') + '</div>';
     if (inv.amount_due > 0) html += '<div style="font-size:12px;color:var(--sw-red);font-weight:800;margin-top:4px;">Due: ' + fmt$(inv.amount_due) + '</div>';
+    // View PDF: prefer an attached invoice document's public URL; fall back to
+    // fetching the PDF from Xero via get_invoice_pdf.
+    var invDocUrl = '';
+    for (var di = 0; di < invoiceDocs.length; di++) {
+      invDocUrl = getDocOpenUrl(invoiceDocs[di]);
+      if (invDocUrl) break;
+    }
+    if (invDocUrl) {
+      html += '<div style="margin-top:8px;"><a href="' + escapeHtml(invDocUrl) + '" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;text-decoration:none;">View PDF &#8599;</a></div>';
+    } else if (inv.xero_invoice_id) {
+      html += '<div style="margin-top:8px;"><button class="btn btn-secondary btn-sm" style="font-size:11px;" onclick="openInvoicePdfFromXero(\'' + escapeHtml(inv.xero_invoice_id) + '\', this)">View PDF &#8599;</button></div>';
+    }
   } else if (invoiceDocs.length) {
     html += '<div style="font-size:14px;font-weight:850;color:var(--sw-green);margin-bottom:6px;">Invoice document attached</div>';
     invoiceDocs.slice(0, 3).forEach(function(doc) { html += renderMakesafeDocPreview(doc); });
