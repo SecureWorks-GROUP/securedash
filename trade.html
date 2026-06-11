@@ -12001,30 +12001,59 @@
       html += '<div style="background:rgba(241,90,41,0.08);border:1px solid var(--sw-orange);color:var(--sw-mid);padding:10px 12px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:10px">No saved rate found. Enter your hourly rate on each row; the office will verify it before approval.</div>';
     }
     if (!_jobCards.length) {
-      html += '<div class="hours-no-data">No jobs to invoice this week. Use Extras below for anything else.</div>';
-      return html;
+      html += '<div class="hours-no-data">No jobs assigned this week. Use "+ Add job" on a day below to invoice a job, or Extras for anything else.</div>';
+    } else {
+      html += '<div style="font-size:11px;color:var(--sw-text-sec);margin:-2px 0 8px">Enter the hours you worked on each job. Your rate is set by the office and shown for reference.</div>';
     }
-    html += '<div style="font-size:11px;color:var(--sw-text-sec);margin:-2px 0 8px">Enter the hours you worked on each job. Your rate is set by the office and shown for reference.</div>';
 
     // Group cards by scheduled_date
     var byDay = {};
     _jobCards.forEach(function(c, i) { c._idx = i; (byDay[c.scheduled_date] = byDay[c.scheduled_date] || []).push(c); });
-    var days = Object.keys(byDay).sort();
 
-    days.forEach(function(dk) {
+    // Render every Mon–Sun day of the week (so "+ Add job" is reachable even on
+    // days with nothing assigned), plus any extra keys (e.g. unscheduled ''). [Q15]
+    var weekStartJC = _hoursWeekStart || new Date().toISOString().slice(0, 10);
+    var monJC = new Date(weekStartJC + 'T12:00:00');
+    var dowJC = monJC.getDay();
+    monJC.setDate(monJC.getDate() + (dowJC === 0 ? -6 : 1 - dowJC));
+    var daySet = {};
+    for (var wdi = 0; wdi < 7; wdi++) {
+      var ddJC = new Date(monJC);
+      ddJC.setDate(ddJC.getDate() + wdi);
+      daySet[ddJC.toISOString().slice(0, 10)] = true;
+    }
+    Object.keys(byDay).forEach(function(k) { daySet[k] = true; });
+    var days = Object.keys(daySet).sort();
+    _jcDayKeys = days;
+
+    days.forEach(function(dk, di) {
       var d = dk ? new Date(dk + 'T00:00:00') : null;
       var label = d ? (dayNames[d.getDay()] + ' ' + d.getDate() + ' ' + months[d.getMonth()]) : 'Unscheduled';
+      var dayCards = byDay[dk] || [];
+
+      if (!dayCards.length) {
+        // Empty day — compact line with "+ Add job" only. [Q15]
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--sw-border)">';
+        html += '<span style="font-size:12px;font-weight:600;color:var(--sw-mid)">' + label + '</span>';
+        html += '<button type="button" onclick="jcOpenJobSearch(' + di + ')" style="background:none;border:none;color:var(--sw-orange);font-size:12px;font-weight:700;cursor:pointer;padding:4px 0">+ Add job</button>';
+        html += '</div>';
+        html += _jcSearchPanelHtml(dk, di);
+        return;
+      }
+
       html += '<div style="margin-top:12px">';
-      html += '<div class="hours-day-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px">';
+      html += '<div class="hours-day-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">';
       html += '<span>' + label + '</span>';
       // Day-level bulk "Set all" — stamps every empty card in this day. [U1]
-      html += '<span style="font-size:11px;font-weight:500;display:flex;align-items:center;gap:4px">Set all '
+      html += '<span style="font-size:11px;font-weight:500;display:flex;align-items:center;gap:4px;flex-wrap:wrap">Set all '
         + '<input type="number" min="0" step="0.25" inputmode="decimal" data-dayset="' + esc(dk) + '" '
         + 'style="width:54px;padding:3px 6px;border:1px solid var(--sw-border);border-radius:6px;font-size:13px" placeholder="h">'
-        + '<button type="button" onclick="applyDayHours(\'' + esc(dk) + '\')" class="btn btn-secondary btn-small" style="padding:3px 8px">Apply</button></span>';
+        + '<button type="button" onclick="applyDayHours(\'' + esc(dk) + '\')" class="btn btn-secondary btn-small" style="padding:3px 8px">Apply</button>'
+        + '<button type="button" onclick="jcOpenJobSearch(' + di + ')" class="btn btn-secondary btn-small" style="padding:3px 8px">+ Add job</button></span>';
       html += '</div>';
+      html += _jcSearchPanelHtml(dk, di);
 
-      byDay[dk].forEach(function(c) {
+      dayCards.forEach(function(c) {
         var rowRate = Number(c.rate || rate || 0);
         var lineAmt = (c.included && c.hours != null && rowRate > 0) ? Math.round(c.hours * rowRate * 100) / 100 : 0;
         html += '<div class="jc-card" data-card="' + c._idx + '" style="border:1px solid var(--sw-border);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:var(--sw-card);' + (c.included ? '' : 'opacity:0.5') + '">';
@@ -12034,22 +12063,51 @@
         var badge = c.job_type ? '<span style="font-size:10px;font-weight:700;text-transform:uppercase;background:rgba(241,90,41,0.1);color:var(--sw-orange);padding:1px 6px;border-radius:4px;margin-left:6px">' + esc(c.job_type) + '</span>' : '';
         html += '<div style="font-size:14px;font-weight:700;color:var(--sw-dark)">' + esc(c.job_number || 'Job') + badge + '</div>';
         html += '<div style="font-size:12px;color:var(--sw-text-sec)">' + esc(c.client_name || '') + (c.site_suburb ? ' — ' + esc(c.site_suburb) : '') + '</div>';
-        html += '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap">';
-        html += '<label style="font-size:12px;color:var(--sw-text-sec)">Hours</label>';
-        html += '<input type="number" min="0" step="0.25" inputmode="decimal" data-cardhours="' + c._idx + '" '
-          + 'value="' + (c.hours != null ? c.hours : '') + '" '
-          + 'placeholder="' + (_typicalHoursHint(c.job_type) ? ('typ ' + _typicalHoursHint(c.job_type) + 'h') : 'hrs') + '" '
-          + 'onchange="setJobCardHours(' + c._idx + ',this.value)" '
-          + 'style="width:70px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px">';
-        html += '<label style="font-size:12px;color:var(--sw-text-sec)">Rate</label>';
-        html += '<input type="number" min="0" step="0.01" inputmode="decimal" data-cardrate="' + c._idx + '" '
-          + 'value="' + (rowRate || '') + '" '
-          + 'onchange="setJobCardRate(' + c._idx + ',this.value)" '
-          + 'style="width:78px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px">';
-        html += '<span data-cardamt="' + c._idx + '" style="font-size:13px;font-weight:700;color:var(--sw-dark);margin-left:auto">$' + lineAmt.toFixed(2) + '</span>';
-        html += '</div>';
-        html += '<input type="text" value="' + esc(c.description || '') + '" placeholder="Description of work" onchange="setJobCardDescription(' + c._idx + ',this.value)" style="width:100%;margin-top:6px;padding:7px 9px;border:1px solid var(--sw-border);border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
-        if (!c.hours_prefilled) html += '<div style="font-size:10px;color:var(--sw-text-sec);margin-top:2px">Not clocked — enter the hours you worked.</div>';
+        // Work-order invoicing mode toggle: swaps hours×rate for WO allocated −
+        // labour = net payable (manual inputs only for now). [Q15]
+        html += '<label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--sw-mid);margin-top:6px"><input type="checkbox" ' + (c.wo_mode ? 'checked' : '') + ' onchange="toggleJobCardWoMode(' + c._idx + ',this.checked)" style="width:15px;height:15px">Invoice by work order</label>';
+        if (c.wo_mode) {
+          var net = _woNet(c);
+          html += '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap">';
+          html += '<label style="font-size:12px;color:var(--sw-text-sec)">WO allocated $</label>';
+          html += '<input type="number" min="0" step="0.01" inputmode="decimal" data-cardwoalloc="' + c._idx + '" '
+            + 'value="' + (c.wo_allocated != null ? c.wo_allocated : '') + '" placeholder="0.00" '
+            + 'onchange="setJobCardWoAllocated(' + c._idx + ',this.value)" '
+            + 'style="width:92px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px">';
+          html += '<label style="font-size:12px;color:var(--sw-text-sec)">Labour provided $</label>';
+          html += '<input type="number" min="0" step="0.01" inputmode="decimal" data-cardwolab="' + c._idx + '" '
+            + 'value="' + (c.wo_labour != null ? c.wo_labour : '') + '" placeholder="0.00" '
+            + 'onchange="setJobCardWoLabour(' + c._idx + ',this.value)" '
+            + 'style="width:92px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px">';
+          html += '</div>';
+          html += '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px">';
+          html += '<span style="font-size:12px;color:var(--sw-text-sec)">Net payable</span>';
+          html += '<span data-cardamt="' + c._idx + '" style="font-size:20px;font-weight:800;color:' + ((c.included && net < 0) ? 'var(--sw-red)' : 'var(--sw-dark)') + '">$' + (c.included ? net : 0).toFixed(2) + '</span>';
+          html += '</div>';
+          html += '<div data-cardnetwarn="' + c._idx + '" style="display:' + (net < 0 ? 'block' : 'none') + ';font-size:11px;color:var(--sw-red);font-weight:600;margin-top:2px">Labour deduction is more than the WO allocation — net cannot be negative.</div>';
+          html += '<div data-cardwobreak="' + c._idx + '" style="font-size:10px;color:var(--sw-text-sec);margin-top:4px">' + esc(_woBreakdownText(c)) + ' — written on the invoice line.</div>';
+        } else {
+          html += '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap">';
+          html += '<label style="font-size:12px;color:var(--sw-text-sec)">Hours</label>';
+          html += '<input type="number" min="0" step="0.25" inputmode="decimal" data-cardhours="' + c._idx + '" '
+            + 'value="' + (c.hours != null ? c.hours : '') + '" '
+            + 'placeholder="' + (_typicalHoursHint(c.job_type) ? ('typ ' + _typicalHoursHint(c.job_type) + 'h') : 'hrs') + '" '
+            + 'onchange="setJobCardHours(' + c._idx + ',this.value)" '
+            + 'style="width:70px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px">';
+          html += '<label style="font-size:12px;color:var(--sw-text-sec)">Rate</label>';
+          html += '<input type="number" min="0" step="0.01" inputmode="decimal" data-cardrate="' + c._idx + '" '
+            + 'value="' + (rowRate || '') + '" '
+            + 'onchange="setJobCardRate(' + c._idx + ',this.value)" '
+            + 'style="width:78px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px">';
+          html += '<span data-cardamt="' + c._idx + '" style="font-size:13px;font-weight:700;color:var(--sw-dark);margin-left:auto">$' + lineAmt.toFixed(2) + '</span>';
+          html += '</div>';
+        }
+        html += '<input type="text" value="' + esc(c.description || '') + '" placeholder="Description of work' + (c.wo_mode ? ' (optional — breakdown auto-added)' : '') + '" onchange="setJobCardDescription(' + c._idx + ',this.value)" style="width:100%;margin-top:6px;padding:7px 9px;border:1px solid var(--sw-border);border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
+        if (c.manually_added) {
+          html += '<div style="font-size:10px;color:var(--sw-text-sec);margin-top:2px">Added by you — the office will verify. <a href="#" onclick="event.preventDefault();removeManualJobCard(' + c._idx + ')" style="color:var(--sw-red);font-weight:600">Remove</a></div>';
+        } else if (!c.hours_prefilled && !c.wo_mode) {
+          html += '<div style="font-size:10px;color:var(--sw-text-sec);margin-top:2px">Not clocked — enter the hours you worked.</div>';
+        }
         html += '</div></div></div>';
       });
       html += '</div>';
@@ -12063,9 +12121,145 @@
     var data = _hoursData || {};
     var rate = Number(data.rate || _tradeRate || 0);
     var sub = 0;
-    _jobCards.forEach(function(c) { if (c.included && c.hours != null) sub += c.hours * Number(c.rate || rate || 0); });
-    return 'Labour subtotal: $' + (Math.round(sub * 100) / 100).toFixed(2);
+    _jobCards.forEach(function(c) {
+      if (!c.included) return;
+      if (c.wo_mode) {
+        var n = _woNet(c);
+        if (n > 0) sub += n;
+      } else if (c.hours != null) {
+        sub += c.hours * Number(c.rate || rate || 0);
+      }
+    });
+    return 'Subtotal: $' + (Math.round(sub * 100) / 100).toFixed(2);
   }
+
+  // ── Manual job search per day (Q15 ADD 1) ──────────────────────────────
+  // Search any active job (job number / client / suburb, all types) via the
+  // existing read-only ops-api action search_all_jobs, and pull it into a
+  // day's invoice as a normal card flagged manually_added.
+  var _jcSearch = { day: null, q: '', results: [], timer: null };
+  var _jcDayKeys = [];
+
+  function _jcSearchPanelHtml(dk, di) {
+    if (_jcSearch.day !== dk) return '';
+    var h = '<div style="border:1px dashed var(--sw-border);border-radius:10px;padding:10px;margin:6px 0 8px;background:var(--sw-card)">';
+    h += '<input type="search" id="jcSearchInput_' + di + '" value="' + esc(_jcSearch.q) + '" placeholder="Job number, client or suburb" inputmode="search" autocomplete="off" oninput="jcJobSearchInput(' + di + ')" style="width:100%;padding:9px 11px;border:1px solid var(--sw-border);border-radius:8px;font-size:14px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
+    h += '<div id="jcSearchResults_' + di + '" style="margin-top:6px;max-height:240px;overflow-y:auto"></div>';
+    h += '</div>';
+    return h;
+  }
+
+  window.jcOpenJobSearch = function(di) {
+    var dk = _jcDayKeys[di];
+    if (dk === undefined) return;
+    _jcSearch.day = (_jcSearch.day === dk) ? null : dk;
+    _jcSearch.q = '';
+    _jcSearch.results = [];
+    renderInvoiceBuilder();
+    if (_jcSearch.day !== null) {
+      var inp = document.getElementById('jcSearchInput_' + di);
+      if (inp) inp.focus();
+    }
+  };
+
+  window.jcJobSearchInput = function(di) {
+    var inp = document.getElementById('jcSearchInput_' + di);
+    if (!inp) return;
+    _jcSearch.q = inp.value || '';
+    clearTimeout(_jcSearch.timer);
+    var q = _jcSearch.q.trim();
+    if (q.length < 2) {
+      _jcSearch.results = [];
+      _jcRenderSearchResults(di);
+      return;
+    }
+    _jcSearch.timer = setTimeout(function() { _jcRunJobSearch(di, q); }, 300);
+  };
+
+  function _jcRunJobSearch(di, q) {
+    api('search_all_jobs', { q: q }).then(function(res) {
+      if (_jcSearch.q.trim() !== q) return; // stale response — user kept typing
+      _jcSearch.results = (res.jobs || []).slice(0, 10);
+      _jcRenderSearchResults(di);
+    }).catch(function() {});
+  }
+
+  function _jcRenderSearchResults(di) {
+    var box = document.getElementById('jcSearchResults_' + di);
+    if (!box) return;
+    if (_jcSearch.q.trim().length < 2) {
+      box.innerHTML = '<div style="font-size:11px;color:var(--sw-text-sec);padding:4px 2px">Type at least 2 characters to search active jobs.</div>';
+      return;
+    }
+    if (!_jcSearch.results.length) {
+      box.innerHTML = '<div style="font-size:11px;color:var(--sw-text-sec);padding:4px 2px">No active jobs match.</div>';
+      return;
+    }
+    var h = '';
+    _jcSearch.results.forEach(function(j, ri) {
+      var badge = j.type ? '<span style="font-size:10px;font-weight:700;text-transform:uppercase;background:rgba(241,90,41,0.1);color:var(--sw-orange);padding:1px 6px;border-radius:4px;margin-left:6px">' + esc(j.type) + '</span>' : '';
+      h += '<div onclick="jcSelectSearchJob(' + di + ',' + ri + ')" style="padding:9px 8px;border-bottom:1px solid var(--sw-border);cursor:pointer">';
+      h += '<div style="font-size:13px;font-weight:700;color:var(--sw-dark)">' + esc(j.job_number || '') + badge + '</div>';
+      h += '<div style="font-size:11px;color:var(--sw-text-sec)">' + esc(j.client_name || '') + (j.site_suburb ? ' — ' + esc(j.site_suburb) : '') + '</div>';
+      h += '</div>';
+    });
+    box.innerHTML = h;
+  }
+
+  window.jcSelectSearchJob = function(di, ri) {
+    var dk = _jcDayKeys[di];
+    var j = _jcSearch.results[ri];
+    if (dk === undefined || !j) return;
+    var dup = _jobCards.some(function(c) { return c.job_id === j.id && c.scheduled_date === dk; });
+    if (dup) { toast('That job is already on this day', true); return; }
+    var defRate = Number((_hoursData && _hoursData.rate) || _tradeRate || 0);
+    _jobCards.push({
+      assignment_id: null,
+      manually_added: true,
+      job_id: j.id || null,
+      job_number: j.job_number || '',
+      client_name: j.client_name || '',
+      site_suburb: j.site_suburb || '',
+      job_type: j.type || '',
+      scheduled_date: dk,
+      hours: null,
+      rate: defRate,
+      rate_source: 'client_entered',
+      description: '',
+      hours_prefilled: false,
+      included: true
+    });
+    _jcSearch.day = null;
+    _jcSearch.q = '';
+    _jcSearch.results = [];
+    renderInvoiceBuilder();
+  };
+
+  window.removeManualJobCard = function(idx) {
+    var c = _jobCards[idx];
+    if (!c || !c.manually_added) return;
+    _jobCards.splice(idx, 1);
+    renderInvoiceBuilder();
+  };
+
+  // ── Work-order invoicing mode (Q15 ADD 2) ──────────────────────────────
+  window.toggleJobCardWoMode = function(idx, on) {
+    var c = _jobCards[idx]; if (!c) return;
+    c.wo_mode = !!on;
+    renderInvoiceBuilder();
+  };
+  window.setJobCardWoAllocated = function(idx, val) {
+    var c = _jobCards[idx]; if (!c) return;
+    var n = parseFloat(val);
+    c.wo_allocated = (isNaN(n) || n < 0) ? null : n;
+    _refreshJobCardLine(idx);
+  };
+  window.setJobCardWoLabour = function(idx, val) {
+    var c = _jobCards[idx]; if (!c) return;
+    var n = parseFloat(val);
+    c.wo_labour = (isNaN(n) || n < 0) ? null : n;
+    _refreshJobCardLine(idx);
+  };
 
   window.setJobCardHours = function(idx, val) {
     var c = _jobCards[idx]; if (!c) return;
@@ -12097,8 +12291,9 @@
     var n = parseFloat(input.value);
     if (isNaN(n) || n < 0) { toast('Enter a valid hours value', true); return; }
     _jobCards.forEach(function(c, i) {
-      // Apply to empty cards in this day only (don't clobber explicit entries). [U1]
-      if (c.scheduled_date === dk && (c.hours == null)) {
+      // Apply to empty hourly cards in this day only (don't clobber explicit
+      // entries; WO-mode cards have no hours input). [U1]
+      if (c.scheduled_date === dk && (c.hours == null) && !c.wo_mode) {
         c.hours = n;
         var f = document.querySelector('input[data-cardhours="' + i + '"]');
         if (f) f.value = n;
@@ -12111,37 +12306,137 @@
     var rate = Number(data.rate || _tradeRate || 0);
     var c = _jobCards[idx];
     var amtEl = document.querySelector('[data-cardamt="' + idx + '"]');
-    var rowRate = c ? Number(c.rate || rate || 0) : rate;
-    if (amtEl) amtEl.textContent = '$' + ((c && c.included && c.hours != null) ? (Math.round(c.hours * rowRate * 100) / 100).toFixed(2) : '0.00');
+    if (c && c.wo_mode) {
+      // WO mode: amount = net (allocated − labour); negative shows red + warning.
+      var net = _woNet(c);
+      if (amtEl) {
+        amtEl.textContent = '$' + (c.included ? net : 0).toFixed(2);
+        amtEl.style.color = (c.included && net < 0) ? 'var(--sw-red)' : 'var(--sw-dark)';
+      }
+      var warn = document.querySelector('[data-cardnetwarn="' + idx + '"]');
+      if (warn) warn.style.display = net < 0 ? 'block' : 'none';
+      var brk = document.querySelector('[data-cardwobreak="' + idx + '"]');
+      if (brk) brk.textContent = _woBreakdownText(c) + ' — written on the invoice line.';
+    } else {
+      var rowRate = c ? Number(c.rate || rate || 0) : rate;
+      if (amtEl) amtEl.textContent = '$' + ((c && c.included && c.hours != null) ? (Math.round(c.hours * rowRate * 100) / 100).toFixed(2) : '0.00');
+    }
     var tot = document.getElementById('jcRunningTotal');
     if (tot) tot.textContent = _jobCardsTotalStr();
   }
 
-  // Submit the job-centric invoice: manual_assignments + any extras.
-  window.submitJobCentricInvoice = function() {
-    var data = _hoursData || {};
-    var included = _jobCards.filter(function(c) { return c.included; });
-    var missing = included.filter(function(c) { return c.hours == null || c.hours <= 0 || !(Number(c.rate) > 0) || !c.description; });
-    if (missing.length > 0) { toast('Enter hours, rate and description for every selected job (' + missing.length + ' incomplete)', true); return; }
+  // [JC-PAYLOAD-BUILD-START] — pure payload builder for the job-centric submit.
+  // Keep DOM-free: the validation harness extracts and executes this block.
+  // Routing: assigned hourly cards → manual_assignments (assignment_id-keyed,
+  // ops-api requires it); searched-in (manually_added) and WO-mode cards →
+  // extra_items (client-priced lane → pending_ops_review). WO-mode rows carry
+  // the full breakdown in the description — ops-api persists description, not
+  // the structured wo_* fields, so the description is the audit trail.
+  function _woNet(c) {
+    var a = Number(c.wo_allocated), l = Number(c.wo_labour);
+    if (isNaN(a)) a = 0;
+    if (isNaN(l)) l = 0;
+    return Math.round((a - l) * 100) / 100;
+  }
+  function _woBreakdownText(c) {
+    var a = Number(c.wo_allocated) || 0;
+    var l = Number(c.wo_labour) || 0;
+    return 'WO: allocated $' + a + ' − labour $' + l + ' = net $' + _woNet(c);
+  }
+  function _buildJobCentricPayload(cards) {
+    var included = (cards || []).filter(function(c) { return c.included; });
 
-    var manualAssignments = included.map(function(c) {
-      return {
-        assignment_id: c.assignment_id,
-        hours: c.hours,
-        rate: Number(c.rate || 0),
-        rate_source: c.rate_source || 'server_resolved',
-        description: c.description || ''
-      };
+    var woMissing = included.filter(function(c) { return c.wo_mode && !(Number(c.wo_allocated) > 0); });
+    if (woMissing.length > 0) return { error: 'Enter the WO allocated amount on every work-order row (' + woMissing.length + ' missing)' };
+    var woNeg = included.filter(function(c) { return c.wo_mode && _woNet(c) < 0; });
+    if (woNeg.length > 0) return { error: 'Net payable cannot be negative on ' + (woNeg[0].job_number || 'a job') + ' — the labour deduction is more than the WO allocation. Fix the amounts before submitting.' };
+    var woZero = included.filter(function(c) { return c.wo_mode && _woNet(c) === 0; });
+    if (woZero.length > 0) return { error: 'Net payable is $0.00 on ' + (woZero[0].job_number || 'a job') + ' — untick the job or fix the amounts' };
+    var missing = included.filter(function(c) { return !c.wo_mode && (c.hours == null || c.hours <= 0 || !(Number(c.rate) > 0) || !c.description); });
+    if (missing.length > 0) return { error: 'Enter hours, rate and description for every selected job (' + missing.length + ' incomplete)' };
+
+    var manualAssignments = [];
+    var cardExtraItems = [];
+    var subtotal = 0;
+    included.forEach(function(c) {
+      if (c.wo_mode) {
+        var net = _woNet(c);
+        subtotal += net;
+        cardExtraItems.push({
+          type: 'Work Order',
+          row_type: 'work_order',
+          description: _woBreakdownText(c) + (c.description ? ' — ' + c.description : ''),
+          quantity: 1,
+          unit: 'ea',
+          rate: net,
+          wo_allocated: Number(c.wo_allocated) || 0,
+          wo_labour_deduction: Number(c.wo_labour) || 0,
+          date: c.scheduled_date || null,
+          job_id: c.job_id || null,
+          job_number: c.job_number || '',
+          division: c.job_type || '',
+          client_name: c.client_name || '',
+          manually_added: !!c.manually_added,
+          source: c.manually_added ? 'manual_job_search' : 'assigned_card',
+          rate_source: 'client_entered',
+          client_rate_entered: true
+        });
+      } else if (!c.assignment_id) {
+        // Searched-in job: no assignment row exists, so it cannot ride
+        // manual_assignments (ops-api 422s without assignment_id).
+        subtotal += Math.round(c.hours * Number(c.rate || 0) * 100) / 100;
+        cardExtraItems.push({
+          type: 'Labour',
+          description: c.description || '',
+          quantity: c.hours,
+          unit: 'hr',
+          rate: Number(c.rate || 0),
+          date: c.scheduled_date || null,
+          job_id: c.job_id || null,
+          job_number: c.job_number || '',
+          division: c.job_type || '',
+          client_name: c.client_name || '',
+          manually_added: true,
+          source: 'manual_job_search',
+          rate_source: 'client_entered',
+          client_rate_entered: true
+        });
+      } else {
+        subtotal += Math.round(c.hours * Number(c.rate || 0) * 100) / 100;
+        manualAssignments.push({
+          assignment_id: c.assignment_id,
+          hours: c.hours,
+          rate: Number(c.rate || 0),
+          rate_source: c.rate_source || 'server_resolved',
+          description: c.description || '',
+          manually_added: false
+        });
+      }
     });
+    return {
+      manualAssignments: manualAssignments,
+      cardExtraItems: cardExtraItems,
+      includedCount: included.length,
+      subtotal: Math.round(subtotal * 100) / 100
+    };
+  }
+  // [JC-PAYLOAD-BUILD-END]
+
+  // Submit the job-centric invoice: manual_assignments + card extras + any extras.
+  window.submitJobCentricInvoice = function() {
+    var built = _buildJobCentricPayload(_jobCards);
+    if (built.error) { toast(built.error, true); return; }
+    var manualAssignments = built.manualAssignments;
     // Extras (manual adjustments) still ride along — path preserved.
     _syncRowsFromDOM();
-    var extraItems = _manualInvoiceRows(_invRows).filter(function(r) { return r.hours > 0 || r.description; }).map(_rowToExtraItem);
-    if (included.length === 0 && extraItems.length === 0) { toast('Select a job or add an extra', true); return; }
+    var legacyExtras = _manualInvoiceRows(_invRows).filter(function(r) { return r.hours > 0 || r.description; }).map(_rowToExtraItem);
+    var extraItems = built.cardExtraItems.concat(legacyExtras);
+    if (built.includedCount === 0 && extraItems.length === 0) { toast('Select a job or add an extra', true); return; }
 
-    var sub = included.reduce(function(s, c) { return s + c.hours * Number(c.rate || data.rate || 0); }, 0);
-    extraItems.forEach(function(e) { sub += (Number(e.quantity || 0) * Number(e.rate || 0)); });
+    var sub = built.subtotal;
+    legacyExtras.forEach(function(e) { sub += (Number(e.quantity || 0) * Number(e.rate || 0)); });
 
-    showConfirm('Submit Invoice', 'Submit ' + included.length + ' job' + (included.length > 1 ? 's' : '') + ' (' + _jobCardsTotalStr().replace('Labour subtotal: ', '') + ')?\n\nManual hours are verified by the office before payment.', 'Submit').then(function(ok) {
+    showConfirm('Submit Invoice', 'Submit ' + built.includedCount + ' job' + (built.includedCount > 1 ? 's' : '') + ' (' + _jobCardsTotalStr().replace('Subtotal: ', '') + ')?\n\nManual hours are verified by the office before payment.', 'Submit').then(function(ok) {
       if (!ok) return;
       var container = document.getElementById('hoursContent');
       container.innerHTML = '<div class="loading-screen"><div class="spinner"></div>Submitting invoice...</div>';
@@ -12342,6 +12637,13 @@
     _saveInvDraft(); // persist draft to sessionStorage
 
     loadInvoiceJobOptions('');
+
+    // Re-inject day job-search results if a panel is open (full re-renders
+    // happen on card add/remove and WO-mode toggles). [Q15]
+    if (_jcSearch.day !== null) {
+      var jcDi = _jcDayKeys.indexOf(_jcSearch.day);
+      if (jcDi >= 0) _jcRenderSearchResults(jcDi);
+    }
 
     // Load crew charges async (leads only)
     if (isLead && !isExpense && _hoursWeekStart) {
