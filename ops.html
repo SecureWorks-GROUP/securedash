@@ -56,6 +56,7 @@
       /* Typography */
       --sw-font: 'Helvetica Neue', Helvetica, Arial, -apple-system, BlinkMacSystemFont, sans-serif;
       --sw-font-num: 'Helvetica Neue', Helvetica, -apple-system, sans-serif;
+      --jarvis-bar-height: 48px;
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -117,12 +118,12 @@
     .btn-header:hover { background: rgba(255,255,255,0.15); }
 
     /* ── Layout ── */
-    .container { max-width: 1400px; margin: 0 auto; padding: 24px; padding-bottom: 72px; }
+    .container { max-width: 1400px; margin: 0 auto; padding: 24px; padding-bottom: calc(var(--jarvis-bar-height) + 24px); }
     .view { display: none; }
     .view.active { display: block; }
     #viewCalendar.active {
       display: flex !important; flex-direction: row; overflow: hidden;
-      position: fixed; top: 56px; left: 0; right: 0; bottom: 48px; z-index: 50;
+      position: fixed; top: 56px; left: 0; right: 0; bottom: var(--jarvis-bar-height); z-index: 50;
     }
 
     /* ── Calendar Left Sidebar ── */
@@ -399,7 +400,7 @@
 
     /* ── Quick Quote Modal ── */
     .qq-overlay {
-      position: fixed; inset: 0; z-index: 500;
+      position: fixed; inset: 0 0 var(--jarvis-bar-height) 0; z-index: 500;
       background: rgba(0,0,0,0.5);
       display: none; align-items: flex-start; justify-content: center;
       overflow-y: auto; padding: 16px;
@@ -498,7 +499,7 @@
 
     @media (max-width: 600px) {
       .qq-overlay { padding: 0; }
-      .qq-modal { border-radius: 0; min-height: 100vh; }
+      .qq-modal { border-radius: 0; min-height: calc(100vh - var(--jarvis-bar-height)); }
       .qq-header { border-radius: 0; }
       .qq-row { flex-direction: column; gap: 8px; }
       .qq-line-items-table { font-size: 11px; }
@@ -819,7 +820,7 @@
     .cal-unsched-header .count {
       background: var(--sw-yellow); color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 11px;
     }
-    .cal-unsched-body { padding: 8px; max-height: calc(100vh - 250px); overflow-y: auto; }
+    .cal-unsched-body { padding: 8px; max-height: calc(100vh - var(--jarvis-bar-height) - 250px); overflow-y: auto; }
     .cal-unsched-group { margin-bottom: 8px; }
     .cal-unsched-group-title {
       font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--sw-text-sec);
@@ -852,14 +853,14 @@
       transform: translate(-50%, -50%); display: none;
     }
     .cal-schedule-modal.open { display: block; }
-    .cal-schedule-backdrop { position: fixed; inset: 0; z-index: 519; background: rgba(0,0,0,0.3); display: none; }
+    .cal-schedule-backdrop { position: fixed; inset: 0 0 var(--jarvis-bar-height) 0; z-index: 519; background: rgba(0,0,0,0.3); display: none; }
     .cal-schedule-backdrop.open { display: block; }
 
     /* Job popup (click on block) */
     .cal-job-popup {
       position: fixed; z-index: 530; background: var(--sw-card);
       border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-      padding: 16px; width: 380px; max-height: calc(100vh - 72px); overflow-y: auto; display: none;
+      padding: 16px; width: 380px; max-height: calc(100vh - var(--jarvis-bar-height) - 72px); overflow-y: auto; display: none;
     }
     .cal-job-popup.open { display: block; }
     .cal-job-popup-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
@@ -898,7 +899,7 @@
     .cal-popup-meta strong { color: var(--sw-text); }
 
     /* Confirm modal */
-    .cal-confirm-backdrop { position: fixed; inset: 0; z-index: 550; background: rgba(0,0,0,0.35); display: none; }
+    .cal-confirm-backdrop { position: fixed; inset: 0 0 var(--jarvis-bar-height) 0; z-index: 550; background: rgba(0,0,0,0.35); display: none; }
     .cal-confirm-backdrop.open { display: flex; align-items: center; justify-content: center; }
     .cal-confirm-modal { background: var(--sw-card); border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); padding: 24px; width: 380px; max-width: calc(100vw - 32px); }
     .cal-confirm-modal h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; color: var(--sw-text); }
@@ -1021,7 +1022,7 @@
       top: 48px; /* navbar height */
       left: 0;
       right: 0;
-      bottom: 0;
+      bottom: var(--jarvis-bar-height);
       z-index: 10;
       background: var(--sw-bg, #F4F1EE);
       padding: 16px 24px 0;
@@ -1461,7 +1462,7 @@
     .modal-overlay {
       display: none;
       position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
+      top: 0; left: 0; right: 0; bottom: var(--jarvis-bar-height);
       background: rgba(41,60,70,0.5);
       z-index: 200;
       justify-content: center;
@@ -1558,7 +1559,7 @@
     /* ── Slide Panel (Job Detail) ── */
     .slide-panel {
       position: fixed;
-      top: 0; right: -500px; bottom: 0;
+      top: 0; right: -500px; bottom: var(--jarvis-bar-height);
       width: 480px;
       max-width: 90vw;
       background: var(--sw-card);
@@ -1587,7 +1588,7 @@
     .slide-backdrop {
       display: none;
       position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
+      top: 0; left: 0; right: 0; bottom: var(--jarvis-bar-height);
       background: rgba(0,0,0,0.2);
       z-index: 140;
     }
@@ -1597,7 +1598,7 @@
     .job-detail-view {
       display: none;
       position: fixed;
-      inset: 0;
+      inset: 0 0 var(--jarvis-bar-height) 0;
       z-index: 200;
       background: var(--sw-bg);
       flex-direction: column;
@@ -1668,7 +1669,7 @@
     /* Zone 2 — Content */
     .jd-content {
       flex: 1; overflow-y: auto;
-      padding-bottom: 80px;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
     }
     .jd-tabs {
       display: flex; gap: 4px; padding: 12px 20px 0;
@@ -1698,7 +1699,7 @@
       background: var(--sw-green); color: #fff; border: none; cursor: pointer; text-decoration: none;
     }
     .comms-thread {
-      max-height: calc(100vh - 420px); overflow-y: auto; padding: 8px 0;
+      max-height: calc(100vh - var(--jarvis-bar-height) - 420px); overflow-y: auto; padding: 8px 0;
       display: flex; flex-direction: column; gap: 6px;
     }
     .comms-msg { max-width: 80%; padding: 8px 12px; border-radius: 12px; font-size: 13px; line-height: 1.4; }
@@ -1856,7 +1857,7 @@
 
     /* Zone 3 — Action Drawer */
     .jd-drawer {
-      position: fixed; bottom: 0; left: 0; right: 0;
+      position: fixed; bottom: var(--jarvis-bar-height); left: 0; right: 0;
       height: 52px; background: #fff;
       box-shadow: 0 -2px 8px rgba(41,60,70,0.08);
       display: flex; align-items: center; justify-content: center;
@@ -1874,18 +1875,18 @@
 
     /* Action Sheets */
     .jd-sheet-backdrop {
-      display: none; position: fixed; inset: 0;
+      display: none; position: fixed; inset: 0 0 var(--jarvis-bar-height) 0;
       background: rgba(0,0,0,0.25); z-index: 220;
     }
     .jd-sheet-backdrop.open { display: block; }
     .jd-sheet {
-      position: fixed; bottom: -100%; left: 0; right: 0;
+      position: fixed; bottom: calc(-100% - var(--jarvis-bar-height)); left: 0; right: 0;
       max-height: 60vh; background: var(--sw-card);
       border-radius: 16px 16px 0 0; padding: 20px;
       z-index: 230; transition: bottom 0.2s ease-out;
       overflow-y: auto;
     }
-    .jd-sheet.open { bottom: 0; }
+    .jd-sheet.open { bottom: var(--jarvis-bar-height); }
     .jd-sheet-handle {
       width: 40px; height: 4px; background: var(--sw-border);
       border-radius: 2px; margin: 0 auto 16px;
@@ -1894,7 +1895,7 @@
 
     /* Quick-view popup (kanban click) */
     .jd-quickview-overlay {
-      display: none; position: fixed; inset: 0;
+      display: none; position: fixed; inset: 0 0 var(--jarvis-bar-height) 0;
       background: rgba(0,0,0,0.3); z-index: 160;
       justify-content: center; align-items: center;
     }
@@ -1927,7 +1928,7 @@
     .job-hover-popover {
       position: fixed; z-index: 170;
       background: var(--sw-card); border-radius: 12px;
-      width: 380px; max-width: 90vw; max-height: calc(100vh - 72px);
+      width: 380px; max-width: 90vw; max-height: calc(100vh - var(--jarvis-bar-height) - 72px);
       overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,0.18);
       border: 1px solid var(--sw-border);
       opacity: 0; transform: translateY(4px);
@@ -2012,7 +2013,7 @@
     .ops-note-dropzone { border: 2px dashed var(--sw-border); border-radius: 8px; padding: 8px; text-align: center; font-size: 11px; color: var(--sw-text-sec); margin-top: 4px; transition: border-color 0.2s, background 0.2s; }
     .ops-note-dropzone.dragover { border-color: var(--sw-orange); background: rgba(243,156,18,0.05); }
     .ops-note-sent { font-size: 10px; padding: 1px 5px; border-radius: 4px; background: rgba(39,174,96,0.12); color: #27AE60; }
-    .ops-lightbox { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 200; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+    .ops-lightbox { position: fixed; top: 0; left: 0; right: 0; bottom: var(--jarvis-bar-height); z-index: 200; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; cursor: pointer; }
     .ops-lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
     .ops-note-badge {
       position: absolute;
@@ -2046,7 +2047,7 @@
       .jd-materials-grid { grid-template-columns: 1fr; }
       .jd-drawer { gap: 4px; padding: 0 8px; }
       .jd-drawer-btn { padding: 6px 10px; font-size: 11px; }
-      .jd-quickview { width: 100%; max-width: 100%; border-radius: 12px 12px 0 0; position: fixed; bottom: 0; max-height: 85vh; }
+      .jd-quickview { width: 100%; max-width: 100%; border-radius: 12px 12px 0 0; position: fixed; bottom: var(--jarvis-bar-height); max-height: calc(85vh - var(--jarvis-bar-height)); }
     }
 
     /* ── Empty State ── */
@@ -2077,7 +2078,7 @@
       .mobile-nav {
         display: flex;
         position: fixed;
-        bottom: 0; left: 0; right: 0;
+        bottom: var(--jarvis-bar-height); left: 0; right: 0;
         background: var(--sw-dark);
         padding: 0;
         z-index: 100;
@@ -2099,7 +2100,7 @@
       }
       .mobile-nav button .nav-icon { font-size: 18px; }
       .mobile-nav button.active { color: #fff; border-top: 2px solid var(--sw-orange); }
-      .container { padding: 16px; padding-bottom: 80px; }
+      .container { padding: 16px; padding-bottom: calc(var(--jarvis-bar-height) + 32px); }
       .stat-grid { grid-template-columns: repeat(2, 1fr) !important; }
       .kanban-col { min-width: 180px; flex: 0 0 180px; }
       .cal-week-grid { grid-template-columns: 1fr; }
@@ -2108,10 +2109,10 @@
 
     /* ═══════ Jarvis Ambient Bar ═══════ */
     .jarvis-bar {
-      position: fixed; bottom: 0; left: 0; right: 0; height: 48px;
+      position: fixed; bottom: 0; left: 0; right: 0; height: var(--jarvis-bar-height);
       background: var(--sw-dark-deep); border-top: 1px solid rgba(255,255,255,0.08);
       display: flex; align-items: center; gap: 0; padding: 0;
-      z-index: 950; font-size: 13px; color: rgba(255,255,255,0.85);
+      z-index: 2147483000; font-size: 13px; color: rgba(255,255,255,0.85);
       box-shadow: 0 -2px 16px rgba(0,0,0,0.15);
     }
     .jarvis-left {
@@ -2174,7 +2175,7 @@
 
     /* Chat panel (slides from right when bar expanded) */
     .chat-panel {
-      position: fixed; top: 0; right: -420px; width: 400px; height: calc(100vh - 48px);
+      position: fixed; top: 0; right: -420px; width: 400px; height: calc(100vh - var(--jarvis-bar-height));
       background: var(--sw-bg); z-index: 960;
       display: flex; flex-direction: column;
       box-shadow: -4px 0 24px rgba(0,0,0,0.12);
@@ -2274,7 +2275,7 @@
     .chat-send:hover { background: #D94D1A; }
     .chat-send:disabled { opacity: 0.5; cursor: default; }
     .chat-backdrop {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.25);
+      position: fixed; inset: 0 0 var(--jarvis-bar-height) 0; background: rgba(0,0,0,0.25);
       z-index: 940; display: none;
     }
     .chat-backdrop.open { display: block; }
@@ -2343,7 +2344,7 @@
     .crew-bar-label { width: 40px; font-size: 11px; color: var(--sw-text-sec); }
 
     /* ═══════ Toast Notifications ═══════ */
-    .toast-container { position: fixed; bottom: 60px; right: 24px; z-index: 970; display: flex; flex-direction: column; gap: 8px; }
+    .toast-container { position: fixed; bottom: calc(var(--jarvis-bar-height) + 12px); right: 24px; z-index: 970; display: flex; flex-direction: column; gap: 8px; }
     .toast {
       background: var(--sw-card); border: 1px solid var(--sw-border);
       border-radius: 10px; padding: 12px 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);
@@ -2360,8 +2361,8 @@
     @keyframes toastIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 
     @media (max-width: 768px) {
+      :root { --jarvis-bar-height: 40px; }
       .chat-panel { width: 100%; right: -100%; }
-      .jarvis-bar { height: 40px; }
       .jarvis-bar .jarvis-center { display: none; }
       .jarvis-bar .jarvis-shortcut { display: none; }
       .jarvis-brand { font-size: 12px; }
@@ -2369,6 +2370,57 @@
     }
 
     /* ══════════ COUNCIL APPROVALS — SPLIT PANE ══════════ */
+
+    .msi-review-shell {
+      padding: 12px;
+      background: #F7FAFC;
+      height: 100%;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .msi-review-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .msi-review-grid {
+      display: grid;
+      grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr);
+      gap: 14px;
+      align-items: stretch;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .msi-review-card {
+      background: #fff;
+      border: 1px solid #DCE7EE;
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.04);
+      min-height: 0;
+      overflow-y: auto;
+    }
+    .msi-pdf-frame {
+      height: min(520px, calc(100vh - var(--jarvis-bar-height) - 260px));
+      min-height: 280px;
+      border: 1px solid #D5E1E8;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #F3F6F8;
+      margin-bottom: 8px;
+    }
+
+    @media (max-width: 900px) {
+      .msi-review-shell { overflow-y: auto; }
+      .msi-review-grid { display: flex; flex-direction: column; overflow: visible; }
+      .msi-review-card { overflow: visible; }
+    }
 
     .approvals-layout { display: flex; height: 100%; overflow: hidden; }
 
@@ -2435,7 +2487,7 @@
 
     /* Detail view — full-screen slide-in */
     .council-detail-view {
-      display: none; position: fixed; inset: 0; z-index: 200;
+      display: none; position: fixed; inset: 0 0 var(--jarvis-bar-height) 0; z-index: 200;
       background: var(--sw-bg); flex-direction: column; overflow: hidden;
     }
     .council-detail-view.active { display: flex; }
@@ -2493,7 +2545,7 @@
 
     /* Thread view — slides over detail */
     .council-thread-view {
-      display: none; position: fixed; inset: 0; z-index: 210;
+      display: none; position: fixed; inset: 0 0 var(--jarvis-bar-height) 0; z-index: 210;
       background: var(--sw-bg); flex-direction: column; overflow: hidden;
     }
     .council-thread-view.active { display: flex; }
@@ -3020,7 +3072,7 @@
       <div id="inboxList"></div>
     </div>
 
-    <div id="viewApprovals" class="view" style="height:calc(100vh - 56px);overflow:hidden;">
+    <div id="viewApprovals" class="view" style="height:calc(100vh - var(--jarvis-bar-height) - 56px);overflow:hidden;">
       <div class="approvals-layout">
         <div class="approvals-list-panel" id="approvalsListPanel">
           <!-- Rendered by ops-council.js: header + summary pills + card list -->
@@ -8811,7 +8863,7 @@ async function openNewMakesafeModal() {
 
   var overlay = document.createElement('div');
   overlay.id = 'makesafeModal';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  overlay.style.cssText = 'position:fixed;inset:0 0 var(--jarvis-bar-height) 0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
   overlay.innerHTML = '<div style="background:#fff;border-radius:12px;padding:24px;width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.15);">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
     + '<h3 style="margin:0;color:var(--sw-dark);">New Make-Safe Job</h3>'
@@ -9048,20 +9100,20 @@ function renderMakesafeIntakeReview(draftId) {
   }
   var attachments = intakeAttachments(d);
   var pdfUrl = intakeFirstPdfUrl(d);
-  var html = '<div style="padding:12px;background:#F7FAFC;min-height:100%;">';
-  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;">';
+  var html = '<div class="msi-review-shell">';
+  html += '<div class="msi-review-header">';
   html += '<div><h3 style="margin:0;color:#1F3A44;">Review MakeSafe Intake</h3><div style="font-size:12px;color:#6B7280;">Compare the source work order against SecureSuite fields, then tick or cross.</div></div>';
   html += '<button onclick="loadMakesafeIntake()" style="background:#E5EEF3;color:#1F3A44;border:none;padding:8px 14px;border-radius:8px;font-weight:700;cursor:pointer;">Back to intake</button>';
   html += '</div>';
   html += '<div id="msiReviewStatus" style="margin-bottom:12px;"></div>';
-  html += '<div style="display:grid;grid-template-columns:minmax(360px,1fr) minmax(360px,1fr);gap:14px;align-items:start;">';
+  html += '<div class="msi-review-grid">';
 
-  html += '<section style="background:#fff;border:1px solid #DCE7EE;border-radius:12px;padding:14px;box-shadow:0 2px 10px rgba(0,0,0,.04);">';
+  html += '<section class="msi-review-card">';
   html += '<div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#48697A;margin-bottom:10px;">Source evidence</div>';
   html += '<div style="font-size:13px;color:#1F2937;margin-bottom:8px;"><strong>Email:</strong> ' + escapeHtml(d.subject || '(no subject)') + '</div>';
   html += '<div style="font-size:12px;color:#6B7280;margin-bottom:10px;">From: ' + escapeHtml(d.from_name || d.from_email || '') + '</div>';
   if (pdfUrl) {
-    html += '<div style="height:520px;border:1px solid #D5E1E8;border-radius:10px;overflow:hidden;background:#F3F6F8;margin-bottom:8px;">';
+    html += '<div class="msi-pdf-frame">';
     html += '<iframe title="Work order PDF" src="' + escapeAttr(pdfUrl) + '" style="width:100%;height:100%;border:0;"></iframe>';
     html += '</div>';
     html += '<a href="' + escapeAttr(pdfUrl) + '" target="_blank" rel="noopener" style="display:inline-block;background:#4C6A7C;color:#fff;text-decoration:none;padding:8px 12px;border-radius:8px;font-weight:700;font-size:12px;">Open PDF full-screen</a>';
@@ -9077,7 +9129,7 @@ function renderMakesafeIntakeReview(draftId) {
   if (d.body_preview) html += '<details style="margin-top:12px;"><summary style="cursor:pointer;font-weight:700;color:#48697A;">Email/body preview</summary><div style="white-space:pre-wrap;font-size:12px;color:#4B5563;margin-top:8px;">' + escapeHtml(d.body_preview) + '</div></details>';
   html += '</section>';
 
-  html += '<section style="background:#fff;border:1px solid #DCE7EE;border-radius:12px;padding:14px;box-shadow:0 2px 10px rgba(0,0,0,.04);">';
+  html += '<section class="msi-review-card">';
   html += '<div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#48697A;margin-bottom:10px;">SecureSuite fields to approve</div>';
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
   html += renderIntakeReviewInput('requesting_company_name', 'Builder / requesting company', intakeFieldValue(d, 'requesting_company_name'), true, false);
@@ -11696,7 +11748,7 @@ function formatEventType(type, detail) {
 // ── Site Plan Image Overlay ──
 function showSitePlanOverlay(src) {
   var overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(26,39,46,0.92);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:16px;';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:var(--jarvis-bar-height);background:rgba(26,39,46,0.92);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:16px;';
   overlay.onclick = function() { overlay.remove(); };
   var img = document.createElement('img');
   img.src = src;
@@ -11911,7 +11963,7 @@ function openAsbestosNotifyModal(data) {
 
   var backdrop = document.createElement('div');
   backdrop.id = 'asbestosNotifyBackdrop';
-  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:10000;display:flex;align-items:center;justify-content:center;';
+  backdrop.style.cssText = 'position:fixed;inset:0 0 var(--jarvis-bar-height) 0;background:rgba(0,0,0,0.4);z-index:10000;display:flex;align-items:center;justify-content:center;';
   backdrop.onclick = function(e) { if (e.target === backdrop) backdrop.remove(); };
 
   var modal = document.createElement('div');
