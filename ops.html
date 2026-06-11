@@ -12451,7 +12451,7 @@ async function renderJarvisView(data) {
     // ═══════════════════════════════════════════════════════════
     // ROW 3 — Evidence Strip (strict counts from loaded tabs)
     // ═══════════════════════════════════════════════════════════
-    var noteEvents = events.filter(function(e) { return e.event_type === 'note' || e.event_type === 'note_added' || e.event_type === 'site_note'; });
+    var noteEvents = events.filter(function(e) { return (e.event_type === 'note' || e.event_type === 'note_added' || e.event_type === 'site_note') && !isMakesafePackSentMarker(e); });
     // Comms filter covers both inbound + outbound across all channels. Keep explicit
     // (not prefix-matched) so we don't accidentally count unrelated events.
     var commsSet = {
@@ -13037,6 +13037,20 @@ function fmtMakesafeSendDate(iso) {
   if (isNaN(d.getTime())) return String(iso);
   return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
 }
+// A MAKESAFE_PACK_SENT note is an internal system marker recording that a pack was
+// emailed (parsed into the send log by parseMakesafeSendLog). The send script writes it
+// with visibility:internal_only, so it would otherwise leak into the "Note for admin from
+// trade" highlight and the bottom Notes feed. It must NEVER render as a human note — use
+// this to exclude it anywhere notes/events surface to the user.
+function isMakesafePackSentMarker(ev) {
+  if (!ev || ev.event_type !== 'note') return false;
+  var dj = ev.detail_json;
+  if (typeof dj === 'string') {
+    try { dj = JSON.parse(dj); } catch (e) { dj = { text: dj }; }
+  }
+  var text = (dj && (dj.text || dj.note || dj.note_text)) || '';
+  return String(text || '').trim().indexOf('MAKESAFE_PACK_SENT') === 0;
+}
 // Parse MAKESAFE_PACK_SENT markers from the job's note events. Marker format:
 //   MAKESAFE_PACK_SENT | <main|photo> | <invoice_no or -> | to=<email> | <ISO8601> | msgid=<id>
 // Matching follows the send script: a note whose text starts with the prefix; the
@@ -13171,6 +13185,7 @@ function renderMakesafeOpsDetail(data) {
     return String(text || '');
   }
   var adminNotes = (data.events || []).filter(function(ev) {
+    if (isMakesafePackSentMarker(ev)) return false; // system send-marker, not a human note
     var text = makesafeAdminNoteText(ev);
     var visibility = ev && ev.detail_json && ev.detail_json.visibility;
     return ev && ev.event_type === 'note' && (/^Trade admin note:/i.test(text) || visibility === 'internal_only');
@@ -13243,8 +13258,16 @@ function renderMakesafeOpsDetail(data) {
     if (submittedType) html += '<div style="font-size:12px;color:var(--sw-text);margin-bottom:6px;"><strong>Type:</strong> ' + escapeHtml(submittedType) + '</div>';
     if (checklist && checklist.work_done) html += '<div style="font-size:12px;color:var(--sw-text);white-space:pre-wrap;max-height:86px;overflow:auto;">' + escapeHtml(String(checklist.work_done).slice(0, 360)) + '</div>';
     if (checklist && checklist.invoice_notes) html += '<div style="font-size:12px;background:rgba(39,174,96,0.08);padding:6px 8px;margin-top:8px;">Invoice notes: ' + escapeHtml(checklist.invoice_notes) + '</div>';
-    var photoCounts = 'Front ' + frontPhotos.length + '/1 · Before ' + beforePhotos.length + '/3 · After ' + afterPhotos.length + '/3';
-    html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:8px;font-weight:800;">Photos: ' + escapeHtml(photoCounts) + '</div>';
+    // Only show the Front/Before/After breakdown when there is real trade-app photo data.
+    // Reports can arrive as an attached doc with no media, so 0/1·0/3·0/3 is fake noise —
+    // in that case surface the real report-doc status instead.
+    var totalReportPhotos = frontPhotos.length + beforePhotos.length + afterPhotos.length;
+    if (totalReportPhotos > 0) {
+      var photoCounts = 'Front ' + frontPhotos.length + '/1 · Before ' + beforePhotos.length + '/3 · After ' + afterPhotos.length + '/3';
+      html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:8px;font-weight:800;">Photos: ' + escapeHtml(photoCounts) + '</div>';
+    } else if (reportDocs.length) {
+      html += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:8px;font-weight:800;">Report document' + (reportDocs.length > 1 ? 's' : '') + ' attached (' + reportDocs.length + ')</div>';
+    }
     var reportPhotoPreview = frontPhotos.concat(beforePhotos).concat(afterPhotos).slice(0, 6);
     if (reportPhotoPreview.length) {
       html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:6px;">';
@@ -13398,7 +13421,7 @@ function renderOverviewView(data) {
     var subLabels = { pending_allocation: 'Needs Allocation', company_contact_required: 'New', company_contact_done: 'Allocated', waiting_on_trade_report: 'Waiting on Trade Report', admin_to_send_report: 'Report Ready', ready_to_invoice: 'Report Ready', complete: 'Complete' };
     var subColors = { pending_allocation: '#3498DB', company_contact_required: '#3498DB', company_contact_done: '#F39C12', waiting_on_trade_report: '#F39C12', admin_to_send_report: '#9B59B6', ready_to_invoice: '#9B59B6', complete: '#8FA4B2' };
     html += '<div style="margin-bottom:12px;"><span style="font-size:12px;padding:4px 12px;border-radius:10px;background:' + (subColors[msSub] || '#8FA4B2') + ';color:#fff;font-weight:600;">' + (subLabels[msSub] || msSub) + '</span></div>';
-    var msAdminNotes = (data.events || []).filter(function(ev) { var d = ev.detail_json || {}; var t = typeof d === 'string' ? d : (d.text || d.note || d.note_text || ''); return ev.event_type === 'note' && (/^Trade admin note:/i.test(String(t)) || d.visibility === 'internal_only'); });
+    var msAdminNotes = (data.events || []).filter(function(ev) { if (isMakesafePackSentMarker(ev)) return false; var d = ev.detail_json || {}; var t = typeof d === 'string' ? d : (d.text || d.note || d.note_text || ''); return ev.event_type === 'note' && (/^Trade admin note:/i.test(String(t)) || d.visibility === 'internal_only'); });
     if (msAdminNotes.length) html += '<div style="display:inline-block;background:#F5F3FF;color:#6D28D9;border:1px solid #DDD6FE;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:800;margin-bottom:8px;">&#128221; Admin note ' + msAdminNotes.length + '</div>';
 
     // Company info
@@ -13673,6 +13696,7 @@ function buildTimelineEvents(data) {
 
   // Job events
   (data.events || []).forEach(function(ev) {
+    if (isMakesafePackSentMarker(ev)) return; // system send-marker shows in the send log, not the raw timeline
     var label = formatEventType(ev.event_type, ev.detail_json);
     // Format detail for display
     var detailStr = '';
@@ -14928,7 +14952,7 @@ function matchMaterialStatus(category, purchaseOrders) {
 // ── Shared Notes Section (appended to Overview, Money, Build, Files) ──
 
 function buildNotesHTML(data) {
-  var noteEvents = (data.events || []).filter(function(ev) { return ev.event_type === 'note' || ev.event_type === 'note_added' || ev.event_type === 'site_note'; });
+  var noteEvents = (data.events || []).filter(function(ev) { return (ev.event_type === 'note' || ev.event_type === 'note_added' || ev.event_type === 'site_note') && !isMakesafePackSentMarker(ev); });
   var h = '<div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--sw-border);">';
   h += '<div style="font-size:14px;font-weight:700;margin-bottom:8px;">Notes</div>';
   if (noteEvents.length > 0) {
