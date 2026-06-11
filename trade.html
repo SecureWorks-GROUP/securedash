@@ -11378,16 +11378,14 @@
   var _invoiceBuilderMode = 'weekly'; // 'weekly' or 'expense'
 
   // ── Job-centric prefill cutover toggle ──────────────────────────────────────
-  // Default OFF: trades keep the existing manual extras/day-adjustment path
-  // (the de-facto production path — must stay live until the new path is proven).
-  // Marnin flips this on (localStorage 'sw_jobcentric' = '1') for one trade
-  // (Hugo) for the first live week, then for everyone after one verified cycle.
+  // Default ON for all trades. localStorage 'sw_jobcentric' = '0' keeps the
+  // legacy screen available underneath for emergency rollback/debugging.
   function jobCentricEnabled() {
     try {
       if (localStorage.getItem('sw_jobcentric') === '1') return true;
       if (localStorage.getItem('sw_jobcentric') === '0') return false;
     } catch (e) {}
-    return false; // default off until cutover
+    return true;
   }
   // Job-centric card state: { assignment_id, job_id, job_number, client_name,
   //   site_suburb, job_type, scheduled_date, hours, hours_prefilled, included }
@@ -11610,6 +11608,8 @@
   // ── Invoice row data ──
   var _invRows = []; // { date, job_id, job_text, description, division, hours, rate, amount, client_name, site_address }
   var _knownJobNumbers = []; // populated from search_all_jobs
+  var _knownJobByNumber = {};
+  var _jobSearchTimer = null;
   var _invGst = false; // GST removed — always false
 
   // Persist invoice draft to sessionStorage (survives background kill)
@@ -11669,8 +11669,7 @@
 
   function _rowToExtraItem(r) {
     var desc = r.description || '';
-    if (r.job_text) desc = r.job_text + ' — ' + desc;
-    if (r.client_name && !r.job_text) desc = r.client_name + ', ' + (r.site_address || '') + ' — ' + desc;
+    var job = r.job_text && _knownJobByNumber ? _knownJobByNumber[r.job_text] : null;
     return {
       type: r.division || 'General Labour',
       description: desc,
@@ -11678,12 +11677,14 @@
       unit: 'hr',
       rate: r.rate,
       date: r.date,
-      job_id: r.job_id,
+      job_id: r.job_id || (job ? job.id : null),
       job_number: r.job_text,
-      division: r.division,
-      client_name: r.client_name,
-      site_address: r.site_address,
-      source: r._source || (r._misc ? 'manual' : 'manual')
+      division: r.division || (job ? job.type : ''),
+      client_name: r.client_name || (job ? job.client_name : ''),
+      site_address: r.site_address || (job ? [job.site_address, job.site_suburb].filter(Boolean).join(', ') : ''),
+      source: r._source || (r._misc ? 'manual' : 'manual'),
+      rate_source: 'client_entered',
+      client_rate_entered: true
     };
   }
 
@@ -11745,8 +11746,7 @@
     var rowBg = row._source === 'edited' ? 'rgba(241,90,41,0.06)' : '';
     var noDivSelected = !row.division;
     var divBorder = (hasInput && noDivSelected) ? 'var(--sw-orange)' : 'var(--sw-border)';
-    var clientBorder = (hasInput && !row.client_name) ? 'var(--sw-orange)' : 'var(--sw-border)';
-    var addrBorder = (hasInput && !row.site_address) ? 'var(--sw-orange)' : 'var(--sw-border)';
+    var jobBorder = (hasInput && !hasKnownJob) ? 'var(--sw-orange)' : 'var(--sw-border)';
     var descBorder = (hasInput && !row.description) ? 'var(--sw-orange)' : 'var(--sw-border)';
 
     if (!row._expanded) {
@@ -11777,7 +11777,7 @@
 
     h += '<div style="display:flex;gap:6px;margin-bottom:5px;align-items:center">';
     if (showDate) h += '<input type="date" id="ir_date_' + i + '" value="' + (row.date || '') + '" style="flex:0 0 110px;padding:5px 4px;border:1px solid var(--sw-border);border-radius:6px;font-size:11px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
-    h += '<input type="text" id="ir_job_' + i + '" value="' + esc(row.job_text || '') + '" list="invJobList" placeholder="Job # (optional)" onchange="invJobChanged(' + i + ')" style="flex:1;padding:7px 9px;border:1px solid var(--sw-border);border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
+    h += '<input type="text" id="ir_job_' + i + '" value="' + esc(row.job_text || '') + '" list="invJobList" placeholder="Job number" oninput="invJobSearch(' + i + ')" onchange="invJobChanged(' + i + ')" style="flex:1;padding:7px 9px;border:1px solid ' + jobBorder + ';border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
     h += '</div>';
 
     h += '<select id="ir_div_' + i + '" style="width:100%;padding:8px 10px;margin-bottom:5px;border:2px solid ' + divBorder + ';border-radius:7px;font-size:13px;font-weight:600;font-family:var(--sw-font);color:' + (noDivSelected ? 'var(--sw-text-sec)' : 'var(--sw-dark)') + ';background:#fff;box-sizing:border-box">';
@@ -11786,16 +11786,6 @@
       h += '<option value="' + dv[0] + '"' + (row.division === dv[0] ? ' selected' : '') + '>' + dv[1] + '</option>';
     });
     h += '</select>';
-
-    if (!hasKnownJob) {
-      h += '<div style="display:flex;gap:5px;margin-bottom:5px">';
-      h += '<input type="text" id="ir_client_' + i + '" value="' + esc(row.client_name || '') + '" placeholder="Client name" style="flex:1;padding:7px 9px;border:1px solid ' + clientBorder + ';border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
-      h += '</div>';
-      h += '<div style="position:relative;margin-bottom:5px">';
-      h += '<input type="text" id="ir_addr_' + i + '" value="' + esc(row.site_address || '') + '" placeholder="Site address" oninput="invAddrSearch(' + i + ')" style="width:100%;padding:7px 9px;border:1px solid ' + addrBorder + ';border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
-      h += '<div id="ir_addr_dd_' + i + '" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--sw-border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:100;max-height:150px;overflow-y:auto"></div>';
-      h += '</div>';
-    }
 
     h += '<input type="text" id="ir_desc_' + i + '" value="' + esc(row.description || '') + '" placeholder="Description of work" style="width:100%;padding:7px 9px;margin-bottom:5px;border:1px solid ' + descBorder + ';border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
 
@@ -11847,10 +11837,45 @@
     var el = document.getElementById('ir_job_' + idx);
     if (!el) return;
     _invRows[idx].job_text = el.value;
+    var job = _knownJobByNumber[el.value];
+    if (job) {
+      _invRows[idx].job_id = job.id || null;
+      _invRows[idx].division = job.type || _divFromJobNum(job.job_number || el.value);
+      _invRows[idx].client_name = job.client_name || '';
+      _invRows[idx].site_address = [job.site_address, job.site_suburb].filter(Boolean).join(', ');
+    }
     // Re-render to show/hide client fields
     _syncRowsFromDOM();
     renderInvoiceBuilder();
   };
+
+  window.invJobSearch = function(idx) {
+    var el = document.getElementById('ir_job_' + idx);
+    if (!el) return;
+    _invRows[idx].job_text = el.value;
+    clearTimeout(_jobSearchTimer);
+    var q = (el.value || '').trim();
+    if (q.length < 2) return;
+    _jobSearchTimer = setTimeout(function() { loadInvoiceJobOptions(q); }, 250);
+  };
+
+  function loadInvoiceJobOptions(q) {
+    api('search_all_jobs', q ? { q: q } : undefined).then(function(res) {
+      var dl = document.getElementById('invJobList');
+      if (!dl) return;
+      _knownJobNumbers = [];
+      _knownJobByNumber = {};
+      var h = '';
+      (res.jobs || []).forEach(function(j) {
+        if (!j.job_number) return;
+        _knownJobNumbers.push(j.job_number);
+        _knownJobByNumber[j.job_number] = j;
+        var typeLabel = j.type ? String(j.type).replace(/_/g, ' ') : 'job';
+        h += '<option value="' + esc(j.job_number || '') + '">' + esc((j.job_number || '') + ' — ' + typeLabel + ' — ' + (j.client_name || '') + (j.site_suburb ? ' (' + j.site_suburb + ')' : '')) + '</option>';
+      });
+      dl.innerHTML = h;
+    }).catch(function() {});
+  }
 
   window.addInvRow = function() {
     _syncRowsFromDOM();
@@ -11925,7 +11950,7 @@
 
   // ════════════════════════════════════════════════════════════════════════════
   // JOB-CENTRIC INVOICE (cutover path) — one card per whitelisted assignment.
-  // Hours are TYPED (clock data is dead); rate is server-resolved + display-only.
+  // Hours, rate and description are editable; client-entered rates go to ops review.
   // ════════════════════════════════════════════════════════════════════════════
 
   // Typical-hours hint per job type (placeholder only — never auto-applied).
@@ -11952,6 +11977,9 @@
         job_type: job.type || '',
         scheduled_date: a.scheduled_date || '',
         hours: prefilled ? Number(a.hours_worked) : null,
+        rate: Number(data.rate || _tradeRate || 0),
+        rate_source: 'server_resolved',
+        description: '',
         hours_prefilled: prefilled,
         included: true
       });
@@ -11970,7 +11998,7 @@
     html += '<div class="inv-section-label" style="margin-top:16px">Your jobs this week</div>';
 
     if (!rateResolved) {
-      html += '<div style="background:rgba(231,76,60,0.1);border:1px solid #e74c3c;color:#c0392b;padding:10px 12px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:10px">&#9888; Rate not set — contact the office. You cannot submit until your rate is configured.</div>';
+      html += '<div style="background:rgba(241,90,41,0.08);border:1px solid var(--sw-orange);color:var(--sw-mid);padding:10px 12px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:10px">No saved rate found. Enter your hourly rate on each row; the office will verify it before approval.</div>';
     }
     if (!_jobCards.length) {
       html += '<div class="hours-no-data">No jobs to invoice this week. Use Extras below for anything else.</div>';
@@ -11997,7 +12025,8 @@
       html += '</div>';
 
       byDay[dk].forEach(function(c) {
-        var lineAmt = (c.included && c.hours != null && rateResolved) ? Math.round(c.hours * rate * 100) / 100 : 0;
+        var rowRate = Number(c.rate || rate || 0);
+        var lineAmt = (c.included && c.hours != null && rowRate > 0) ? Math.round(c.hours * rowRate * 100) / 100 : 0;
         html += '<div class="jc-card" data-card="' + c._idx + '" style="border:1px solid var(--sw-border);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:var(--sw-card);' + (c.included ? '' : 'opacity:0.5') + '">';
         html += '<div style="display:flex;align-items:flex-start;gap:10px">';
         html += '<input type="checkbox" ' + (c.included ? 'checked' : '') + ' onchange="toggleJobCard(' + c._idx + ',this.checked)" style="margin-top:3px;width:18px;height:18px">';
@@ -12012,10 +12041,14 @@
           + 'placeholder="' + (_typicalHoursHint(c.job_type) ? ('typ ' + _typicalHoursHint(c.job_type) + 'h') : 'hrs') + '" '
           + 'onchange="setJobCardHours(' + c._idx + ',this.value)" '
           + 'style="width:70px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px">';
-        // Rate is DISPLAY-ONLY (server-resolved). Never an editable price field. [leak #14 / F2]
-        html += '<span style="font-size:12px;color:var(--sw-text-sec)">@ $' + rate.toFixed(2) + '/hr</span>';
+        html += '<label style="font-size:12px;color:var(--sw-text-sec)">Rate</label>';
+        html += '<input type="number" min="0" step="0.01" inputmode="decimal" data-cardrate="' + c._idx + '" '
+          + 'value="' + (rowRate || '') + '" '
+          + 'onchange="setJobCardRate(' + c._idx + ',this.value)" '
+          + 'style="width:78px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px">';
         html += '<span data-cardamt="' + c._idx + '" style="font-size:13px;font-weight:700;color:var(--sw-dark);margin-left:auto">$' + lineAmt.toFixed(2) + '</span>';
         html += '</div>';
+        html += '<input type="text" value="' + esc(c.description || '') + '" placeholder="Description of work" onchange="setJobCardDescription(' + c._idx + ',this.value)" style="width:100%;margin-top:6px;padding:7px 9px;border:1px solid var(--sw-border);border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
         if (!c.hours_prefilled) html += '<div style="font-size:10px;color:var(--sw-text-sec);margin-top:2px">Not clocked — enter the hours you worked.</div>';
         html += '</div></div></div>';
       });
@@ -12030,7 +12063,7 @@
     var data = _hoursData || {};
     var rate = Number(data.rate || _tradeRate || 0);
     var sub = 0;
-    _jobCards.forEach(function(c) { if (c.included && c.hours != null) sub += c.hours * rate; });
+    _jobCards.forEach(function(c) { if (c.included && c.hours != null) sub += c.hours * Number(c.rate || rate || 0); });
     return 'Labour subtotal: $' + (Math.round(sub * 100) / 100).toFixed(2);
   }
 
@@ -12039,6 +12072,17 @@
     var n = parseFloat(val);
     c.hours = (isNaN(n) || n < 0) ? null : n;
     _refreshJobCardLine(idx);
+  };
+  window.setJobCardRate = function(idx, val) {
+    var c = _jobCards[idx]; if (!c) return;
+    var n = parseFloat(val);
+    c.rate = (isNaN(n) || n < 0) ? 0 : n;
+    c.rate_source = 'client_entered';
+    _refreshJobCardLine(idx);
+  };
+  window.setJobCardDescription = function(idx, val) {
+    var c = _jobCards[idx]; if (!c) return;
+    c.description = val || '';
   };
   window.toggleJobCard = function(idx, on) {
     var c = _jobCards[idx]; if (!c) return;
@@ -12067,29 +12111,35 @@
     var rate = Number(data.rate || _tradeRate || 0);
     var c = _jobCards[idx];
     var amtEl = document.querySelector('[data-cardamt="' + idx + '"]');
-    if (amtEl) amtEl.textContent = '$' + ((c && c.included && c.hours != null) ? (Math.round(c.hours * rate * 100) / 100).toFixed(2) : '0.00');
+    var rowRate = c ? Number(c.rate || rate || 0) : rate;
+    if (amtEl) amtEl.textContent = '$' + ((c && c.included && c.hours != null) ? (Math.round(c.hours * rowRate * 100) / 100).toFixed(2) : '0.00');
     var tot = document.getElementById('jcRunningTotal');
     if (tot) tot.textContent = _jobCardsTotalStr();
   }
 
-  // Submit the job-centric invoice: manual_assignments (NO rate) + any extras.
+  // Submit the job-centric invoice: manual_assignments + any extras.
   window.submitJobCentricInvoice = function() {
     var data = _hoursData || {};
-    if (data.rate_resolved === false || !(Number(data.rate) > 0)) {
-      toast('Rate not set — contact the office before submitting', true); return;
-    }
     var included = _jobCards.filter(function(c) { return c.included; });
-    var missing = included.filter(function(c) { return c.hours == null || c.hours <= 0; });
-    if (included.length === 0) { toast('Select at least one job, or use Extras', true); return; }
-    if (missing.length > 0) { toast('Enter hours for every selected job (' + missing.length + ' missing)', true); return; }
+    var missing = included.filter(function(c) { return c.hours == null || c.hours <= 0 || !(Number(c.rate) > 0) || !c.description; });
+    if (missing.length > 0) { toast('Enter hours, rate and description for every selected job (' + missing.length + ' incomplete)', true); return; }
 
-    var manualAssignments = included.map(function(c) { return { assignment_id: c.assignment_id, hours: c.hours }; });
+    var manualAssignments = included.map(function(c) {
+      return {
+        assignment_id: c.assignment_id,
+        hours: c.hours,
+        rate: Number(c.rate || 0),
+        rate_source: c.rate_source || 'server_resolved',
+        description: c.description || ''
+      };
+    });
     // Extras (manual adjustments) still ride along — path preserved.
     _syncRowsFromDOM();
     var extraItems = _manualInvoiceRows(_invRows).filter(function(r) { return r.hours > 0 || r.description; }).map(_rowToExtraItem);
+    if (included.length === 0 && extraItems.length === 0) { toast('Select a job or add an extra', true); return; }
 
-    var rate = Number(data.rate);
-    var sub = included.reduce(function(s, c) { return s + c.hours * rate; }, 0);
+    var sub = included.reduce(function(s, c) { return s + c.hours * Number(c.rate || data.rate || 0); }, 0);
+    extraItems.forEach(function(e) { sub += (Number(e.quantity || 0) * Number(e.rate || 0)); });
 
     showConfirm('Submit Invoice', 'Submit ' + included.length + ' job' + (included.length > 1 ? 's' : '') + ' (' + _jobCardsTotalStr().replace('Labour subtotal: ', '') + ')?\n\nManual hours are verified by the office before payment.', 'Submit').then(function(ok) {
       if (!ok) return;
@@ -12291,18 +12341,7 @@
     container.innerHTML = html;
     _saveInvDraft(); // persist draft to sessionStorage
 
-    // Load all jobs for autocomplete
-    api('search_all_jobs').then(function(res) {
-      var dl = document.getElementById('invJobList');
-      if (!dl) return;
-      _knownJobNumbers = [];
-      var h = '';
-      (res.jobs || []).forEach(function(j) {
-        if (j.job_number) _knownJobNumbers.push(j.job_number);
-        h += '<option value="' + esc(j.job_number || '') + '">' + esc((j.job_number || '') + ' — ' + (j.client_name || '') + (j.site_suburb ? ' (' + j.site_suburb + ')' : '')) + '</option>';
-      });
-      dl.innerHTML = h;
-    }).catch(function() {});
+    loadInvoiceJobOptions('');
 
     // Load crew charges async (leads only)
     if (isLead && !isExpense && _hoursWeekStart) {
@@ -12407,11 +12446,10 @@
     manualRows.forEach(function(r, idx) {
       if (r._source === 'edited') errors.push('Edited clocked rows cannot be submitted as base hours — add a misc adjustment instead');
       if (!r.division) errors.push('Extra row ' + (idx + 1) + ': select type of work');
+      if (!r.job_text) errors.push('Extra row ' + (idx + 1) + ': select a job number');
       if (!r.description) errors.push('Extra row ' + (idx + 1) + ': enter a description');
-      // If no job number selected, require client name + address
-      var hasJob = r.job_text && _knownJobNumbers && _knownJobNumbers.indexOf(r.job_text) >= 0;
-      if (!hasJob && !r.client_name) errors.push('Extra row ' + (idx + 1) + ': enter client name (no job selected)');
-      if (!hasJob && !r.site_address) errors.push('Extra row ' + (idx + 1) + ': enter site address (no job selected)');
+      if (!(Number(r.hours) > 0)) errors.push('Extra row ' + (idx + 1) + ': enter hours');
+      if (!(Number(r.rate) > 0)) errors.push('Extra row ' + (idx + 1) + ': enter rate');
     });
     if (errors.length > 0) { toast(errors[0], true); return; }
 
