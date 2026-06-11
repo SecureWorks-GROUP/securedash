@@ -8700,6 +8700,99 @@ function getMakesafeInvoiceLabel(j, status) {
 function renderMakesafeTinyBadge(label, color) {
   return '<span style="font-size:10px;padding:2px 6px;border-radius:10px;background:' + color + '20;color:' + color + ';font-weight:700;white-space:nowrap;">' + escapeHtml(label) + '</span>';
 }
+
+// ── Make-safe card status icon row ──
+// Compact, scannable per-card status: one small tile each for Work Order (W),
+// Report (R), SWMS (S), Invoice ($), and "emailed to builder" / sent (➤).
+// Replaces the verbose pill stack so a whole column reads at a glance. Drives off
+// the makesafe_pipeline list payload fields (has_wo / has_report_doc /
+// has_swms_doc / has_invoice_doc / missing_docs / invoice_status / report_status /
+// requesting_company_slug) — see data notes inline below.
+//
+// Why letter/symbol tiles, not emoji icons: emoji glyphs (clipboard/page/shield/
+// envelope) render in fixed full colour on most platforms and ignore CSS `color`,
+// so they cannot carry the green/amber/red state. Text-style letters and symbols
+// honour `color` reliably, tint cleanly, and stay crisp at 21px. The TYPE is the
+// glyph (W/R/S/$/➤), the STATE is the colour — two independent channels.
+//
+// Color-blind safety: type is encoded by the glyph (shape, not colour), state is
+// reinforced by a full-words title + aria-label tooltip on every tile, and the
+// not-applicable state is also faded so colour is never the sole signal.
+//
+// States: done=green, pending=amber (normal, not yet), missing=red (expected but
+// absent, per missing_docs), na=grey/faded (not applicable, e.g. SWMS for non-MLB).
+var MAKESAFE_ICON_STATE_COLORS = {
+  done:    '#27AE60', // --sw-green
+  pending: '#E67E22', // --sw-yellow (amber)
+  missing: '#E74C3C', // --sw-red
+  na:      '#8FA4B2'  // --sw-text-sec (grey)
+};
+function makesafeMissingDocsSet(j) {
+  var raw = j.missing_docs;
+  var set = {};
+  if (Array.isArray(raw)) raw.forEach(function(d) { set[String(d).toLowerCase()] = true; });
+  return set;
+}
+function renderMakesafeStatusTile(glyph, state, label) {
+  var color = MAKESAFE_ICON_STATE_COLORS[state] || MAKESAFE_ICON_STATE_COLORS.na;
+  var faded = state === 'na';
+  // Glyph = type, colour = state, tooltip = words; NA tiles are also faded so
+  // colour is never the sole signal. role=img + aria-label/title give screen-reader
+  // + hover text. cursor:default so it doesn't look separately clickable.
+  return '<span role="img" aria-label="' + escapeHtml(label) + '" title="' + escapeHtml(label) + '"'
+    + ' style="display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;'
+    + 'border-radius:6px;font-size:11px;font-weight:800;line-height:1;cursor:default;'
+    + 'background:' + color + (faded ? '14' : '22') + ';'
+    + 'color:' + color + ';opacity:' + (faded ? '0.55' : '1') + ';">' + glyph + '</span>';
+}
+function renderMakesafeStatusIcons(j, status) {
+  var missing = makesafeMissingDocsSet(j);
+  var slug = String(j.requesting_company_slug || '').toLowerCase();
+  var builder = getMakesafeBuilder(j) || 'this builder';
+  var tiles = [];
+
+  // 1) Work Order (W)
+  if (j.has_wo) tiles.push(renderMakesafeStatusTile('W', 'done', 'Work order: attached'));
+  else if (missing.wo || missing.work_order) tiles.push(renderMakesafeStatusTile('W', 'missing', 'Work order: missing'));
+  else tiles.push(renderMakesafeStatusTile('W', 'pending', 'Work order: not yet attached'));
+
+  // 2) Make-safe report (R)
+  if (j.has_report_doc) tiles.push(renderMakesafeStatusTile('R', 'done', 'Report: attached'));
+  else if (missing.report) tiles.push(renderMakesafeStatusTile('R', 'missing', 'Report: missing (expected)'));
+  else tiles.push(renderMakesafeStatusTile('R', 'pending', 'Report: awaiting trade report'));
+
+  // 3) SWMS (S) — only relevant for MLB; neutral/faded for everyone else.
+  if (slug !== 'mlb') {
+    tiles.push(renderMakesafeStatusTile('S', 'na', 'SWMS: not required for ' + builder));
+  } else if (j.has_swms_doc) {
+    tiles.push(renderMakesafeStatusTile('S', 'done', 'SWMS: attached'));
+  } else if (missing.swms) {
+    tiles.push(renderMakesafeStatusTile('S', 'missing', 'SWMS: missing (required for MLB)'));
+  } else {
+    tiles.push(renderMakesafeStatusTile('S', 'pending', 'SWMS: needed for MLB'));
+  }
+
+  // 4) Invoice ($) — driven by invoice_status, escalated to missing if flagged.
+  var inv = String(j.invoice_status || '').toLowerCase();
+  if (inv === 'paid') tiles.push(renderMakesafeStatusTile('$', 'done', 'Invoice: paid'));
+  else if (inv === 'invoiced') tiles.push(renderMakesafeStatusTile('$', 'done', 'Invoice: invoiced'));
+  else if (missing.invoice) tiles.push(renderMakesafeStatusTile('$', 'missing', 'Invoice: missing (expected)'));
+  else if (inv === 'draft' || inv === 'report_ready') tiles.push(renderMakesafeStatusTile('$', 'pending', 'Invoice: draft / not sent'));
+  else if (!inv || inv === 'not_ready') tiles.push(renderMakesafeStatusTile('$', 'na', 'Invoice: not ready yet'));
+  else tiles.push(renderMakesafeStatusTile('$', 'pending', 'Invoice: ' + inv));
+
+  // 5) Emailed to builder / sent (➤). The precise per-send timestamp lives in the
+  // job's send log (MAKESAFE_PACK_SENT marker in events[]) which is NOT in the board
+  // list payload, so the board uses the lifecycle proxy report_status==='processed'
+  // (the state a job reaches once the report+invoice pack is sent). Tooltip is
+  // explicit; open the card to see the exact send log. (See PR: a dedicated
+  // pack_sent_at on the pipeline payload would make this exact rather than a proxy.)
+  var processed = String(j.report_status || '').toLowerCase() === 'processed';
+  if (processed) tiles.push(renderMakesafeStatusTile('&#10148;', 'done', 'Pack sent to builder (open card for send log)'));
+  else tiles.push(renderMakesafeStatusTile('&#10148;', 'pending', 'Not yet emailed to builder'));
+
+  return '<div role="group" aria-label="Make-safe document and send status" style="display:flex;gap:5px;align-items:center;margin-top:8px;">' + tiles.join('') + '</div>';
+}
 function makesafeUiStageLabel(stage) {
   return ({ new: 'New', allocated: 'Allocated', report_ready: 'Report Ready', completed: 'Completed This Week', archive: 'Archive' })[stage] || stage;
 }
@@ -8725,11 +8818,6 @@ function renderMakesafeCard(j, status) {
   var intakeLabel = intake ? fmtDate(String(intake).slice(0, 10)) : 'Intake n/a';
   var crew = getMakesafeCrewLabel(j);
   var day = getMakesafeDayLabel(j);
-  var report = getMakesafeReportLabel(j, status);
-  var invoice = getMakesafeInvoiceLabel(j, status);
-  var woCount = Number(j.wo_count || j.work_order_count || 0);
-  var docCount = Number(j.document_count || j.docs_count || j.doc_count || 0);
-  var docSignal = (woCount > 0 ? 'WO ✓' : 'WO missing') + (docCount > 0 ? ' · ' + docCount + ' doc' + (docCount === 1 ? '' : 's') : ' · no docs');
   var html = '<div class="kanban-card" draggable="true" data-job-id="' + j.id + '" data-status="' + status + '" onclick="openJobDetail(\'' + j.id + '\')" onmouseenter="hoverJobCard(event,\'' + j.id + '\')" onmouseleave="hideJobHover()" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)" style="border-left:4px solid ' + age.color + ';">';
 
   html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">';
@@ -8753,11 +8841,10 @@ function renderMakesafeCard(j, status) {
   if (assignmentCount > 1) html += '<span>Individuals: <strong>' + escapeHtml(crew || (assignmentCount + ' assigned')) + '</strong></span>';
   html += '</div>';
 
-  html += '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;">';
-  html += renderMakesafeTinyBadge(report.label, report.color);
-  html += renderMakesafeTinyBadge(invoice.label, invoice.color);
-  html += renderMakesafeTinyBadge(docSignal, woCount > 0 ? '#27AE60' : '#F39C12');
-  html += '</div>';
+  // Compact, scannable status icon row (WO / Report / SWMS / Invoice / Sent),
+  // colour-coded with hover tooltips — replaces the old verbose pill stack so a
+  // whole column reads at a glance. See renderMakesafeStatusIcons for state mapping.
+  html += renderMakesafeStatusIcons(j, status);
 
   if (status === 'new' || getMakesafeSubstatus(j) === 'pending_allocation') {
     html += '<button onclick="event.stopPropagation();openQuickAllocateModal(\'' + j.id + '\',\'' + escapeHtml((suburb || j.client_name || '').replace(/'/g, '')) + '\')" style="width:100%;font-size:11px;padding:6px 8px;background:#E67E22;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:800;margin-top:8px;">Allocate for tomorrow</button>';
