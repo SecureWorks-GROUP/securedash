@@ -12063,10 +12063,29 @@
         var badge = c.job_type ? '<span style="font-size:10px;font-weight:700;text-transform:uppercase;background:rgba(241,90,41,0.1);color:var(--sw-orange);padding:1px 6px;border-radius:4px;margin-left:6px">' + esc(c.job_type) + '</span>' : '';
         html += '<div style="font-size:14px;font-weight:700;color:var(--sw-dark)">' + esc(c.job_number || 'Job') + badge + '</div>';
         html += '<div style="font-size:12px;color:var(--sw-text-sec)">' + esc(c.client_name || '') + (c.site_suburb ? ' — ' + esc(c.site_suburb) : '') + '</div>';
-        // Work-order invoicing mode toggle: swaps hours×rate for WO allocated −
-        // labour = net payable (manual inputs only for now). [Q15]
-        html += '<label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--sw-mid);margin-top:6px"><input type="checkbox" ' + (c.wo_mode ? 'checked' : '') + ' onchange="toggleJobCardWoMode(' + c._idx + ',this.checked)" style="width:15px;height:15px">Invoice by work order</label>';
-        if (c.wo_mode) {
+        // Card mode segmented control: hours | work-order | commission [Q15, Q16]
+        var cardMode = c.commission_mode ? 'commission' : (c.wo_mode ? 'work_order' : 'hours');
+        html += '<div style="display:flex;gap:0;margin-top:8px;border:1px solid var(--sw-border);border-radius:8px;overflow:hidden;width:fit-content">';
+        var modeStyles = 'font-size:11px;font-weight:600;padding:5px 11px;cursor:pointer;border:none;outline:none;transition:background 0.15s,color 0.15s;';
+        var modeActive = 'background:var(--sw-dark);color:#fff;';
+        var modeInactive = 'background:var(--sw-card);color:var(--sw-text-sec);';
+        html += '<button type="button" style="' + modeStyles + (cardMode === 'hours' ? modeActive : modeInactive) + '" onclick="setJobCardMode(' + c._idx + ',\'hours\')">Hours</button>';
+        html += '<button type="button" style="' + modeStyles + 'border-left:1px solid var(--sw-border);' + (cardMode === 'work_order' ? modeActive : modeInactive) + '" onclick="setJobCardMode(' + c._idx + ',\'work_order\')">Work Order</button>';
+        html += '<button type="button" style="' + modeStyles + 'border-left:1px solid var(--sw-border);' + (cardMode === 'commission' ? modeActive : modeInactive) + '" onclick="setJobCardMode(' + c._idx + ',\'commission\')">Commission</button>';
+        html += '</div>';
+        if (cardMode === 'commission') {
+          // Commission mode [Q16]: single amount input, description auto-fills.
+          var commAmt = c.commission_amount != null ? c.commission_amount : '';
+          html += '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">';
+          html += '<label style="font-size:12px;color:var(--sw-text-sec)">Commission amount $</label>';
+          html += '<input type="number" min="0" step="0.01" inputmode="decimal" data-cardcommamt="' + c._idx + '" '
+            + 'value="' + commAmt + '" placeholder="0.00" '
+            + 'onchange="setJobCardCommission(' + c._idx + ',this.value)" '
+            + 'style="width:110px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px">';
+          html += '<span data-cardamt="' + c._idx + '" style="font-size:20px;font-weight:800;color:var(--sw-dark)">$' + (c.included && Number(commAmt) > 0 ? Number(commAmt).toFixed(2) : '0.00') + '</span>';
+          html += '</div>';
+          html += '<div data-cardcommwarn="' + c._idx + '" style="display:' + (c.included && !(Number(commAmt) > 0) ? 'block' : 'none') + ';font-size:11px;color:var(--sw-red);font-weight:600;margin-top:2px">Enter a commission amount before submitting.</div>';
+        } else if (cardMode === 'work_order') {
           var net = _woNet(c);
           html += '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap">';
           html += '<label style="font-size:12px;color:var(--sw-text-sec)">WO allocated $</label>';
@@ -12102,10 +12121,14 @@
           html += '<span data-cardamt="' + c._idx + '" style="font-size:13px;font-weight:700;color:var(--sw-dark);margin-left:auto">$' + lineAmt.toFixed(2) + '</span>';
           html += '</div>';
         }
-        html += '<input type="text" value="' + esc(c.description || '') + '" placeholder="Description of work' + (c.wo_mode ? ' (optional — breakdown auto-added)' : '') + '" onchange="setJobCardDescription(' + c._idx + ',this.value)" style="width:100%;margin-top:6px;padding:7px 9px;border:1px solid var(--sw-border);border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box">';
+        // Description: auto-filled for commission; optional annotation for WO; required for hours.
+        var commAutoDesc = cardMode === 'commission' ? ('Commission — ' + esc(c.job_number || '') + ' — ' + esc(c.client_name || '')) : '';
+        var descPlaceholder = cardMode === 'commission' ? 'Auto-filled: Commission — job — client' : (cardMode === 'work_order' ? 'Description (optional — breakdown auto-added)' : 'Description of work');
+        var descVal = cardMode === 'commission' ? commAutoDesc : esc(c.description || '');
+        html += '<input type="text" value="' + descVal + '" placeholder="' + descPlaceholder + '" ' + (cardMode === 'commission' ? 'readonly style="width:100%;margin-top:6px;padding:7px 9px;border:1px solid var(--sw-border);border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-text-sec);box-sizing:border-box;background:rgba(0,0,0,0.03)"' : 'onchange="setJobCardDescription(' + c._idx + ',this.value)" style="width:100%;margin-top:6px;padding:7px 9px;border:1px solid var(--sw-border);border-radius:7px;font-size:12px;font-family:var(--sw-font);color:var(--sw-dark);box-sizing:border-box"') + '>';
         if (c.manually_added) {
           html += '<div style="font-size:10px;color:var(--sw-text-sec);margin-top:2px">Added by you — the office will verify. <a href="#" onclick="event.preventDefault();removeManualJobCard(' + c._idx + ')" style="color:var(--sw-red);font-weight:600">Remove</a></div>';
-        } else if (!c.hours_prefilled && !c.wo_mode) {
+        } else if (!c.hours_prefilled && cardMode === 'hours') {
           html += '<div style="font-size:10px;color:var(--sw-text-sec);margin-top:2px">Not clocked — enter the hours you worked.</div>';
         }
         html += '</div></div></div>';
@@ -12123,7 +12146,10 @@
     var sub = 0;
     _jobCards.forEach(function(c) {
       if (!c.included) return;
-      if (c.wo_mode) {
+      if (c.commission_mode) {
+        var ca = Number(c.commission_amount);
+        if (ca > 0) sub += ca;
+      } else if (c.wo_mode) {
         var n = _woNet(c);
         if (n > 0) sub += n;
       } else if (c.hours != null) {
@@ -12242,12 +12268,25 @@
     renderInvoiceBuilder();
   };
 
-  // ── Work-order invoicing mode (Q15 ADD 2) ──────────────────────────────
-  window.toggleJobCardWoMode = function(idx, on) {
+  // ── Card mode switcher: hours | work_order | commission [Q15, Q16] ──────
+  window.setJobCardMode = function(idx, mode) {
     var c = _jobCards[idx]; if (!c) return;
-    c.wo_mode = !!on;
+    c.wo_mode = (mode === 'work_order');
+    c.commission_mode = (mode === 'commission');
     renderInvoiceBuilder();
   };
+  // Legacy toggle preserved for any code still referencing it.
+  window.toggleJobCardWoMode = function(idx, on) {
+    window.setJobCardMode(idx, on ? 'work_order' : 'hours');
+  };
+  // ── Commission amount setter [Q16] ────────────────────────────────────
+  window.setJobCardCommission = function(idx, val) {
+    var c = _jobCards[idx]; if (!c) return;
+    var n = parseFloat(val);
+    c.commission_amount = (isNaN(n) || n < 0) ? null : n;
+    _refreshJobCardLine(idx);
+  };
+  // ── Work-order invoicing mode (Q15 ADD 2) ──────────────────────────────
   window.setJobCardWoAllocated = function(idx, val) {
     var c = _jobCards[idx]; if (!c) return;
     var n = parseFloat(val);
@@ -12292,8 +12331,8 @@
     if (isNaN(n) || n < 0) { toast('Enter a valid hours value', true); return; }
     _jobCards.forEach(function(c, i) {
       // Apply to empty hourly cards in this day only (don't clobber explicit
-      // entries; WO-mode cards have no hours input). [U1]
-      if (c.scheduled_date === dk && (c.hours == null) && !c.wo_mode) {
+      // entries; WO-mode and commission-mode cards have no hours input). [U1]
+      if (c.scheduled_date === dk && (c.hours == null) && !c.wo_mode && !c.commission_mode) {
         c.hours = n;
         var f = document.querySelector('input[data-cardhours="' + i + '"]');
         if (f) f.value = n;
@@ -12306,7 +12345,16 @@
     var rate = Number(data.rate || _tradeRate || 0);
     var c = _jobCards[idx];
     var amtEl = document.querySelector('[data-cardamt="' + idx + '"]');
-    if (c && c.wo_mode) {
+    if (c && c.commission_mode) {
+      // Commission mode: amount = commission_amount entered.
+      var ca = Number(c.commission_amount);
+      if (amtEl) {
+        amtEl.textContent = '$' + (c.included && ca > 0 ? ca.toFixed(2) : '0.00');
+        amtEl.style.color = 'var(--sw-dark)';
+      }
+      var commWarn = document.querySelector('[data-cardcommwarn="' + idx + '"]');
+      if (commWarn) commWarn.style.display = (c.included && !(ca > 0)) ? 'block' : 'none';
+    } else if (c && c.wo_mode) {
       // WO mode: amount = net (allocated − labour); negative shows red + warning.
       var net = _woNet(c);
       if (amtEl) {
@@ -12346,20 +12394,44 @@
   function _buildJobCentricPayload(cards) {
     var included = (cards || []).filter(function(c) { return c.included; });
 
+    var commMissing = included.filter(function(c) { return c.commission_mode && !(Number(c.commission_amount) > 0); });
+    if (commMissing.length > 0) return { error: 'Enter a commission amount on every commission row before submitting (' + commMissing.length + ' missing)' };
     var woMissing = included.filter(function(c) { return c.wo_mode && !(Number(c.wo_allocated) > 0); });
     if (woMissing.length > 0) return { error: 'Enter the WO allocated amount on every work-order row (' + woMissing.length + ' missing)' };
     var woNeg = included.filter(function(c) { return c.wo_mode && _woNet(c) < 0; });
     if (woNeg.length > 0) return { error: 'Net payable cannot be negative on ' + (woNeg[0].job_number || 'a job') + ' — the labour deduction is more than the WO allocation. Fix the amounts before submitting.' };
     var woZero = included.filter(function(c) { return c.wo_mode && _woNet(c) === 0; });
     if (woZero.length > 0) return { error: 'Net payable is $0.00 on ' + (woZero[0].job_number || 'a job') + ' — untick the job or fix the amounts' };
-    var missing = included.filter(function(c) { return !c.wo_mode && (c.hours == null || c.hours <= 0 || !(Number(c.rate) > 0) || !c.description); });
+    var missing = included.filter(function(c) { return !c.wo_mode && !c.commission_mode && (c.hours == null || c.hours <= 0 || !(Number(c.rate) > 0) || !c.description); });
     if (missing.length > 0) return { error: 'Enter hours, rate and description for every selected job (' + missing.length + ' incomplete)' };
 
     var manualAssignments = [];
     var cardExtraItems = [];
     var subtotal = 0;
     included.forEach(function(c) {
-      if (c.wo_mode) {
+      if (c.commission_mode) {
+        var commAmt = Number(c.commission_amount) || 0;
+        subtotal += commAmt;
+        var autoDesc = 'Commission — ' + (c.job_number || '') + ' — ' + (c.client_name || '');
+        cardExtraItems.push({
+          type: 'Commission',
+          row_type: 'commission',
+          description: autoDesc,
+          quantity: 1,
+          unit: 'ea',
+          rate: commAmt,
+          commission_amount: commAmt,
+          date: c.scheduled_date || null,
+          job_id: c.job_id || null,
+          job_number: c.job_number || '',
+          division: c.job_type || '',
+          client_name: c.client_name || '',
+          manually_added: !!c.manually_added,
+          source: c.manually_added ? 'manual_job_search' : 'assigned_card',
+          rate_source: 'client_entered',
+          client_rate_entered: true
+        });
+      } else if (c.wo_mode) {
         var net = _woNet(c);
         subtotal += net;
         cardExtraItems.push({
