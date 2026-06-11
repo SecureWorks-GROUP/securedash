@@ -7996,8 +7996,14 @@
     h += '<div><strong>Before (' + beforePhotos.length + ')</strong>' + renderPhotoThumbs(beforePhotos, 'msrBeforeGrid') + '</div>';
     h += '<div><strong>After (' + afterPhotos.length + ')</strong>' + renderPhotoThumbs(afterPhotos, 'msrAfterGrid') + '</div>';
     h += '</div>';
-    h += '<div class="upload-area" onclick="document.getElementById(\'msrPhotoInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;"><svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg><p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Select one or more photos</p></div>';
-    h += '<input type="file" id="msrPhotoInput" accept="image/*" multiple style="display:none" onchange="handleMsrPhotoUpload(this, \'completion\')">';
+    h += '<label for="msrPhotoPhase" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px;color:var(--sw-dark);">Photo category</label>';
+    h += '<select id="msrPhotoPhase" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:13px;margin-bottom:8px;background:#fff;box-sizing:border-box;">';
+    h += '<option value="front_elevation">Front elevation / property context</option>';
+    h += '<option value="scope">Before / damage photos</option>';
+    h += '<option value="completion" selected>After / completed photos</option>';
+    h += '</select>';
+    h += '<div class="upload-area" onclick="document.getElementById(\'msrPhotoInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;"><svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg><p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Select one or more photos for the chosen category</p></div>';
+    h += '<input type="file" id="msrPhotoInput" accept="image/*" multiple style="display:none" onchange="handleMsrPhotoUpload(this, ((document.getElementById(\'msrPhotoPhase\') || {}).value || \'completion\'))">';
     h += '<div class="upload-progress" id="msrUnifiedProgress" style="display:none"><span id="msrUnifiedProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrUnifiedProgressFill"></div></div></div>';
     h += '</div>';
 
