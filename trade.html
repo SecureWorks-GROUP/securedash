@@ -4151,13 +4151,23 @@
     sections.forEach(function(sec) {
       var items = sec.key === 'today' ? todayJobs : (data[sec.key] || []);
       if (items.length === 0) return;
-      // Apply filter: if filter is 'today' only show today section, 'thisWeek' only today+thisWeek
-      if (_jobFilter === 'today' && sec.key !== 'today') return;
+      // Apply filter: if filter is 'today' only show today section, 'thisWeek' only today+thisWeek.
+      // Exception: on the Today view we still surface the crew's own allocated make-safes
+      // (future-dated named assignments) so an allocation is never hidden behind the filter.
+      var makesafeOnly = false;
+      if (_jobFilter === 'today' && sec.key !== 'today') {
+        if (sec.key === 'thisWeek' || sec.key === 'upcoming') makesafeOnly = true;
+        else return;
+      }
       if (_jobFilter === 'thisWeek' && sec.key !== 'today' && sec.key !== 'thisWeek') return;
       // Apply search + status filter
       var filtered = items.filter(function(a) {
         return matchesSearch(a, query) && matchesFilter(a, _jobFilter);
       });
+      // On the Today view, the borrowed thisWeek/upcoming sections show make-safes only.
+      if (makesafeOnly) {
+        filtered = filtered.filter(function(a) { return getTradeJobType(a.jobs || {}, a) === 'makesafe'; });
+      }
       if (filtered.length === 0) return;
       // Deduplicate by job_id in admin view — group multiple crew assignments into one card
       if (data._adminView && sec.key !== 'makesafePool') {
@@ -4178,7 +4188,10 @@
         filtered = Object.keys(byJob).map(function(k) { return byJob[k]; });
       }
       hasAny = true;
-      var sectionLabel = (_jobFilter === 'today' && sec.key === 'today' ? 'Today Route' : sec.label) + ' (' + filtered.length + ')';
+      var baseLabel = makesafeOnly
+        ? ('Allocated Make-Safe · ' + sec.label)
+        : (_jobFilter === 'today' && sec.key === 'today' ? 'Today Route' : sec.label);
+      var sectionLabel = baseLabel + ' (' + filtered.length + ')';
       html += '<div class="section-label">' + sectionLabel + '</div>';
       if (sec.key === 'makesafePool') {
         html += '<div style="font-size:12px;color:var(--sw-text-sec);margin:-8px 0 10px">Open MakeSafe pool. Tap a card to open the report when ops has released/left it open.</div>';
