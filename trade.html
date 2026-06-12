@@ -12087,18 +12087,41 @@
           html += '<div data-cardcommwarn="' + c._idx + '" style="display:' + (c.included && !(Number(commAmt) > 0) ? 'block' : 'none') + ';font-size:11px;color:var(--sw-red);font-weight:600;margin-top:2px">Enter a commission amount before submitting.</div>';
         } else if (cardMode === 'work_order') {
           var net = _woNet(c);
+          var labourLines = Array.isArray(c.wo_labour_lines) ? c.wo_labour_lines : [];
+          // WO allocated input
           html += '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap">';
           html += '<label style="font-size:12px;color:var(--sw-text-sec)">WO allocated $</label>';
           html += '<input type="number" min="0" step="0.01" inputmode="decimal" data-cardwoalloc="' + c._idx + '" '
             + 'value="' + (c.wo_allocated != null ? c.wo_allocated : '') + '" placeholder="0.00" '
             + 'onchange="setJobCardWoAllocated(' + c._idx + ',this.value)" '
-            + 'style="width:92px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px">';
-          html += '<label style="font-size:12px;color:var(--sw-text-sec)">Labour provided $</label>';
-          html += '<input type="number" min="0" step="0.01" inputmode="decimal" data-cardwolab="' + c._idx + '" '
-            + 'value="' + (c.wo_labour != null ? c.wo_labour : '') + '" placeholder="0.00" '
-            + 'onchange="setJobCardWoLabour(' + c._idx + ',this.value)" '
-            + 'style="width:92px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px">';
+            + 'style="width:110px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px">';
           html += '</div>';
+          // Labour lines list [Q17]
+          html += '<div style="margin-top:8px">';
+          html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--sw-text-sec);margin-bottom:4px">Labour lines</div>';
+          for (var li = 0; li < labourLines.length; li++) {
+            var ll = labourLines[li];
+            var llAmt = Math.round((Number(ll.hours || 0) * Number(ll.rate || 0)) * 100) / 100;
+            html += '<div data-woll="' + c._idx + '_' + li + '" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;background:rgba(0,0,0,0.02);border-radius:8px;padding:6px 8px">';
+            html += '<input type="text" value="' + esc(ll.trade_name || '') + '" placeholder="Name" '
+              + 'onchange="setWoLabourLineName(' + c._idx + ',' + li + ',this.value)" '
+              + 'style="flex:1;min-width:80px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:13px;font-family:var(--sw-font)">';
+            html += '<input type="number" min="0" step="0.25" inputmode="decimal" value="' + (ll.hours != null ? ll.hours : '') + '" placeholder="hrs" '
+              + 'onchange="setWoLabourLineHours(' + c._idx + ',' + li + ',this.value)" '
+              + 'style="width:60px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:13px">';
+            html += '<span style="font-size:11px;color:var(--sw-text-sec)">x</span>';
+            html += '<input type="number" min="0" step="0.01" inputmode="decimal" value="' + (ll.rate != null ? ll.rate : '') + '" placeholder="$/hr" '
+              + 'onchange="setWoLabourLineRate(' + c._idx + ',' + li + ',this.value)" '
+              + 'style="width:70px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:13px">';
+            html += '<span style="font-size:13px;font-weight:700;color:var(--sw-dark);min-width:60px;text-align:right">= $' + llAmt.toFixed(2) + '</span>';
+            html += '<button type="button" onclick="removeWoLabourLine(' + c._idx + ',' + li + ')" '
+              + 'style="background:none;border:none;cursor:pointer;color:var(--sw-red);font-size:15px;padding:0 2px;line-height:1" title="Remove line">&#x2715;</button>';
+            html += '</div>';
+          }
+          html += '<button type="button" onclick="addWoLabourLine(' + c._idx + ')" '
+            + 'style="font-size:12px;font-weight:600;color:var(--sw-orange);background:none;border:1px dashed var(--sw-orange);border-radius:6px;padding:4px 12px;cursor:pointer;margin-top:2px">+ Add labour line</button>';
+          html += '</div>';
+          // Net payable display
           html += '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px">';
           html += '<span style="font-size:12px;color:var(--sw-text-sec)">Net payable</span>';
           html += '<span data-cardamt="' + c._idx + '" style="font-size:20px;font-weight:800;color:' + ((c.included && net < 0) ? 'var(--sw-red)' : 'var(--sw-dark)') + '">$' + (c.included ? net : 0).toFixed(2) + '</span>';
@@ -12293,12 +12316,56 @@
     c.wo_allocated = (isNaN(n) || n < 0) ? null : n;
     _refreshJobCardLine(idx);
   };
-  window.setJobCardWoLabour = function(idx, val) {
+  // ── WO labour line mutations (Q17) ────────────────────────────────────────
+  // Each card's wo_labour_lines = [{trade_name, hours, rate, amount}]
+  // wo_labour_deduction = _woLabourSum(c) — kept for backend compat.
+  window.addWoLabourLine = function(idx) {
     var c = _jobCards[idx]; if (!c) return;
-    var n = parseFloat(val);
-    c.wo_labour = (isNaN(n) || n < 0) ? null : n;
-    _refreshJobCardLine(idx);
+    if (!Array.isArray(c.wo_labour_lines)) c.wo_labour_lines = [];
+    c.wo_labour_lines.push({ trade_name: '', hours: null, rate: null, amount: 0 });
+    renderInvoiceBuilder();
   };
+  window.removeWoLabourLine = function(idx, li) {
+    var c = _jobCards[idx]; if (!c) return;
+    if (!Array.isArray(c.wo_labour_lines)) return;
+    c.wo_labour_lines.splice(li, 1);
+    renderInvoiceBuilder();
+  };
+  window.setWoLabourLineName = function(idx, li, val) {
+    var c = _jobCards[idx]; if (!c || !Array.isArray(c.wo_labour_lines)) return;
+    if (!c.wo_labour_lines[li]) return;
+    c.wo_labour_lines[li].trade_name = val || '';
+    _refreshWoCard(idx);
+  };
+  window.setWoLabourLineHours = function(idx, li, val) {
+    var c = _jobCards[idx]; if (!c || !Array.isArray(c.wo_labour_lines)) return;
+    if (!c.wo_labour_lines[li]) return;
+    var n = parseFloat(val);
+    c.wo_labour_lines[li].hours = (isNaN(n) || n < 0) ? null : n;
+    c.wo_labour_lines[li].amount = Math.round((Number(c.wo_labour_lines[li].hours || 0) * Number(c.wo_labour_lines[li].rate || 0)) * 100) / 100;
+    _refreshWoCard(idx);
+  };
+  window.setWoLabourLineRate = function(idx, li, val) {
+    var c = _jobCards[idx]; if (!c || !Array.isArray(c.wo_labour_lines)) return;
+    if (!c.wo_labour_lines[li]) return;
+    var n = parseFloat(val);
+    c.wo_labour_lines[li].rate = (isNaN(n) || n < 0) ? null : n;
+    c.wo_labour_lines[li].amount = Math.round((Number(c.wo_labour_lines[li].hours || 0) * Number(c.wo_labour_lines[li].rate || 0)) * 100) / 100;
+    _refreshWoCard(idx);
+  };
+  // Lightweight DOM refresh for a WO card (net + breakdown) without full re-render.
+  function _refreshWoCard(idx) {
+    var c = _jobCards[idx]; if (!c) return;
+    // Update each line's amount display
+    var lines = Array.isArray(c.wo_labour_lines) ? c.wo_labour_lines : [];
+    for (var li = 0; li < lines.length; li++) {
+      var ll = lines[li];
+      var llAmt = Math.round((Number(ll.hours || 0) * Number(ll.rate || 0)) * 100) / 100;
+      var llEl = document.querySelector('[data-woll="' + idx + '_' + li + '"] span[style*="min-width:60px"]');
+      if (llEl) llEl.textContent = '= $' + llAmt.toFixed(2);
+    }
+    _refreshJobCardLine(idx);
+  }
 
   window.setJobCardHours = function(idx, val) {
     var c = _jobCards[idx]; if (!c) return;
@@ -12355,7 +12422,7 @@
       var commWarn = document.querySelector('[data-cardcommwarn="' + idx + '"]');
       if (commWarn) commWarn.style.display = (c.included && !(ca > 0)) ? 'block' : 'none';
     } else if (c && c.wo_mode) {
-      // WO mode: amount = net (allocated − labour); negative shows red + warning.
+      // WO mode: amount = net (allocated − sum of labour lines); negative shows red + warning.
       var net = _woNet(c);
       if (amtEl) {
         amtEl.textContent = '$' + (c.included ? net : 0).toFixed(2);
@@ -12380,16 +12447,36 @@
   // extra_items (client-priced lane → pending_ops_review). WO-mode rows carry
   // the full breakdown in the description — ops-api persists description, not
   // the structured wo_* fields, so the description is the audit trail.
+  // _woLabourSum: sum all labour lines from the array (Q17).
+  function _woLabourSum(c) {
+    var lines = Array.isArray(c.wo_labour_lines) ? c.wo_labour_lines : [];
+    var sum = 0;
+    for (var i = 0; i < lines.length; i++) {
+      sum += Math.round((Number(lines[i].hours || 0) * Number(lines[i].rate || 0)) * 100) / 100;
+    }
+    return Math.round(sum * 100) / 100;
+  }
   function _woNet(c) {
-    var a = Number(c.wo_allocated), l = Number(c.wo_labour);
+    var a = Number(c.wo_allocated);
     if (isNaN(a)) a = 0;
-    if (isNaN(l)) l = 0;
+    var l = _woLabourSum(c);
     return Math.round((a - l) * 100) / 100;
   }
+  // Build audit-trail description string: "WO $2000 − labour [Henry 4h×$50=$200; Jose 6h×$45=$270]=net $1530"
   function _woBreakdownText(c) {
     var a = Number(c.wo_allocated) || 0;
-    var l = Number(c.wo_labour) || 0;
-    return 'WO: allocated $' + a + ' − labour $' + l + ' = net $' + _woNet(c);
+    var lines = Array.isArray(c.wo_labour_lines) ? c.wo_labour_lines : [];
+    var net = _woNet(c);
+    if (lines.length === 0) {
+      return 'WO $' + a + ' = net $' + net;
+    }
+    var parts = lines.map(function(ll) {
+      var h = Number(ll.hours || 0);
+      var r = Number(ll.rate || 0);
+      var amt = Math.round(h * r * 100) / 100;
+      return (ll.trade_name || 'Trade') + ' ' + h + 'h×$' + r + '=$' + amt;
+    });
+    return 'WO $' + a + ' − labour [' + parts.join('; ') + ']=net $' + net;
   }
   function _buildJobCentricPayload(cards) {
     var included = (cards || []).filter(function(c) { return c.included; });
@@ -12434,6 +12521,16 @@
       } else if (c.wo_mode) {
         var net = _woNet(c);
         subtotal += net;
+        // Build structured labour lines with computed amounts [Q17]
+        var labourLinesOut = (Array.isArray(c.wo_labour_lines) ? c.wo_labour_lines : []).map(function(ll) {
+          return {
+            trade_name: ll.trade_name || '',
+            hours: Number(ll.hours || 0),
+            rate: Number(ll.rate || 0),
+            amount: Math.round((Number(ll.hours || 0) * Number(ll.rate || 0)) * 100) / 100
+          };
+        });
+        var labourDeduction = _woLabourSum(c);
         cardExtraItems.push({
           type: 'Work Order',
           row_type: 'work_order',
@@ -12442,7 +12539,8 @@
           unit: 'ea',
           rate: net,
           wo_allocated: Number(c.wo_allocated) || 0,
-          wo_labour_deduction: Number(c.wo_labour) || 0,
+          wo_labour_deduction: labourDeduction,
+          wo_labour_lines: labourLinesOut,
           date: c.scheduled_date || null,
           job_id: c.job_id || null,
           job_number: c.job_number || '',
