@@ -3460,8 +3460,11 @@
     if (!_user) { console.error('[trade] onLogin: profile is null!'); return; }
     _opsApiBase = window.SUPABASE_URL + '/functions/v1/ops-api';
     _userTier = _user.trade_tier || determineTier(_user.email);
-    _isAdmin = (_user.role === 'admin');
-    _adminViewAll = false; // default Jobs to Today/My Assignments; admins can opt into All Jobs
+    // Dispatcher = ops manager / admin. They get the see-all toggle and, for the
+    // ops manager, default straight into the all-jobs (dispatcher) view so every
+    // scheduled job and every pipeline make-safe lands on their board automatically.
+    _isAdmin = (_user.role === 'admin' || _user.role === 'ops_manager');
+    _adminViewAll = (_user.role === 'ops_manager'); // ops manager defaults to All Jobs; admins opt in
     document.getElementById('headerUser').textContent = _user.name || _user.email;
     document.getElementById('bottomNav').style.display = 'flex';
     document.getElementById('viewLogin').classList.remove('active');
