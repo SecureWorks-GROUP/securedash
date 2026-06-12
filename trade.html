@@ -4994,7 +4994,8 @@
     // Make-safe: show requesting company instead of scope
     if (type === 'makesafe') {
       if (job.metadata && job.metadata.requesting_company) {
-        h += '<div class="job-hero-scope" style="color:var(--sw-red);">' + esc(job.metadata.requesting_company.name) + (job.metadata.external_ref ? ' - Ref: ' + esc(job.metadata.external_ref) : '') + '</div>';
+        var heroRef = (job.makesafe_details && job.makesafe_details.external_ref) ? job.makesafe_details.external_ref : (job.metadata.external_ref || null);
+        h += '<div class="job-hero-scope" style="color:var(--sw-red);">' + esc(job.metadata.requesting_company.name) + (heroRef ? ' - Ref: ' + esc(heroRef) : '') + '</div>';
       }
       if (job.notes) {
         h += '<div style="font-size:12px;color:var(--sw-text-sec);margin-top:4px;white-space:pre-wrap;">' + esc(job.notes.substring(0, 150)) + '</div>';
@@ -11500,7 +11501,9 @@
       html += '<div class="inv-section-label">Labour</div>';
       labourLines.forEach(function(l) {
         html += '<div class="inv-line"><div class="inv-line-top">';
-        html += '<div class="inv-line-desc">' + esc(l.job_number || 'Job') + ' · ' + esc(l.client_name || '') + '</div>';
+        var extRef = (l.external_ref) ? l.external_ref : null;
+        var refStr = extRef ? ' · ' + esc(extRef) : '';
+        html += '<div class="inv-line-desc">' + esc(l.job_number || 'Job') + refStr + ' · ' + esc(l.client_name || '') + '</div>';
         html += '<div class="inv-line-amount">$' + Number(l.line_total_ex || 0).toFixed(2) + '</div>';
         html += '</div><div class="inv-line-detail">' + Number(l.total_hours || 0).toFixed(2) + 'h × $' + Number(l.hourly_rate || 0).toFixed(2) + '/hr</div>';
         html += '<span class="inv-line-type labour">Labour</span></div>';
