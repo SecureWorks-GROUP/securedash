@@ -12165,6 +12165,49 @@
     return 'Subtotal: $' + (Math.round(sub * 100) / 100).toFixed(2);
   }
 
+  // ── Job-card DOM sync (daybug fix) ─────────────────────────────────────
+  // Reads current input values from the DOM back into _jobCards before any
+  // full re-render. This prevents hours/rate entered by the trade from being
+  // lost when the trade taps "+ Add job" or changes mode without triggering
+  // the onchange event (common on mobile where onchange fires on blur).
+  function _syncJobCardsFromDOM() {
+    _jobCards.forEach(function(c, i) {
+      var idx = (c._idx != null) ? c._idx : i;
+      if (c.commission_mode) {
+        var commEl = document.querySelector('[data-cardcommamt="' + idx + '"]');
+        if (commEl) {
+          var n = parseFloat(commEl.value);
+          c.commission_amount = (isNaN(n) || n < 0) ? null : n;
+        }
+      } else if (c.wo_mode) {
+        var allocEl = document.querySelector('[data-cardwoalloc="' + idx + '"]');
+        if (allocEl) {
+          var n = parseFloat(allocEl.value);
+          c.wo_allocated = (isNaN(n) || n < 0) ? null : n;
+        }
+        // Labour line inputs are synced inline via setWoLabourLine* handlers;
+        // no additional sync needed here.
+      } else {
+        var hrsEl = document.querySelector('[data-cardhours="' + idx + '"]');
+        if (hrsEl) {
+          var n = parseFloat(hrsEl.value);
+          c.hours = (isNaN(n) || n < 0) ? null : n;
+        }
+        var rateEl = document.querySelector('[data-cardrate="' + idx + '"]');
+        if (rateEl) {
+          var n = parseFloat(rateEl.value);
+          if (!isNaN(n) && n >= 0) { c.rate = n; c.rate_source = 'client_entered'; }
+        }
+      }
+      // Always sync description (applies to all modes)
+      // Description is rendered as a plain input — read it back.
+      var descEls = document.querySelectorAll('.jc-card[data-card="' + idx + '"] input[type="text"][onchange*="setJobCardDescription"]');
+      if (descEls.length > 0) c.description = descEls[0].value || '';
+    });
+    var n = document.getElementById('invNotes');
+    if (n) _invNotes = n.value;
+  }
+
   // ── Manual job search per day (Q15 ADD 1) ──────────────────────────────
   // Search any active job (job number / client / suburb, all types) via the
   // existing read-only ops-api action search_all_jobs, and pull it into a
@@ -12184,6 +12227,7 @@
   window.jcOpenJobSearch = function(di) {
     var dk = _jcDayKeys[di];
     if (dk === undefined) return;
+    _syncJobCardsFromDOM();
     _jcSearch.day = (_jcSearch.day === dk) ? null : dk;
     _jcSearch.q = '';
     _jcSearch.results = [];
@@ -12244,6 +12288,7 @@
     if (dk === undefined || !j) return;
     var dup = _jobCards.some(function(c) { return c.job_id === j.id && c.scheduled_date === dk; });
     if (dup) { toast('That job is already on this day', true); return; }
+    _syncJobCardsFromDOM();
     var defRate = Number((_hoursData && _hoursData.rate) || _tradeRate || 0);
     _jobCards.push({
       assignment_id: null,
@@ -12270,6 +12315,7 @@
   window.removeManualJobCard = function(idx) {
     var c = _jobCards[idx];
     if (!c || !c.manually_added) return;
+    _syncJobCardsFromDOM();
     _jobCards.splice(idx, 1);
     renderInvoiceBuilder();
   };
@@ -12277,6 +12323,7 @@
   // ── Card mode switcher: hours | work_order | commission [Q15, Q16] ──────
   window.setJobCardMode = function(idx, mode) {
     var c = _jobCards[idx]; if (!c) return;
+    _syncJobCardsFromDOM();
     c.wo_mode = (mode === 'work_order');
     c.commission_mode = (mode === 'commission');
     renderInvoiceBuilder();
@@ -12304,12 +12351,14 @@
   // wo_labour_deduction = _woLabourSum(c) — kept for backend compat.
   window.addWoLabourLine = function(idx) {
     var c = _jobCards[idx]; if (!c) return;
+    _syncJobCardsFromDOM();
     if (!Array.isArray(c.wo_labour_lines)) c.wo_labour_lines = [];
     c.wo_labour_lines.push({ trade_name: '', hours: null, rate: null, amount: 0 });
     renderInvoiceBuilder();
   };
   window.removeWoLabourLine = function(idx, li) {
     var c = _jobCards[idx]; if (!c) return;
+    _syncJobCardsFromDOM();
     if (!Array.isArray(c.wo_labour_lines)) return;
     c.wo_labour_lines.splice(li, 1);
     renderInvoiceBuilder();
@@ -12472,8 +12521,16 @@
     if (woNeg.length > 0) return { error: 'Net payable cannot be negative on ' + (woNeg[0].job_number || 'a job') + ' — the labour deduction is more than the WO allocation. Fix the amounts before submitting.' };
     var woZero = included.filter(function(c) { return c.wo_mode && _woNet(c) === 0; });
     if (woZero.length > 0) return { error: 'Net payable is $0.00 on ' + (woZero[0].job_number || 'a job') + ' — untick the job or fix the amounts' };
-    var missing = included.filter(function(c) { return !c.wo_mode && !c.commission_mode && (c.hours == null || c.hours <= 0 || !(Number(c.rate) > 0) || !c.description); });
-    if (missing.length > 0) return { error: 'Enter hours, rate and description for every selected job (' + missing.length + ' incomplete)' };
+    // Description is required for manually-added (searched) hourly rows so ops know
+    // what was done, but optional for auto-assigned cards (job/client already identifies
+    // the work). Hours and rate are required for all hourly cards.
+    var missing = included.filter(function(c) {
+      if (c.wo_mode || c.commission_mode) return false;
+      if (c.hours == null || c.hours <= 0 || !(Number(c.rate) > 0)) return true;
+      if (c.manually_added && !c.description) return true;
+      return false;
+    });
+    if (missing.length > 0) return { error: 'Enter hours and rate for every selected job' + (missing.some(function(c){return c.manually_added && !c.description;}) ? ' (manually added jobs also need a description)' : '') + ' (' + missing.length + ' incomplete)' };
 
     var manualAssignments = [];
     var cardExtraItems = [];
@@ -12540,6 +12597,7 @@
         subtotal += Math.round(c.hours * Number(c.rate || 0) * 100) / 100;
         cardExtraItems.push({
           type: 'Labour',
+          row_type: 'labour',
           description: c.description || '',
           quantity: c.hours,
           unit: 'hr',
