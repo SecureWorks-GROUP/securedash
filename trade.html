@@ -4686,6 +4686,7 @@
       h += '<a href="sms:' + esc(cardPhone) + '" onclick="event.stopPropagation()" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-blue);color:#fff;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700">';
       h += '<svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>Text</a>';
     }
+    h += '<button onclick="event.stopPropagation();submitTradeAdminNote(\'' + esc(job.id) + '\')" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:#7C3AED;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">&#128221; Note for admin</button>';
     if (job.site_address || job.site_suburb) {
       var navUrl = getMapsUrl(job.site_address, job.site_suburb);
       h += '<a href="' + navUrl + '" target="_blank" onclick="event.stopPropagation()" style="display:flex;align-items:center;justify-content:center;gap:4px;height:40px;padding:0 12px;background:var(--sw-mid);color:#fff;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700">';
