@@ -7505,12 +7505,8 @@
     var files = Array.from(input.files || []);
     if (files.length === 0 || _uploading) return;
     _uploading = true;
-    var phaseMeta = {
-      front_elevation: { prefix: 'msrUnified', grid: 'msrFrontGrid', label: 'front elevation' },
-      scope: { prefix: 'msrUnified', grid: 'msrBeforeGrid', label: 'before/damage' },
-      completion: { prefix: 'msrUnified', grid: 'msrAfterGrid', label: 'after/completed' }
-    };
-    var meta = phaseMeta[phase] || { prefix: 'msrAfter', label: phase || 'job' };
+    phase = phase || 'completion';
+    var meta = { prefix: 'msrUnified', grid: 'msrPhotoGrid', label: 'job' };
     var prefix = meta.prefix;
     var phaseLabel = meta.label;
     var progress = document.getElementById(prefix + 'Progress');
@@ -7568,11 +7564,9 @@
       _uploading = false;
       if (progress) progress.style.display = 'none';
       if (progressFill) progressFill.style.width = '0%';
-      toast(files.length + ' ' + phaseLabel + ' photo(s) uploaded');
-      window._msrPhotoCounts = window._msrPhotoCounts || { front: 0, before: 0, after: 0 };
-      if (phase === 'front_elevation') window._msrPhotoCounts.front += files.length;
-      if (phase === 'scope') window._msrPhotoCounts.before += files.length;
-      if (phase === 'completion') window._msrPhotoCounts.after += files.length;
+      toast(files.length + ' photo(s) uploaded');
+      window._msrPhotoCounts = window._msrPhotoCounts || { total: 0 };
+      window._msrPhotoCounts.total = (window._msrPhotoCounts.total || 0) + files.length;
       input.value = '';
       // Ensure all show as done
       imgEls.forEach(function(el) {
@@ -7999,35 +7993,21 @@
 
     // ── Photo Upload Section (single control, internally categorised) ──
     var allMedia = data.media || [];
-    var frontPhotos = allMedia.filter(function(m) { return m.phase === 'front_elevation' || m.phase === 'front'; });
-    var beforePhotos = allMedia.filter(function(m) { return m.phase === 'scope'; });
-    var afterPhotos = allMedia.filter(function(m) { return m.phase === 'completion'; });
-    window._msrPhotoCounts = { front: frontPhotos.length, before: beforePhotos.length, after: afterPhotos.length };
+    var jobPhotos = allMedia.filter(function(m) { return !m.type || m.type === 'photo'; });
+    window._msrPhotoCounts = { total: jobPhotos.length };
 
     h += '<div style="margin-bottom:14px;border:1px solid var(--sw-border);border-radius:10px;padding:12px;">';
     h += '<div style="font-size:13px;font-weight:800;margin-bottom:4px;">MakeSafe photos *</div>';
-    h += '<div style="font-size:12px;color:var(--sw-text-sec);line-height:1.4;margin-bottom:10px;">Use one upload control. Required before submit: <strong>1 front elevation</strong>, <strong>3 before/damage</strong>, and <strong>3 after/completed</strong> photos. Choose the category, then select multiple files from the phone.</div>';
-    h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px;color:var(--sw-text);margin-bottom:10px;">';
-    h += '<div><strong>Front (' + frontPhotos.length + ')</strong>' + renderPhotoThumbs(frontPhotos, 'msrFrontGrid') + '</div>';
-    h += '<div><strong>Before (' + beforePhotos.length + ')</strong>' + renderPhotoThumbs(beforePhotos, 'msrBeforeGrid') + '</div>';
-    h += '<div><strong>After (' + afterPhotos.length + ')</strong>' + renderPhotoThumbs(afterPhotos, 'msrAfterGrid') + '</div>';
-    h += '</div>';
-    h += '<label for="msrPhotoPhase" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px;color:var(--sw-dark);">Photo category</label>';
-    h += '<select id="msrPhotoPhase" style="width:100%;padding:10px;border:1px solid var(--sw-border);border-radius:8px;font-size:13px;margin-bottom:8px;background:#fff;box-sizing:border-box;">';
-    h += '<option value="front_elevation">Front elevation / property context</option>';
-    h += '<option value="scope">Before / damage photos</option>';
-    h += '<option value="completion" selected>After / completed photos</option>';
-    h += '</select>';
-    h += '<div class="upload-area" onclick="document.getElementById(\'msrPhotoInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;"><svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg><p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Select one or more photos for the chosen category</p></div>';
-    h += '<input type="file" id="msrPhotoInput" accept="image/*" multiple style="display:none" onchange="handleMsrPhotoUpload(this, ((document.getElementById(\'msrPhotoPhase\') || {}).value || \'completion\'))">';
+    h += '<div style="font-size:12px;color:var(--sw-text-sec);line-height:1.4;margin-bottom:10px;">Upload at least <strong>5 photos</strong> before submitting the report.</div>';
+    h += '<div style="font-size:11px;color:var(--sw-text);margin-bottom:10px;"><strong>Photos (' + jobPhotos.length + ')</strong>' + renderPhotoThumbs(jobPhotos, 'msrPhotoGrid') + '</div>';
+    h += '<div class="upload-area" onclick="document.getElementById(\'msrPhotoInput\').click()" style="padding:16px;border:2px dashed var(--sw-border);border-radius:8px;text-align:center;cursor:pointer;"><svg width="24" height="24" viewBox="0 0 24 24" fill="var(--sw-mid)" style="margin-bottom:4px;"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg><p style="font-size:12px;color:var(--sw-text-sec);margin:0;">Select one or more photos</p></div>';
+    h += '<input type="file" id="msrPhotoInput" accept="image/*" multiple style="display:none" onchange="handleMsrPhotoUpload(this, \'completion\')">';
     h += '<div class="upload-progress" id="msrUnifiedProgress" style="display:none"><span id="msrUnifiedProgressText">Uploading...</span><div class="upload-progress-bar"><div class="upload-progress-fill" id="msrUnifiedProgressFill"></div></div></div>';
     h += '</div>';
 
-    var frontOk = frontPhotos.length >= 1;
-    var beforeOk = beforePhotos.length >= 3;
-    var afterOk = afterPhotos.length >= 3;
-    h += '<div style="background:' + (frontOk && beforeOk && afterOk ? '#E8F8EF' : '#FEF3C7') + ';border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;color:' + (frontOk && beforeOk && afterOk ? '#155724' : '#92400E') + ';">';
-    h += '<strong>Photo gate:</strong> front ' + frontPhotos.length + '/1, before ' + beforePhotos.length + '/3, after ' + afterPhotos.length + '/3.';
+    var photoOk = jobPhotos.length >= 5;
+    h += '<div style="background:' + (photoOk ? '#E8F8EF' : '#FEF3C7') + ';border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;color:' + (photoOk ? '#155724' : '#92400E') + ';">';
+    h += '<strong>Photo gate:</strong> ' + jobPhotos.length + '/5 photos uploaded.';
     h += '</div>';
 
     h += '<button onclick="submitMakesafeReport()" style="width:100%;background:var(--sw-orange);color:#fff;border:none;padding:14px;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;min-height:50px;">Submit MakeSafe report</button>';
@@ -8074,9 +8054,9 @@
     });
     if (!materials.length) { toast('Please enter materials/equipment used, or write None'); return; }
 
-    var photoCounts = window._msrPhotoCounts || { front: 0, before: 0, after: 0 };
-    if (photoCounts.front < 1 || photoCounts.before < 3 || photoCounts.after < 3) {
-      toast('Please add front, 3 before and 3 after photos');
+    var photoCounts = window._msrPhotoCounts || { total: 0 };
+    if ((photoCounts.total || 0) < 5) {
+      toast('Please add at least 5 photos');
       return;
     }
 
