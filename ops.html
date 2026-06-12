@@ -11888,11 +11888,24 @@ function showSitePlanOverlay(src) {
 }
 
 // ── Site Plan Panel ──
-function renderSitePlanPanel(scope_json, compact) {
+// Handles three branches for scope_json.job.sitePlanImage:
+//   Branch A: data URL (data:image/...)  → render inline, unchanged behaviour
+//   Branch B: sentinel (scope_artifact:render_site_plan:<storage_path>)
+//             → render placeholder, resolve signed URL asynchronously via
+//               ops-api get_scope_revision_for_viewer (reuses existing action,
+//               no new endpoints). Requires jobId param (optional; falls back
+//               to satellite if absent).
+//   Branch C: missing / unloadable → existing satellite fallback, unchanged
+//
+// jobId is optional for backwards-compat; callers that have j.id SHOULD pass
+// it so Branch B resolves correctly.
+function renderSitePlanPanel(scope_json, compact, jobId) {
   var scope = typeof scope_json === 'string' ? JSON.parse(scope_json) : scope_json;
   if (!scope) return '';
   var imgSrc = null;
   var label = 'Site Plan';
+  var isArtifactSentinel = false;
+  var artifactStoragePath = null;
 
   // Patio: scope_json.client._sitePlanImage
   if (scope.client && scope.client._sitePlanImage) {
@@ -11904,8 +11917,19 @@ function renderSitePlanPanel(scope_json, compact) {
     imgSrc = scope.job.sitePlanImage;
     label = 'Site Plan (Fencing Scope)';
   }
+
+  // Branch B: sentinel string written by fence-designer PR #29
+  // Format: scope_artifact:render_site_plan:<storage_path>
+  if (imgSrc && typeof imgSrc === 'string' && imgSrc.indexOf('scope_artifact:') === 0) {
+    var parts = imgSrc.split(':');
+    // parts[0]='scope_artifact', parts[1]=artifact_type, parts[2..]=storage_path
+    artifactStoragePath = parts.slice(2).join(':');
+    isArtifactSentinel = true;
+    imgSrc = null; // clear so satellite fallback can run if jobId unavailable
+  }
+
   // Fallback: Google Static Maps satellite if coordinates available
-  if (!imgSrc) {
+  if (!imgSrc && !isArtifactSentinel) {
     var latlng = null;
     if (scope.client && scope.client._latlng) latlng = scope.client._latlng;
     else if (scope.job && scope.job._latlng) latlng = scope.job._latlng;
@@ -11915,6 +11939,32 @@ function renderSitePlanPanel(scope_json, compact) {
     }
   }
 
+  // Branch B with jobId: render placeholder img, fire async resolution
+  if (isArtifactSentinel && jobId && artifactStoragePath) {
+    var placeholderId = 'siteplan-artifact-' + jobId.replace(/[^a-z0-9]/gi, '');
+    var maxW = compact ? '200px' : '100%';
+    var html = '<div style="background:var(--sw-card);padding:14px;margin-bottom:12px;box-shadow:var(--sw-shadow);">';
+    html += '<div style="font-size:11px;font-weight:700;color:var(--sw-mid);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">&#128205; ' + label + '</div>';
+    html += '<img id="' + placeholderId + '" data-artifact-path="' + escapeHtml(artifactStoragePath) + '" src="" style="max-width:' + maxW + ';width:100%;cursor:pointer;display:none;" onclick="showSitePlanOverlay(this.src)" alt="Site plan">';
+    html += '<div id="' + placeholderId + '-status" style="font-size:10px;color:var(--sw-text-sec);margin-top:4px;">Loading site plan...</div>';
+    html += '</div>';
+    // Fire async resolution after current render tick
+    setTimeout(function() { _resolveSitePlanArtifact(jobId, artifactStoragePath, placeholderId); }, 0);
+    return html;
+  }
+
+  // Branch B without jobId (or sentinel but no job): fall through to satellite
+  if (isArtifactSentinel && !imgSrc) {
+    var latlng2 = null;
+    if (scope.client && scope.client._latlng) latlng2 = scope.client._latlng;
+    else if (scope.job && scope.job._latlng) latlng2 = scope.job._latlng;
+    if (latlng2 && latlng2.lat && latlng2.lng) {
+      imgSrc = 'https://maps.googleapis.com/maps/api/staticmap?center=' + latlng2.lat + ',' + latlng2.lng + '&zoom=19&size=600x400&maptype=satellite&key=AIzaSyCVNUaGS6k6MBG6_-MbCyiIGUajnzHU7DM';
+      label = 'Satellite View';
+    }
+  }
+
+  // Branch A (data URL) or Branch C (satellite) or nothing
   if (!imgSrc) return '';
   var maxW = compact ? '200px' : '100%';
   var html = '<div style="background:var(--sw-card);padding:14px;margin-bottom:12px;box-shadow:var(--sw-shadow);">';
@@ -11923,6 +11973,67 @@ function renderSitePlanPanel(scope_json, compact) {
   html += '<div style="font-size:10px;color:var(--sw-text-sec);margin-top:4px;">Click to enlarge</div>';
   html += '</div>';
   return html;
+}
+
+// ── Artifact Site Plan Async Resolver ──
+// Called by renderSitePlanPanel Branch B after render tick. Uses the existing
+// ops-api get_scope_revision_for_viewer action (ops-api/index.ts line 1758)
+// which signs artifact URLs from the private scope-artifacts bucket. No new
+// endpoints required.
+//
+// Flow:
+//   1. POST list_scope_revisions_for_job -> find revision whose artifacts[]
+//      includes the target storage_path
+//   2. POST get_scope_revision_for_viewer with that scope_revision_id
+//      -> get signed_url for the matching artifact
+//   3. Set img.src + show img, update status text
+//   On any failure: hide loading text (silent degradation, no error thrown to user)
+async function _resolveSitePlanArtifact(jobId, storagePath, placeholderId) {
+  var imgEl = document.getElementById(placeholderId);
+  var statusEl = document.getElementById(placeholderId + '-status');
+  if (!imgEl || !statusEl) return;
+  try {
+    // Step 1: find the revision that owns this artifact
+    var listResp = await opsPost('list_scope_revisions_for_job', { job_id: jobId });
+    if (!listResp || !listResp.ok || !listResp.revisions) throw new Error('no revisions');
+    var matchRevisionId = null;
+    for (var i = 0; i < listResp.revisions.length; i++) {
+      var rev = listResp.revisions[i];
+      var arts = rev.artifacts || [];
+      for (var k = 0; k < arts.length; k++) {
+        if (arts[k].storage_path === storagePath) {
+          matchRevisionId = rev.id;
+          break;
+        }
+      }
+      if (matchRevisionId) break;
+    }
+    if (!matchRevisionId) throw new Error('artifact not found in any revision');
+
+    // Step 2: get signed URL via get_scope_revision_for_viewer
+    // (ops-api/index.ts line 1758; _getScopeRevisionForViewer signs each
+    // artifact with a 300s TTL into the private scope-artifacts bucket)
+    var viewResp = await opsPost('get_scope_revision_for_viewer', { scope_revision_id: matchRevisionId });
+    if (!viewResp || !viewResp.ok || !viewResp.revision) throw new Error('viewer fetch failed');
+    var signedUrl = null;
+    var viewArts = viewResp.revision.artifacts || [];
+    for (var j = 0; j < viewArts.length; j++) {
+      if (viewArts[j].storage_path === storagePath && viewArts[j].signed_url) {
+        signedUrl = viewArts[j].signed_url;
+        break;
+      }
+    }
+    if (!signedUrl) throw new Error('signed URL not available');
+
+    // Step 3: reveal the image
+    imgEl.src = signedUrl;
+    imgEl.style.display = 'block';
+    statusEl.textContent = 'Click to enlarge';
+  } catch (e) {
+    // Silent degradation: hide loading indicator, image stays hidden
+    statusEl.textContent = '';
+    console.warn('[ops] site plan artifact resolution failed:', e && e.message);
+  }
 }
 
 // ── Document Links by Type ──
@@ -13396,7 +13507,7 @@ function renderOverviewView(data) {
 
   // Site Plan Image (between client card and job summary)
   if (j.scope_json && j.type !== 'miscellaneous') {
-    html += renderSitePlanPanel(j.scope_json, false);
+    html += renderSitePlanPanel(j.scope_json, false, j.id);
   }
 
   // Section 2: Job Summary
@@ -14265,7 +14376,7 @@ function renderBuildView(data) {
 
   // Site plan thumbnail (compact) in build view
   if (j.scope_json && j.type !== 'miscellaneous') {
-    html += renderSitePlanPanel(j.scope_json, true);
+    html += renderSitePlanPanel(j.scope_json, true, j.id);
   }
 
   // Work Order documents
