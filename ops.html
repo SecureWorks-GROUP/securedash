@@ -1051,6 +1051,73 @@
       overflow-y: auto;
       padding-bottom: 56px;
     }
+    /* ── Sent Quotes Panel ── */
+    #sentQuotesPanel {
+      flex-shrink: 0;
+      background: #fff;
+      border-top: 2px solid var(--sw-orange, #F15A29);
+      padding: 12px 16px;
+      overflow-y: auto;
+      max-height: 320px;
+    }
+    #sentQuotesPanel .sq-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    #sentQuotesPanel .sq-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--sw-dark, #293C46);
+      flex: 1;
+      min-width: 100px;
+    }
+    #sentQuotesPanel .sq-filter-chip {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 20px;
+      border: 1px solid #ddd;
+      background: #f5f5f5;
+      color: var(--sw-text-sec, #666);
+      cursor: pointer;
+    }
+    #sentQuotesPanel .sq-filter-chip.active {
+      background: var(--sw-dark, #293C46);
+      color: #fff;
+      border-color: var(--sw-dark, #293C46);
+    }
+    #sentQuotesPanel .sq-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    #sentQuotesPanel .sq-table th {
+      text-align: left;
+      font-weight: 600;
+      color: var(--sw-text-sec, #888);
+      padding: 4px 8px;
+      border-bottom: 1px solid #eee;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    #sentQuotesPanel .sq-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #f5f5f5;
+      vertical-align: middle;
+    }
+    #sentQuotesPanel .sq-table tr:last-child td { border-bottom: none; }
+    #sentQuotesPanel .sq-table tr { cursor: pointer; }
+    #sentQuotesPanel .sq-table tr:hover td { background: rgba(241,90,41,0.04); }
+    #sentQuotesPanel .sq-empty {
+      text-align: center;
+      color: var(--sw-text-sec, #999);
+      font-size: 12px;
+      padding: 20px 0;
+    }
     .kanban-card {
       background: linear-gradient(135deg, rgba(255,255,255,0.38) 0%, rgba(255,255,255,0.15) 100%);
       backdrop-filter: blur(24px) saturate(2.2) brightness(1.08);
@@ -2849,8 +2916,10 @@
         <div id="jobsDateDisplay" style="font-size:12px;font-weight:600;color:var(--sw-text-sec);letter-spacing:0.3px;white-space:nowrap;"></div>
         <button class="btn btn-secondary btn-sm" id="btnKanban" onclick="setJobView('kanban')" style="font-weight:600;">Kanban</button>
         <button class="btn btn-secondary btn-sm" id="btnListView" onclick="setJobView('list')">List</button>
+        <button class="btn btn-secondary btn-sm" id="btnSentQuotes" onclick="toggleSentQuotesPanel()" title="Show recently sent quotes">Sent Quotes</button>
       </div>
       <div id="jobsBody"></div>
+      <div id="sentQuotesPanel" style="display:none;"></div>
     </div>
 
     <!-- ═══════════ FINANCIALS TAB ═══════════ -->
@@ -11099,6 +11168,116 @@ async function loadQuotes() {
     console.error('loadQuotes error:', e);
     tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load quotes</td></tr>';
   }
+}
+
+// ════════════════════════════════════════════════════════════
+// SENT QUOTES PANEL (Jobs view)
+// Read-only. Reuses opsFetch('list_quotes') — no new backend calls.
+// ════════════════════════════════════════════════════════════
+
+var _sentQuotesPanelOpen = false;
+var _sentQuotesDivFilter = 'all'; // 'all', 'fencing', 'patio', 'decking'
+var _sentQuotesData = [];
+
+function toggleSentQuotesPanel() {
+  _sentQuotesPanelOpen = !_sentQuotesPanelOpen;
+  var panel = document.getElementById('sentQuotesPanel');
+  var btn = document.getElementById('btnSentQuotes');
+  if (!panel) return;
+  if (_sentQuotesPanelOpen) {
+    panel.style.display = '';
+    if (btn) { btn.style.fontWeight = '700'; btn.style.color = 'var(--sw-orange)'; }
+    loadSentQuotesPanel();
+  } else {
+    panel.style.display = 'none';
+    if (btn) { btn.style.fontWeight = ''; btn.style.color = ''; }
+  }
+}
+
+async function loadSentQuotesPanel() {
+  var panel = document.getElementById('sentQuotesPanel');
+  if (!panel || !_sentQuotesPanelOpen) return;
+  panel.innerHTML = '<div class="sq-empty">Loading...</div>';
+  try {
+    var data = await opsFetch('list_quotes');
+    // Filter to sent quotes only (status === 'quoted' maps to 'sent' via getQuoteStatus)
+    _sentQuotesData = (data.quotes || []).filter(function(q) {
+      return q.status === 'quoted';
+    });
+    // Sort most-recent first
+    _sentQuotesData.sort(function(a, b) {
+      return new Date(b.quoted_at || b.created_at || 0) - new Date(a.quoted_at || a.created_at || 0);
+    });
+    renderSentQuotesPanel();
+  } catch (e) {
+    console.error('loadSentQuotesPanel error:', e);
+    panel.innerHTML = '<div class="sq-empty">Failed to load sent quotes</div>';
+  }
+}
+
+function setSentQuotesDivFilter(div) {
+  _sentQuotesDivFilter = div;
+  document.querySelectorAll('[data-sq-div]').forEach(function(el) {
+    el.classList.toggle('active', el.dataset.sqDiv === div);
+  });
+  renderSentQuotesPanel();
+}
+
+function renderSentQuotesPanel() {
+  var panel = document.getElementById('sentQuotesPanel');
+  if (!panel) return;
+
+  var TYPE_LABELS = { patio: 'Patio', fencing: 'Fencing', decking: 'Decking', miscellaneous: 'Misc' };
+
+  var filtered = _sentQuotesData.filter(function(q) {
+    if (_sentQuotesDivFilter === 'all') return true;
+    return (q.type || '') === _sentQuotesDivFilter;
+  });
+
+  // Count per division for chip labels
+  var counts = { all: _sentQuotesData.length, fencing: 0, patio: 0, decking: 0 };
+  _sentQuotesData.forEach(function(q) {
+    if (counts[q.type] !== undefined) counts[q.type]++;
+  });
+
+  var html = '<div class="sq-header">';
+  html += '<span class="sq-title">Sent Quotes (' + filtered.length + ')</span>';
+  html += '<button class="sq-filter-chip' + (_sentQuotesDivFilter === 'all' ? ' active' : '') + '" data-sq-div="all" onclick="setSentQuotesDivFilter(\'all\')">All ' + counts.all + '</button>';
+  html += '<button class="sq-filter-chip' + (_sentQuotesDivFilter === 'fencing' ? ' active' : '') + '" data-sq-div="fencing" onclick="setSentQuotesDivFilter(\'fencing\')">Fencing ' + counts.fencing + '</button>';
+  html += '<button class="sq-filter-chip' + (_sentQuotesDivFilter === 'patio' ? ' active' : '') + '" data-sq-div="patio" onclick="setSentQuotesDivFilter(\'patio\')">Patio ' + counts.patio + '</button>';
+  html += '<button class="sq-filter-chip' + (_sentQuotesDivFilter === 'decking' ? ' active' : '') + '" data-sq-div="decking" onclick="setSentQuotesDivFilter(\'decking\')">Decking ' + counts.decking + '</button>';
+  html += '</div>';
+
+  if (filtered.length === 0) {
+    html += '<div class="sq-empty">No sent quotes' + (_sentQuotesDivFilter !== 'all' ? ' for ' + (_sentQuotesDivFilter) : '') + '</div>';
+    panel.innerHTML = html;
+    return;
+  }
+
+  html += '<table class="sq-table"><thead><tr>';
+  html += '<th>Job #</th><th>Client</th><th>Division</th><th>Sent</th><th>Value</th><th>Suburb</th>';
+  html += '</tr></thead><tbody>';
+
+  filtered.forEach(function(q) {
+    var total = 0;
+    try {
+      total = q.pricing_json && q.pricing_json.totals
+        ? (q.pricing_json.totals.total_inc_gst || q.pricing_json.totals.totalIncGst || 0)
+        : (q.value || 0);
+    } catch(e) {}
+    var sentDate = q.quoted_at ? fmtDate(q.quoted_at.slice(0, 10)) : (q.created_at ? fmtDate(q.created_at.slice(0, 10)) : '-');
+    html += '<tr onclick="openJobPeek(\'' + q.id + '\')">';
+    html += '<td><strong>' + (q.job_number || '-') + '</strong></td>';
+    html += '<td>' + (q.client_name || '-') + '</td>';
+    html += '<td><span class="type-badge ' + (q.type || '') + '">' + (TYPE_LABELS[q.type] || q.type || '-') + '</span></td>';
+    html += '<td style="white-space:nowrap;">' + sentDate + '</td>';
+    html += '<td style="font-family:var(--sw-font-num);">' + (total ? fmt$(total) : '-') + '</td>';
+    html += '<td style="color:var(--sw-text-sec);">' + (q.site_suburb || '-') + '</td>';
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  panel.innerHTML = html;
 }
 
 // ════════════════════════════════════════════════════════════
