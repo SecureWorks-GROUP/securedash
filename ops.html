@@ -1051,6 +1051,141 @@
       overflow-y: auto;
       padding-bottom: 56px;
     }
+    /* ── Job P&L Panel ── */
+    #subJobpnl .pnl-search-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    #subJobpnl .pnl-search-bar input {
+      flex: 1;
+      min-width: 160px;
+      max-width: 320px;
+    }
+    #subJobpnl .pnl-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    #subJobpnl .pnl-table th {
+      text-align: left;
+      font-weight: 600;
+      color: var(--sw-text-sec, #888);
+      padding: 4px 10px;
+      border-bottom: 2px solid var(--sw-border, #eee);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+    }
+    #subJobpnl .pnl-table td {
+      padding: 7px 10px;
+      border-bottom: 1px solid var(--sw-border, #f0f0f0);
+      vertical-align: middle;
+    }
+    #subJobpnl .pnl-table tr:last-child td { border-bottom: none; }
+    #subJobpnl .pnl-table tr.pnl-row { cursor: pointer; }
+    #subJobpnl .pnl-table tr.pnl-row:hover td { background: rgba(241,90,41,0.04); }
+    .pnl-flag-ok    { color: var(--sw-green, #27ae60); font-size: 10px; font-weight: 700; }
+    .pnl-flag-warn  { color: var(--sw-orange, #F15A29); font-size: 10px; font-weight: 700; }
+    .pnl-flag-err   { color: var(--sw-red, #e74c3c); font-size: 10px; font-weight: 700; }
+    .pnl-flag-info  { color: var(--sw-text-sec, #888); font-size: 10px; }
+    /* Job P&L detail card */
+    .pnl-detail-card {
+      background: var(--sw-light, #f7f9fb);
+      border-radius: 10px;
+      padding: 16px 18px;
+      margin-bottom: 16px;
+      max-width: 560px;
+    }
+    .pnl-detail-card .pnl-banner {
+      background: rgba(241,90,41,0.10);
+      border-left: 4px solid var(--sw-orange, #F15A29);
+      border-radius: 0 6px 6px 0;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--sw-orange, #D97706);
+      margin-bottom: 14px;
+    }
+    .pnl-detail-card .pnl-section-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--sw-text-sec, #888);
+      margin: 12px 0 4px 0;
+    }
+    .pnl-detail-card .pnl-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+      font-size: 13px;
+      border-bottom: 1px solid rgba(0,0,0,0.05);
+    }
+    .pnl-detail-card .pnl-row:last-child { border-bottom: none; }
+    .pnl-detail-card .pnl-row .pnl-label { color: var(--sw-text-sec, #666); }
+    .pnl-detail-card .pnl-row .pnl-value { font-weight: 600; font-family: var(--sw-font-num, monospace); }
+    .pnl-detail-card .pnl-divider {
+      border: none;
+      border-top: 1.5px solid var(--sw-border, #e0e0e0);
+      margin: 6px 0;
+    }
+    .pnl-detail-card .pnl-margin-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0 2px 0;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .pnl-detail-card .pnl-incomplete {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      padding: 8px 10px;
+      background: rgba(241,90,41,0.07);
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--sw-orange, #D97706);
+      font-weight: 600;
+      margin-top: 6px;
+    }
+    .pnl-detail-card .pnl-incomplete .pnl-inc-detail {
+      font-weight: 400;
+      color: var(--sw-text-sec, #777);
+      margin-top: 2px;
+      font-size: 11px;
+    }
+    .pnl-lines-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      margin-top: 8px;
+    }
+    .pnl-lines-table th {
+      text-align: left;
+      color: var(--sw-text-sec, #999);
+      padding: 3px 6px;
+      font-weight: 600;
+      border-bottom: 1px solid #eee;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+    .pnl-lines-table td {
+      padding: 4px 6px;
+      border-bottom: 1px solid #f5f5f5;
+      vertical-align: middle;
+    }
+    .pnl-lines-table tr:last-child td { border-bottom: none; }
+    @media (max-width: 640px) {
+      .pnl-detail-card { padding: 12px; }
+      #subJobpnl .pnl-table th:nth-child(n+4),
+      #subJobpnl .pnl-table td:nth-child(n+4) { display: none; }
+    }
     /* ── Sent Quotes Panel ── */
     #sentQuotesPanel {
       flex-shrink: 0;
@@ -2932,6 +3067,7 @@
         <button class="sub-tab" onclick="showSubTab('tradebills')" data-sub="tradebills">Trade Bills</button>
         <button class="sub-tab" onclick="showSubTab('cleardebt')" data-sub="cleardebt" style="color:var(--sw-red,#e74c3c);">Clear Debt</button>
         <button class="sub-tab" onclick="showSubTab('financehealth')" data-sub="financehealth" title="Read-only invoice-data-quality holes">Finance Health</button>
+        <button class="sub-tab" onclick="showSubTab('jobpnl')" data-sub="jobpnl" title="Per-job P&amp;L — revenue, labour cost, margin (make-safe v1)">Job P&amp;L</button>
       </div>
 
       <!-- Invoices -->
@@ -3065,6 +3201,33 @@
           <span id="financeHealthAsOf" style="margin-left:12px;"></span>
         </div>
         <div id="financeHealthBody"></div>
+      </div>
+
+      <!-- Job P&L (make-safe v1 — reads job_financials view via get_job_financials) -->
+      <div id="subJobpnl" class="sub-view">
+        <div class="pnl-search-bar">
+          <input type="text" class="form-input filter-search" id="pnlSearch"
+            placeholder="Search job #, client..." oninput="filterPnlSearch()" style="width:220px;">
+          <button class="btn btn-secondary btn-sm" onclick="loadJobPnl()" title="Refresh">&#8635; Refresh</button>
+          <span id="pnlStatus" style="font-size:11px;color:var(--sw-text-sec);margin-left:4px;"></span>
+        </div>
+        <div id="pnlDetailArea" style="display:none;"></div>
+        <div class="data-table-wrap">
+          <table class="pnl-table">
+            <thead>
+              <tr>
+                <th onclick="sortPnlTable(0,'string')">Job #</th>
+                <th onclick="sortPnlTable(1,'string')">Client</th>
+                <th onclick="sortPnlTable(2,'number')">Revenue (ex)</th>
+                <th onclick="sortPnlTable(3,'number')">Labour (ex)</th>
+                <th onclick="sortPnlTable(4,'number')">Margin</th>
+                <th onclick="sortPnlTable(5,'string')">Flags</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="pnlTableBody"><tr><td colspan="7" style="text-align:center;padding:24px;color:var(--sw-text-sec);">Select the Job P&amp;L tab to load</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -10494,6 +10657,7 @@ function showSubTab(tab) {
   if (tab === 'tradebills') loadTradeBills();
   if (tab === 'cleardebt') loadClearDebt();
   if (tab === 'financehealth') loadFinanceHealth();
+  if (tab === 'jobpnl') loadJobPnl();
 }
 
 // ════════════════════════════════════════════════════════════
@@ -11168,6 +11332,312 @@ async function loadQuotes() {
     console.error('loadQuotes error:', e);
     tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load quotes</td></tr>';
   }
+}
+
+// ════════════════════════════════════════════════════════════
+// JOB P&L PANEL (Financials > Job P&L tab)
+//
+// Data source: ops-api action 'job_financials' (list, GET) and
+//              'job_financials_detail' (single job, GET with jobId param).
+//
+// BACKEND-WIRING FLAG: The ops-api edge function (secureworks-backend
+// supabase/functions/ops-api/index.ts) does NOT yet have a 'job_financials'
+// action handler. The DB function get_job_financials(uuid) and the
+// job_financials view exist in the STAGED migration (M1 — DO NOT apply until
+// Marnin approves the M1 gate). M3 is building the panel now so it is ready
+// to light up the moment M1 is applied AND a small ops-api action wrapper is
+// added (two cases):
+//   case 'job_financials':  (list) SELECT * FROM job_financials ORDER BY ...
+//   case 'job_financials_detail': (single) SELECT * FROM get_job_financials($jobId)
+// These are read-only SELECTs, SECURITY DEFINER, no RLS issues. Tiny wrapper.
+//
+// Make-safe filter is v1 scope (the view already gates on j.type='makesafe').
+// Panel renders suppression honestly: NULL margin = "costs incomplete" + reason.
+// ════════════════════════════════════════════════════════════
+
+var _pnlData = [];          // full list from ops-api job_financials
+var _pnlFiltered = [];      // filtered by search
+var _pnlSortCol = -1;
+var _pnlSortAsc = true;
+
+// FLAG_LABELS: translate db flag values to human-readable text
+var PNL_COST_FLAG_LABELS = {
+  ok:                     '',
+  no_labour_linked:       'No labour linked yet',
+  incomplete_invoice_lines: 'A trade invoice has zero/mismatched lines',
+  unclassified_lines:     'Unclassified trade lines',
+  text_matched_lines:     'Job matched by job# (not UUID)'
+};
+var PNL_REV_FLAG_LABELS = {
+  ok:                     '',
+  missing_client_invoice: 'No client invoice linked'
+};
+
+async function loadJobPnl() {
+  var tbody = document.getElementById('pnlTableBody');
+  var status = document.getElementById('pnlStatus');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--sw-text-sec);">Loading...</td></tr>';
+  if (status) status.textContent = '';
+  try {
+    var data = await opsFetch('job_financials');
+    _pnlData = data.jobs || [];
+    _pnlFiltered = _pnlData.slice();
+    if (status) status.textContent = _pnlData.length + ' jobs';
+    renderPnlTable(_pnlFiltered);
+  } catch (e) {
+    console.error('loadJobPnl error:', e);
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--sw-red);">'
+      + 'Failed to load: ' + (e && e.message ? e.message : 'unknown error')
+      + '<br><span style="font-size:11px;color:var(--sw-text-sec);font-weight:400;">'
+      + 'Backend action "job_financials" may not yet be wired in ops-api (M1/M3 gate).</span>'
+      + '</td></tr>';
+  }
+}
+
+function filterPnlSearch() {
+  var q = (document.getElementById('pnlSearch') && document.getElementById('pnlSearch').value || '').toLowerCase().trim();
+  if (!q) {
+    _pnlFiltered = _pnlData.slice();
+  } else {
+    _pnlFiltered = _pnlData.filter(function(j) {
+      return (j.job_number || '').toLowerCase().indexOf(q) >= 0
+          || (j.client_name || '').toLowerCase().indexOf(q) >= 0;
+    });
+  }
+  renderPnlTable(_pnlFiltered);
+}
+
+function sortPnlTable(colIdx, colType) {
+  if (_pnlSortCol === colIdx) {
+    _pnlSortAsc = !_pnlSortAsc;
+  } else {
+    _pnlSortCol = colIdx;
+    _pnlSortAsc = true;
+  }
+  var cols = ['job_number','client_name','client_invoiced_ex','cost_labour_ex','margin_pct','revenue_flag'];
+  var key = cols[colIdx];
+  if (!key) return;
+  _pnlFiltered = _pnlFiltered.slice().sort(function(a, b) {
+    var av = a[key], bv = b[key];
+    if (av == null) av = colType === 'number' ? -Infinity : '';
+    if (bv == null) bv = colType === 'number' ? -Infinity : '';
+    if (colType === 'number') return _pnlSortAsc ? av - bv : bv - av;
+    return _pnlSortAsc
+      ? String(av).localeCompare(String(bv))
+      : String(bv).localeCompare(String(av));
+  });
+  renderPnlTable(_pnlFiltered);
+}
+
+function renderPnlTable(rows) {
+  var tbody = document.getElementById('pnlTableBody');
+  if (!tbody) return;
+  if (!rows || rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--sw-text-sec);">No make-safe jobs found</td></tr>';
+    return;
+  }
+  var html = '';
+  rows.forEach(function(j) {
+    var hasRev = j.revenue_flag === 'ok';
+    var hasCost = j.cost_flag === 'ok' || j.cost_flag === 'text_matched_lines';
+    var marginOk = j.net_margin_ex != null && hasRev && hasCost;
+
+    // Revenue cell
+    var revCell = hasRev
+      ? '<span style="font-family:var(--sw-font-num);">' + fmt$(j.client_invoiced_ex) + '</span>'
+      : '<span style="color:var(--sw-red,#e74c3c);font-size:11px;">&#9888; No invoice</span>';
+
+    // Labour cell
+    var labCell = (j.cost_flag !== 'no_labour_linked')
+      ? '<span style="font-family:var(--sw-font-num);">' + fmt$(j.cost_labour_ex) + '</span>'
+      : '<span style="color:var(--sw-text-sec);font-size:11px;">—</span>';
+
+    // Margin cell
+    var marginCell;
+    if (marginOk) {
+      var pct = parseFloat(j.margin_pct);
+      var col = pct >= 30 ? 'var(--sw-green,#27ae60)' : pct >= 15 ? 'var(--sw-orange,#F15A29)' : 'var(--sw-red,#e74c3c)';
+      marginCell = '<span style="font-weight:700;color:' + col + ';font-family:var(--sw-font-num);">'
+        + pct.toFixed(1) + '%</span>';
+    } else {
+      marginCell = '<span style="color:var(--sw-text-sec);font-size:11px;">—</span>';
+    }
+
+    // Flags cell
+    var flags = '';
+    if (j.revenue_flag && j.revenue_flag !== 'ok') {
+      flags += '<span class="pnl-flag-err" title="' + (PNL_REV_FLAG_LABELS[j.revenue_flag] || j.revenue_flag) + '">&#9888; Rev</span> ';
+    }
+    if (j.cost_flag && j.cost_flag !== 'ok' && j.cost_flag !== 'text_matched_lines') {
+      flags += '<span class="pnl-flag-warn" title="' + (PNL_COST_FLAG_LABELS[j.cost_flag] || j.cost_flag) + '">&#9888; Cost</span>';
+    } else if (j.cost_flag === 'text_matched_lines') {
+      flags += '<span class="pnl-flag-info" title="' + PNL_COST_FLAG_LABELS.text_matched_lines + '">&#8505; Matched</span>';
+    }
+
+    html += '<tr class="pnl-row" onclick="openJobPnlDetail(\'' + j.job_id + '\')">';
+    html += '<td><strong>' + (j.job_number || '—') + '</strong></td>';
+    html += '<td>' + (j.client_name || '—') + '</td>';
+    html += '<td style="text-align:right;">' + revCell + '</td>';
+    html += '<td style="text-align:right;">' + labCell + '</td>';
+    html += '<td style="text-align:right;">' + marginCell + '</td>';
+    html += '<td>' + (flags || '<span class="pnl-flag-ok">&#10003;</span>') + '</td>';
+    html += '<td style="text-align:right;"><button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 8px;" onclick="event.stopPropagation();openJobPnlDetail(\'' + j.job_id + '\')">P&amp;L</button></td>';
+    html += '</tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+async function openJobPnlDetail(jobId) {
+  var area = document.getElementById('pnlDetailArea');
+  if (!area) return;
+  area.style.display = '';
+  area.innerHTML = '<div class="pnl-detail-card"><div style="padding:8px;color:var(--sw-text-sec);font-size:12px;">Loading P&amp;L detail...</div></div>';
+  area.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  try {
+    var data = await opsFetch('job_financials_detail', { jobId: jobId });
+    var j = data.job || data; // handle both {job:{...}} and flat return
+    area.innerHTML = renderJobPnlDetail(j);
+  } catch (e) {
+    area.innerHTML = '<div class="pnl-detail-card"><div style="color:var(--sw-red);font-size:12px;">Error loading detail: '
+      + (e && e.message ? e.message : 'unknown') + '</div></div>';
+  }
+}
+
+function closeJobPnlDetail() {
+  var area = document.getElementById('pnlDetailArea');
+  if (area) { area.style.display = 'none'; area.innerHTML = ''; }
+}
+
+function renderJobPnlDetail(j) {
+  if (!j || !j.job_id) return '<div class="pnl-detail-card"><div style="color:var(--sw-text-sec);font-size:12px;">No data returned.</div></div>';
+
+  var hasRev  = j.revenue_flag === 'ok';
+  var hasCost = j.cost_flag === 'ok' || j.cost_flag === 'text_matched_lines';
+  var marginOk = j.net_margin_ex != null && hasRev && hasCost;
+
+  var html = '<div class="pnl-detail-card">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
+  html += '<strong style="font-size:14px;">' + (j.job_number || '—') + ' &mdash; ' + (j.client_name || '—') + '</strong>';
+  html += '<button onclick="closeJobPnlDetail()" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--sw-text-sec);">&times;</button>';
+  html += '</div>';
+
+  // Hard reliability banner when cost data is pre-M0-cutover
+  if (j.cost_flag && j.cost_flag !== 'ok') {
+    html += '<div class="pnl-banner">';
+    html += '&#9888; Labour costs unreliable before M0 capture-enforcement cutover &mdash; ';
+    html += PNL_COST_FLAG_LABELS[j.cost_flag] || j.cost_flag;
+    html += '</div>';
+  }
+
+  // REVENUE section
+  html += '<div class="pnl-section-label">Revenue</div>';
+
+  if (!hasRev) {
+    html += '<div class="pnl-row"><span class="pnl-label">Invoiced (ex GST)</span>';
+    html += '<span style="color:var(--sw-red,#e74c3c);font-size:12px;font-weight:600;">&#9888; No client invoice linked &mdash; on manual-link list</span></div>';
+  } else {
+    html += '<div class="pnl-row"><span class="pnl-label">Invoiced (ex GST)</span><span class="pnl-value">' + fmt$(j.client_invoiced_ex) + '</span></div>';
+  }
+
+  if (j.draft_revenue_ex > 0) {
+    html += '<div class="pnl-row"><span class="pnl-label" style="color:var(--sw-orange);">Draft (not counted)</span>'
+      + '<span class="pnl-value" style="color:var(--sw-orange);">' + fmt$(j.draft_revenue_ex) + '</span></div>';
+  }
+
+  if (hasRev) {
+    html += '<div class="pnl-row"><span class="pnl-label">Collected (ex GST)</span><span class="pnl-value" style="color:var(--sw-green);">' + fmt$(j.client_collected_ex) + '</span></div>';
+  }
+
+  // COSTS section
+  html += '<div class="pnl-section-label">Costs</div>';
+
+  if (j.cost_flag === 'no_labour_linked') {
+    html += '<div class="pnl-row"><span class="pnl-label">Trade labour</span>'
+      + '<span style="color:var(--sw-text-sec);font-size:12px;">No labour linked yet</span></div>';
+  } else {
+    html += '<div class="pnl-row"><span class="pnl-label">Trade labour (ex GST)</span><span class="pnl-value" style="color:var(--sw-red);">' + fmt$(j.cost_labour_ex) + '</span></div>';
+  }
+
+  // Reserved cost lanes (shown as $0.00 reserved — spec Q27)
+  html += '<div class="pnl-row" style="opacity:0.5;">'
+    + '<span class="pnl-label">Materials <span style="font-size:10px;">(reserved v1)</span></span>'
+    + '<span class="pnl-value">' + fmt$(j.cost_materials_ex) + '</span></div>';
+  html += '<div class="pnl-row" style="opacity:0.5;">'
+    + '<span class="pnl-label">Commission <span style="font-size:10px;">(reserved Q16)</span></span>'
+    + '<span class="pnl-value">' + fmt$(j.cost_commission_ex) + '</span></div>';
+  html += '<div class="pnl-row" style="opacity:0.5;">'
+    + '<span class="pnl-label">Card fees <span style="font-size:10px;">(reserved M8)</span></span>'
+    + '<span class="pnl-value">' + fmt$(j.cost_card_fees_ex) + '</span></div>';
+
+  if (j.cost_other_ex > 0) {
+    html += '<div class="pnl-row"><span class="pnl-label">Other (travel/equip)</span><span class="pnl-value" style="color:var(--sw-red);">' + fmt$(j.cost_other_ex) + '</span></div>';
+  }
+
+  // NET MARGIN
+  html += '<hr class="pnl-divider">';
+  if (marginOk) {
+    var pct = parseFloat(j.margin_pct);
+    var col = pct >= 30 ? 'var(--sw-green,#27ae60)' : pct >= 15 ? 'var(--sw-orange,#F15A29)' : 'var(--sw-red,#e74c3c)';
+    html += '<div class="pnl-margin-row">';
+    html += '<span>Net Margin (ex GST)</span>';
+    html += '<span style="color:' + col + ';">' + fmt$(j.net_margin_ex) + ' <span style="font-size:13px;">(' + pct.toFixed(1) + '%)</span></span>';
+    html += '</div>';
+  } else {
+    // Suppression: render honestly — never a fake margin
+    html += '<div class="pnl-incomplete">';
+    html += '<span>&#8212; Costs incomplete &mdash; margin unavailable</span>';
+    var incReasons = [];
+    if (!hasRev) incReasons.push(PNL_REV_FLAG_LABELS[j.revenue_flag] || j.revenue_flag);
+    if (!hasCost && j.cost_flag) incReasons.push(PNL_COST_FLAG_LABELS[j.cost_flag] || j.cost_flag);
+    if (incReasons.length) {
+      html += '<div class="pnl-inc-detail">' + incReasons.join(' &bull; ') + '</div>';
+    }
+    html += '</div>';
+  }
+
+  // DATA FLAGS
+  html += '<div class="pnl-section-label" style="margin-top:14px;">Data Flags</div>';
+  html += '<div class="pnl-row"><span class="pnl-label">Revenue flag</span>';
+  if (j.revenue_flag === 'ok') {
+    html += '<span class="pnl-flag-ok">&#10003; ok</span>';
+  } else {
+    html += '<span class="pnl-flag-err">&#9888; ' + (j.revenue_flag || '—') + '</span>';
+  }
+  html += '</div>';
+  html += '<div class="pnl-row"><span class="pnl-label">Cost flag</span>';
+  if (j.cost_flag === 'ok') {
+    html += '<span class="pnl-flag-ok">&#10003; ok</span>';
+  } else if (j.cost_flag === 'text_matched_lines') {
+    html += '<span class="pnl-flag-info">&#8505; ' + j.cost_flag + '</span>';
+  } else {
+    html += '<span class="pnl-flag-warn">&#9888; ' + (j.cost_flag || '—') + '</span>';
+  }
+  html += '</div>';
+
+  // COST LINE DETAIL (from lines jsonb array)
+  var lines = j.lines;
+  if (Array.isArray(lines) && lines.length > 0) {
+    html += '<div class="pnl-section-label" style="margin-top:14px;">Trade Line Detail</div>';
+    html += '<div style="overflow-x:auto;">';
+    html += '<table class="pnl-lines-table"><thead><tr>';
+    html += '<th>Date</th><th>Lane</th><th>Type</th><th>Hrs</th><th>Rate</th><th style="text-align:right;">Amount (ex)</th>';
+    html += '</tr></thead><tbody>';
+    lines.forEach(function(ln) {
+      html += '<tr>';
+      html += '<td style="white-space:nowrap;">' + (ln.line_date ? fmtDate(ln.line_date.slice(0,10)) : (ln.week_start ? fmtDate(ln.week_start.slice(0,10)) : '—')) + '</td>';
+      html += '<td><span style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--sw-mid);">' + (ln.cost_lane || '—') + '</span></td>';
+      html += '<td style="color:var(--sw-text-sec);">' + (ln.line_type || '—') + '</td>';
+      html += '<td style="text-align:right;">' + (ln.total_hours != null ? parseFloat(ln.total_hours).toFixed(1) : '—') + '</td>';
+      html += '<td style="text-align:right;">' + (ln.hourly_rate != null ? fmt$(ln.hourly_rate) : '—') + '</td>';
+      html += '<td style="text-align:right;font-weight:600;">' + fmt$(ln.line_total_ex) + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+
+  html += '</div>'; // .pnl-detail-card
+  return html;
 }
 
 // ════════════════════════════════════════════════════════════
