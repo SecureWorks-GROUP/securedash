@@ -11298,7 +11298,7 @@ function renderQuoteTable(quotes) {
   filtered.forEach(function(q) {
     var qs = getQuoteStatus(q);
     var total = 0;
-    try { total = q.pricing_json && q.pricing_json.totals ? (q.pricing_json.totals.total_inc_gst || q.pricing_json.totals.totalIncGst || 0) : 0; } catch(e) {}
+    try { total = q.pricing_json ? (q.pricing_json.totals ? (q.pricing_json.totals.total_inc_gst || q.pricing_json.totals.totalIncGst || 0) : (q.pricing_json.totalIncGST || q.pricing_json.total || 0)) : 0; } catch(e) {}
     html += '<tr style="cursor:pointer;" onclick="openJobPeek(\'' + q.id + '\')">';
     html += '<td><strong>' + (q.job_number || '-') + '</strong></td>';
     html += '<td>' + (q.client_name || '-') + '</td>';
@@ -11731,8 +11731,11 @@ function renderSentQuotesPanel() {
   filtered.forEach(function(q) {
     var total = 0;
     try {
-      total = q.pricing_json && q.pricing_json.totals
-        ? (q.pricing_json.totals.total_inc_gst || q.pricing_json.totals.totalIncGst || 0)
+      // Fencing quotes nest totals under pricing_json.totals; patio quotes store at root (totalIncGST / total)
+      total = q.pricing_json
+        ? (q.pricing_json.totals
+            ? (q.pricing_json.totals.total_inc_gst || q.pricing_json.totals.totalIncGst || 0)
+            : (q.pricing_json.totalIncGST || q.pricing_json.total || 0))
         : (q.value || 0);
     } catch(e) {}
     var sentDate = q.quoted_at ? fmtDate(q.quoted_at.slice(0, 10)) : (q.created_at ? fmtDate(q.created_at.slice(0, 10)) : '-');
