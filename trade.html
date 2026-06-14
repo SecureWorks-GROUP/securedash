@@ -12528,13 +12528,13 @@
     var included = (cards || []).filter(function(c) { return c.included; });
 
     var commMissing = included.filter(function(c) { return c.commission_mode && !(Number(c.commission_amount) > 0); });
-    if (commMissing.length > 0) return { error: 'Enter a commission amount on every commission row before submitting (' + commMissing.length + ' missing)' };
+    if (commMissing.length > 0) return { error: 'Enter a commission amount on every commission row before submitting (' + commMissing.length + ' missing)', missingIndices: commMissing.map(function(c){return c._idx;}) };
     var woMissing = included.filter(function(c) { return c.wo_mode && !(Number(c.wo_allocated) > 0); });
-    if (woMissing.length > 0) return { error: 'Enter the WO allocated amount on every work-order row (' + woMissing.length + ' missing)' };
+    if (woMissing.length > 0) return { error: 'Enter the WO allocated amount on every work-order row (' + woMissing.length + ' missing)', missingIndices: woMissing.map(function(c){return c._idx;}) };
     var woNeg = included.filter(function(c) { return c.wo_mode && _woNet(c) < 0; });
-    if (woNeg.length > 0) return { error: 'Net payable cannot be negative on ' + (woNeg[0].job_number || 'a job') + ' — the labour deduction is more than the WO allocation. Fix the amounts before submitting.' };
+    if (woNeg.length > 0) return { error: 'Net payable cannot be negative on ' + (woNeg[0].job_number || 'a job') + ' — the labour deduction is more than the WO allocation. Fix the amounts before submitting.', missingIndices: woNeg.map(function(c){return c._idx;}) };
     var woZero = included.filter(function(c) { return c.wo_mode && _woNet(c) === 0; });
-    if (woZero.length > 0) return { error: 'Net payable is $0.00 on ' + (woZero[0].job_number || 'a job') + ' — untick the job or fix the amounts' };
+    if (woZero.length > 0) return { error: 'Net payable is $0.00 on ' + (woZero[0].job_number || 'a job') + ' — untick the job or fix the amounts', missingIndices: woZero.map(function(c){return c._idx;}) };
     // Description is required for manually-added (searched) hourly rows so ops know
     // what was done, but optional for auto-assigned cards (job/client already identifies
     // the work). Hours and rate are required for all hourly cards.
@@ -12544,7 +12544,7 @@
       if (c.manually_added && !c.description) return true;
       return false;
     });
-    if (missing.length > 0) return { error: 'Enter hours and rate for every selected job' + (missing.some(function(c){return c.manually_added && !c.description;}) ? ' (manually added jobs also need a description)' : '') + ' (' + missing.length + ' incomplete)' };
+    if (missing.length > 0) return { error: 'Enter hours and rate for every selected job' + (missing.some(function(c){return c.manually_added && !c.description;}) ? ' (manually added jobs also need a description)' : '') + ' (' + missing.length + ' incomplete)', missingIndices: missing.map(function(c){return c._idx;}) };
 
     var manualAssignments = [];
     var cardExtraItems = [];
@@ -12649,11 +12649,27 @@
 
   // Submit the job-centric invoice: manual_assignments + card extras + any extras.
   window.submitJobCentricInvoice = function() {
+    // FIX3: clear any previous validation outlines before a fresh attempt.
+    document.querySelectorAll('.jc-card[data-card]').forEach(function(el) {
+      el.style.border = '1px solid var(--sw-border)';
+    });
     // FIX2: flush DOM→state before building payload so mobile taps without blur
     // don't leave hours/rate as null even though the field visually shows a value.
     _syncJobCardsFromDOM();
     var built = _buildJobCentricPayload(_jobCards);
-    if (built.error) { toast(built.error, true); return; }
+    if (built.error) {
+      toast(built.error, true);
+      // FIX3: highlight each incomplete card with a red border and scroll to first.
+      if (built.missingIndices && built.missingIndices.length > 0) {
+        var firstEl = null;
+        built.missingIndices.forEach(function(idx) {
+          var el = document.querySelector('.jc-card[data-card="' + idx + '"]');
+          if (el) { el.style.border = '2px solid #d33'; if (!firstEl) firstEl = el; }
+        });
+        if (firstEl) firstEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
+    }
     var manualAssignments = built.manualAssignments;
     // Extras (manual adjustments) still ride along — path preserved.
     _syncRowsFromDOM();
