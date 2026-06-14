@@ -4893,7 +4893,20 @@
     }
     // Priority 4: Fall through to PO-based logic
     var pos = data.purchaseOrders || [];
-    if (!pos || pos.length === 0) return { icon: '🔴', text: 'No materials ordered', state: 'none' };
+    if (!pos || pos.length === 0) {
+      // Suppress red flag when supplier/order documents are already attached
+      // (indicates the job is being actively managed even before a PO is in the system)
+      var docs = data.documents || [];
+      var hasOrderDoc = docs.some(function(d) {
+        var t = (d.type || '').toLowerCase();
+        var n = (d.name || d.filename || d.label || '').toLowerCase();
+        return t === 'purchase_order' || t === 'supplier_invoice' || t === 'order' ||
+               n.indexOf('po-') !== -1 || n.indexOf(' po ') !== -1 ||
+               n.indexOf('order') !== -1 || n.indexOf('supplier') !== -1 || n.indexOf('invoice') !== -1;
+      });
+      if (hasOrderDoc) return { icon: '🟡', text: 'Order docs attached', state: 'ordered' };
+      return { icon: '🔴', text: 'No materials ordered', state: 'none' };
+    }
     var allConfirmed = true;
     for (var i = 0; i < pos.length; i++) {
       var s = pos[i].status;
