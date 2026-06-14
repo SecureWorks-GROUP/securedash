@@ -12473,6 +12473,15 @@
     }
     var tot = document.getElementById('jcRunningTotal');
     if (tot) tot.textContent = _jobCardsTotalStr();
+    // FIX1: mirror the job-card subtotal into the legacy invTotal box and
+    // the Submit button so they never show stale $0.00 in job-centric mode.
+    if (_jobCentricActive) {
+      var jcSub = _jobCardsTotalStr().replace('Subtotal: $', '');
+      var invTotEl = document.getElementById('invTotal');
+      if (invTotEl) invTotEl.textContent = '$' + jcSub;
+      var invSubBtn = document.getElementById('invSubmitBtn');
+      if (invSubBtn) invSubBtn.textContent = 'Submit Invoice';
+    }
   }
 
   // [JC-PAYLOAD-BUILD-START] — pure payload builder for the job-centric submit.
