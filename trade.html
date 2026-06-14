@@ -11597,6 +11597,7 @@
   var _knownJobByNumber = {};
   var _jobSearchTimer = null;
   var _invGst = false; // GST removed — always false
+  var _jobCentricActive = false; // updated by renderInvoiceBuilder; read by _refreshJobCardLine
 
   // Persist invoice draft to sessionStorage (survives background kill)
   function _saveInvDraft() {
@@ -12820,7 +12821,7 @@
     });
 
     // ── Job-centric cards (cutover path) vs legacy 7-day clock-row timesheet ──
-    var _jobCentricActive = !isExpense && jobCentricEnabled() && !(_hoursData && _hoursData.is_per_metre);
+    _jobCentricActive = !isExpense && jobCentricEnabled() && !(_hoursData && _hoursData.is_per_metre);
     if (_jobCentricActive) {
       html += renderJobCardsHtml();
     } else if (!isExpense) {
