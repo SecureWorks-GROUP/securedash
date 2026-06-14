@@ -11676,11 +11676,17 @@
   }
 
   function _updateInvTotals() {
-    var t = _calcInvTotals();
     var te = document.getElementById('invTotal');
     var be = document.getElementById('invSubmitBtn');
-    if (te) te.textContent = '$' + t.total.toFixed(2);
-    if (be) be.textContent = 'Submit Invoice — $' + t.total.toFixed(2);
+    if (_jobCentricActive) {
+      var grand = _grandInvTotal();
+      if (te) te.textContent = '$' + grand.toFixed(2);
+      if (be) be.textContent = 'Submit Invoice — $' + grand.toFixed(2);
+    } else {
+      var t = _calcInvTotals();
+      if (te) te.textContent = '$' + t.total.toFixed(2);
+      if (be) be.textContent = 'Submit Invoice — $' + t.total.toFixed(2);
+    }
     _saveInvDraft();
   }
 
@@ -12186,6 +12192,17 @@
     return 'Subtotal: $' + (Math.round(sub * 100) / 100).toFixed(2);
   }
 
+  function _grandInvTotal() {
+    var jcSub = parseFloat(_jobCardsTotalStr().replace(/[^0-9.]/g, '')) || 0;
+    // Only sum extras/manual rows — filter out clock rows to avoid double-counting
+    // job-card hours that are already captured in jcSub via _jobCards.
+    var extraSub = _invRows.reduce(function(s, r) {
+      return (r._misc || r._source === 'manual') ? s + (r.amount || 0) : s;
+    }, 0);
+    extraSub = Math.round(extraSub * 100) / 100;
+    return Math.round((jcSub + extraSub) * 100) / 100;
+  }
+
   // ── Job-card DOM sync (daybug fix) ─────────────────────────────────────
   // Reads current input values from the DOM back into _jobCards before any
   // full re-render. This prevents hours/rate entered by the trade from being
@@ -12498,11 +12515,11 @@
     // FIX1: mirror the job-card subtotal into the legacy invTotal box and
     // the Submit button so they never show stale $0.00 in job-centric mode.
     if (_jobCentricActive) {
-      var jcSub = _jobCardsTotalStr().replace('Subtotal: $', '');
+      var grand = _grandInvTotal();
       var invTotEl = document.getElementById('invTotal');
-      if (invTotEl) invTotEl.textContent = '$' + jcSub;
+      if (invTotEl) invTotEl.textContent = '$' + grand.toFixed(2);
       var invSubBtn = document.getElementById('invSubmitBtn');
-      if (invSubBtn) invSubBtn.textContent = 'Submit Invoice';
+      if (invSubBtn) invSubBtn.textContent = 'Submit Invoice — $' + grand.toFixed(2);
     }
   }
 
