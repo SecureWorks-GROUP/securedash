@@ -12120,11 +12120,13 @@
           html += '<input type="number" min="0" step="0.25" inputmode="decimal" data-cardhours="' + c._idx + '" '
             + 'value="' + (c.hours != null ? c.hours : '') + '" '
             + 'placeholder="' + (_typicalHoursHint(c.job_type) ? ('typ ' + _typicalHoursHint(c.job_type) + 'h') : 'hrs') + '" '
+            + 'oninput="setJobCardHours(' + c._idx + ',this.value)" '
             + 'onchange="setJobCardHours(' + c._idx + ',this.value)" '
             + 'style="width:70px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px">';
           html += '<label style="font-size:12px;color:var(--sw-text-sec)">Rate</label>';
           html += '<input type="number" min="0" step="0.01" inputmode="decimal" data-cardrate="' + c._idx + '" '
             + 'value="' + (rowRate || '') + '" '
+            + 'oninput="setJobCardRate(' + c._idx + ',this.value)" '
             + 'onchange="setJobCardRate(' + c._idx + ',this.value)" '
             + 'style="width:78px;padding:5px 8px;border:1px solid var(--sw-border);border-radius:6px;font-size:14px">';
           html += '<span data-cardamt="' + c._idx + '" style="font-size:13px;font-weight:700;color:var(--sw-dark);margin-left:auto">$' + lineAmt.toFixed(2) + '</span>';
@@ -12647,6 +12649,9 @@
 
   // Submit the job-centric invoice: manual_assignments + card extras + any extras.
   window.submitJobCentricInvoice = function() {
+    // FIX2: flush DOM→state before building payload so mobile taps without blur
+    // don't leave hours/rate as null even though the field visually shows a value.
+    _syncJobCardsFromDOM();
     var built = _buildJobCentricPayload(_jobCards);
     if (built.error) { toast(built.error, true); return; }
     var manualAssignments = built.manualAssignments;
