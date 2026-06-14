@@ -11814,6 +11814,11 @@ function renderTradeBillTable(invoices) {
       html += '<button onclick="rejectTradeInvoice(\'' + inv.id + '\')" style="padding:4px 10px;background:var(--sw-red);color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Reject</button>';
       html += '</div>';
     }
+    if ((inv.status === 'approved' || inv.status === 'acknowledged') && !inv.xero_bill_id) {
+      html += '<div style="display:flex;gap:6px;margin-top:6px">';
+      html += '<button onclick="retryPushToXero(\'' + inv.id + '\')" style="padding:4px 10px;background:var(--sw-blue);color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Retry push to Xero</button>';
+      html += '</div>';
+    }
     html += '</td>';
     html += '</tr>';
   });
@@ -11831,6 +11836,18 @@ function approveTradeInvoice(invoiceId) {
   }).catch(function(e) {
     // Approve may have succeeded even if the push failed — reload to reflect state.
     showToast('Error: ' + (e && e.message ? e.message : 'approve/push failed'), 'warning');
+    loadTradeBills();
+  });
+}
+
+// Retry Xero push for invoices stuck at 'approved' or 'acknowledged' with no xero_bill_id.
+// Uses the same endpoint as the approve flow — the backend already accepts approved status.
+function retryPushToXero(invoiceId) {
+  opsPost('push_trade_invoice_to_xero', { invoice_id: invoiceId }).then(function() {
+    showToast('Pushed to Xero', 'success');
+    loadTradeBills();
+  }).catch(function(e) {
+    showToast('Error: ' + (e && e.message ? e.message : 'push failed'), 'warning');
     loadTradeBills();
   });
 }
