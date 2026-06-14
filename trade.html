@@ -7211,14 +7211,22 @@
     h += renderEnhancedScope(data, phase);
 
     // 3D model button (inside scope flow, not standalone)
-    var scopeConfig = (job.scope_json && (job.scope_json.config || job.scope_json)) || {};
-    if (scopeConfig.length || scopeConfig.totalLength || (job.scope_json && job.scope_json.job && job.scope_json.job.runs)) {
+    // Only render when there is valid scope data — mirrors hasData logic in open3DViewer()
+    (function() {
+      var scope3d = job.scope_json;
+      if (!scope3d) return;
+      var cfg3d = scope3d.config || scope3d;
+      var jobType3d = (job.type || 'patio').toLowerCase();
+      var has3dData = jobType3d === 'fencing'
+        ? !!(cfg3d.totalLength || cfg3d.length || (scope3d.job && scope3d.job.runs && scope3d.job.runs.length > 0))
+        : !!(cfg3d.length || cfg3d.projection);
+      if (!has3dData) return;
       h += '<div onclick="open3DViewer()" style="margin:4px 0 12px;padding:14px;background:linear-gradient(135deg,#1a1a2e,#293C46);border-radius:10px;cursor:pointer;display:flex;align-items:center;gap:12px">';
       h += '<div style="font-size:28px">&#128306;</div>';
       h += '<div><div style="font-size:14px;font-weight:700;color:#fff">View 3D Model</div>';
       h += '<div style="font-size:11px;color:rgba(255,255,255,0.5)">Interactive model viewer</div></div>';
       h += '</div>';
-    }
+    }());
 
     // 2. Materials & POs
     h += renderEnhancedPOs(data, phase);
