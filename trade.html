@@ -11965,6 +11965,8 @@
         client_name: job.client_name || '',
         site_suburb: job.site_suburb || '',
         job_type: job.type || '',
+        // FIX5: store external_ref from assignment or joined job when present.
+        external_ref: a.external_ref || job.external_ref || '',
         scheduled_date: a.scheduled_date || '',
         hours: prefilled ? Number(a.hours_worked) : null,
         rate: Number(data.rate || _tradeRate || 0),
@@ -12059,6 +12061,8 @@
           html += '<div style="font-size:12px;font-weight:600;color:var(--sw-orange);margin-top:2px">Contact the office — this job has no number or client name.</div>';
         } else {
           html += '<div style="font-size:12px;color:var(--sw-text-sec)">' + esc(c.client_name || '') + (c.site_suburb ? ' — ' + esc(c.site_suburb) : '') + '</div>';
+          // FIX5: show insurer/builder reference when present (makesafe jobs).
+          if (c.external_ref) html += '<div style="font-size:11px;color:var(--sw-text-sec);margin-top:1px">Ref: ' + esc(c.external_ref) + '</div>';
         }
         // Card mode segmented control: hours | work-order | commission [Q15, Q16]
         var cardMode = c.commission_mode ? 'commission' : (c.wo_mode ? 'work_order' : 'hours');
@@ -12293,6 +12297,8 @@
       h += '<div onclick="jcSelectSearchJob(' + di + ',' + ri + ')" style="padding:9px 8px;border-bottom:1px solid var(--sw-border);cursor:pointer">';
       h += '<div style="font-size:13px;font-weight:700;color:var(--sw-dark)">' + esc(j.job_number || '') + badge + '</div>';
       h += '<div style="font-size:11px;color:var(--sw-text-sec)">' + esc(j.client_name || '') + (j.site_suburb ? ' — ' + esc(j.site_suburb) : '') + '</div>';
+      // FIX5: show external_ref in search results when backend returns it.
+      if (j.external_ref) h += '<div style="font-size:10px;color:var(--sw-text-sec)">Ref: ' + esc(j.external_ref) + '</div>';
       h += '</div>';
     });
     box.innerHTML = h;
@@ -12314,6 +12320,8 @@
       client_name: j.client_name || '',
       site_suburb: j.site_suburb || '',
       job_type: j.type || '',
+      // FIX5: carry external_ref from search result when the backend returns it.
+      external_ref: j.external_ref || '',
       scheduled_date: dk,
       hours: null,
       rate: defRate,
