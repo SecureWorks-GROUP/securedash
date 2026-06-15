@@ -12537,7 +12537,19 @@
       if (c.manually_added && !c.description) return true;
       return false;
     });
-    if (missing.length > 0) return { error: 'Enter hours and rate for every selected job' + (missing.some(function(c){return c.manually_added && !c.description;}) ? ' (manually added jobs also need a description)' : '') + ' (' + missing.length + ' incomplete)', missingIndices: missing.map(function(c){return c._idx;}) };
+    if (missing.length > 0) {
+      var _msgs = missing.map(function(c) {
+        var _lbl = c.job_number || c.site_suburb || c.client_name || 'Job';
+        var _noHours = (c.hours == null || c.hours <= 0 || !(Number(c.rate) > 0));
+        var _noDesc = c.manually_added && !c.description;
+        if (_noDesc && _noHours) return _lbl + ': add a description and enter hours and your rate.';
+        if (_noDesc) return _lbl + ': add a description of works done.';
+        return _lbl + ': enter hours and your rate.';
+      });
+      var _shown = _msgs.slice(0, 3);
+      if (_msgs.length > 3) _shown.push('...and ' + (_msgs.length - 3) + ' more');
+      return { error: _shown.join(' · '), missingIndices: missing.map(function(c){return c._idx;}) };
+    }
 
     var manualAssignments = [];
     var cardExtraItems = [];
